@@ -1,0 +1,63 @@
+{
+  "env": {
+    "DATABASE_URL": "postgresql+psycopg://postgres:postgres@localhost:5432/smartsplit",
+    "TEST_DATABASE_URL": "postgresql+psycopg://postgres:postgres@localhost:5432/smartsplit_test"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/session_start.sh",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "Bash(bash scripts/check.sh)",
+      "Bash(uv *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push*)",
+      "Bash(git switch *)",
+      "Bash(git checkout -b *)",
+      "Bash(docker compose *)",
+      "Bash(pg_isready*)",
+      "Bash(psql *)",
+      "Bash(ls*)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(find *)",
+      "Bash(mkdir *)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:docs.claude.com)",
+      "WebFetch(domain:platform.claude.com)",
+      "WebFetch(domain:docs.sqlalchemy.org)",
+      "WebFetch(domain:fastapi.tiangolo.com)"
+    ],
+    "deny": [
+      "Edit(./tests/acceptance/**)",
+      "Write(./tests/acceptance/**)",
+      "Edit(./scripts/check.sh)",
+      "Write(./scripts/check.sh)",
+      "Read(./.env)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git push origin main*)",
+      "Bash(rm -rf *)"
+    ]
+  }
+}
