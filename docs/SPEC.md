@@ -139,8 +139,8 @@ The parser must flag a receipt where this doesn't hold (in `warnings`), not sile
 
 ## 5. Split engine contract (FROZEN)
 
-`smartsplit.engine.split_receipt(...)`. The signature and types live in
-`src/smartsplit/engine/__init__.py`. `tests/acceptance/test_split_engine.py`
+`smartsplit.engine.split_receipt(...)`. The signature and types are importable from
+`smartsplit.engine` (defined in `src/smartsplit/engine/split.py`). `tests/acceptance/test_split_engine.py`
 pins the behavior and **must not be modified**.
 
 `members` are the bill's participants, in order (group membership order, or the

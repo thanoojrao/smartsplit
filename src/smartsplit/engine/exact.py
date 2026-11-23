@@ -15,7 +15,9 @@ def amounts_to_weights(
     gets weight `a * k` and each other person gets the remainder, so the split engine's
     proportional split reproduces the amounts exactly; weights are then reduced by their gcd.
     If the fixed amounts use up the whole line, `others` get nothing and are left out (a weight
-    must be positive). Raises ValueError when the amounts can't be honoured, so the caller asks.
+    must be positive). Raises ValueError when the amounts can't be honoured, so the caller asks,
+    and when no fixed amounts are given (an equal split is a plain list override instead).
+    The weights come fixed people first, then others; `split_receipt` puts them in member order.
     """
     if not fixed:
         raise ValueError("no fixed amounts given")

@@ -106,8 +106,8 @@ def _validate(
         raise ValueError("a split needs at least one member")
     if len(set(members)) != len(members):
         raise ValueError("members must be unique")
-    item_ids = [item.id for item in items]
-    if len(set(item_ids)) != len(item_ids):
+    item_ids = {item.id for item in items}
+    if len(item_ids) != len(items):
         raise ValueError("item ids must be unique")
     member_set = set(members)
     for item_id, override in overrides.items():
