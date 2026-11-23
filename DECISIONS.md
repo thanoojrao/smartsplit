@@ -25,9 +25,15 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 
 - (M0) Money as integer cents, with exact Fractions inside the split engine, and largest-remainder rounding with ties broken by member order. Why: deterministic and always sums exactly to the receipt total.
 - (M0) Layering enforced by import-linter in `scripts/check.sh`. Why: stops long autonomous runs from eroding the architecture.
+- (M1 prep, user-approved) Adjustments are weighted by item subtotals clamped at 0; if the raw subtotals sum to ≤ 0, or all clamped weights are 0, split equally. Why: nobody gets paid via tip because a discount was assigned to them, and SPEC's "discount cancels everything → equal" still holds.
+- (M1 prep, user-approved) Rules about members not in the split are ignored. Why: someone who left must not strip an item from everyone.
+- (M1 prep, user-approved) Override for an unknown item id, or an empty override, raises ValueError; a member repeated in a list override counts once. Why: these are caller bugs, fail loudly.
+- (M1 prep, user-approved) Duplicate item ids raise ValueError. Why: assignments and questions are keyed by item id.
+- (M1 prep, user-approved) Conflicting rules for one member/key follow §5 order: `only` beats `exclude`/`soft_exclude`; no soft-rule question when `only` applies. Why: already implied by the spec's step order.
+- (M1 prep, user-approved) Negative shares round with the same floor + largest-remainder rule. Why: one rounding rule, always sums exactly.
 
 ## Open (waiting for the user)
 
-Vision review in progress; M1 paused until the use-case list (docs/USE_CASES.md, to be rewritten) is agreed.
+Vision review in progress. Agreed plan: finish the walkthrough → full spec read-through for conflicts → rewrite docs/USE_CASES.md → agree data shapes/contracts → build (M1 onward).
 
 (none yet)

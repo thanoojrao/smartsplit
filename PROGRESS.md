@@ -4,12 +4,15 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 ## Next up
 
-Start M1. The scaffold is in place: lint, mypy, import-linter and coverage all pass.
-`bash scripts/check.sh` fails only because the 15 tests in
-`tests/acceptance/test_split_engine.py` hit `NotImplementedError`. Implement
-`split_receipt` in `src/smartsplit/engine/` per SPEC §5 (split it into modules if
-that helps, but keep the public names importable from `smartsplit.engine`). Done
-when check.sh exits 0.
+PAUSED for a product review with the user (no code yet). The decisions so far are under
+"Made by the user" and "M1 prep" in `DECISIONS.md`. Agreed plan, in order:
+1. Finish walking through the user's vision (remaining: editing/undoing bills, people
+   moving in/out, reminders, anything else the user raises).
+2. Thorough read of `docs/SPEC.md` against `DECISIONS.md`; fix every conflict in the spec.
+3. Rewrite `docs/USE_CASES.md` (current file is an outdated draft) to cover everything.
+4. Agree data shapes and contracts (domain model, ports, messages) with the user.
+5. Then build, starting with M1 (split engine incl. weighted overrides per SPEC §5).
+Don't start a step before the user agrees to the previous one.
 
 ## Milestones
 
