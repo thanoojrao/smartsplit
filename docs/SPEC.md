@@ -7,11 +7,11 @@ Raj", "Sam usually doesn't eat chips"). It asks when unsure, keeps its own
 ledger, and talks to people in group chats and in personal (1:1) chats. Later
 that chat is WhatsApp; in this build it is a CLI and an HTTP API.
 
-**Revision 2 (proposed after the first build):** the bot becomes a conversation **agent**: the model
+**Revision 2 (approved by the user after the first build):** the bot becomes a conversation **agent**: the model
 reads the recent chat and calls tools in a loop until it writes its reply (§8). Everything the tools
 do (engine, ledger, rules, drafts, payments, notifications) is unchanged from the first build; what
-changes is how a message becomes actions and replies (§2, §4.5, §8, §10.1–10.4, §12). Decisions
-still open are listed in DECISIONS.md "Open".
+changes is how a message becomes actions and replies (§2, §4.5, §8, §10.1–10.4, §12). The choices made
+for it are in DECISIONS.md ("Made by the user").
 
 This document is the source of truth. If the code and this spec disagree, the
 spec wins, unless DECISIONS.md records a change. `docs/USE_CASES.md` lists the
