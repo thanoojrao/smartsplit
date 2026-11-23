@@ -46,7 +46,7 @@ class Someone:
         return self.phone
 
 
-YOU = Someone("Thanoo", "+919876500001")
+YOU = Someone("Alex", "+919876500001")
 SAM = Someone("Sam", "+919876500002")
 RAJ = Someone("Raj", "+919876500003")
 PRIYA = Someone("Priya", "+919876500004")

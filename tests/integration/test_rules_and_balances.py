@@ -40,7 +40,7 @@ def test_own_rules_apply_at_once_and_rules_about_others_need_yes() -> None:
     asked = world.say(YOU, FLAT, "protein powder is Sam's")
     assert asked == 'Save this rule: protein powder is Sam\'s? Say "yes" to confirm.'
     assert world.say(SAM, FLAT, "yes") == "There's nothing to save right now."
-    assert world.say(YOU, FLAT, "yes") == "Thanoo saved a rule: protein powder is Sam's."
+    assert world.say(YOU, FLAT, "yes") == "Alex saved a rule: protein powder is Sam's."
 
 
 def test_declining_a_restated_rule() -> None:
@@ -60,7 +60,7 @@ def test_listing_rules_in_a_personal_chat() -> None:
     world.say(YOU, FLAT, "yes")
     listed = world.say(RAJ, None, "what rules are about me")
     assert "Raj never shares milk (everywhere, set by Raj)" in listed
-    assert "Raj never shares chips (Flat 4B, set by Thanoo)" in listed
+    assert "Raj never shares chips (Flat 4B, set by Alex)" in listed
 
 
 def test_listing_rules_in_a_group_shows_only_that_group() -> None:
@@ -72,7 +72,7 @@ def test_listing_rules_in_a_group_shows_only_that_group() -> None:
     world.say(YOU, FLAT, "yes")
     world.say(RAJ, FLAT, "what rules are about me")
     assert world.in_chat(FLAT) == (
-        "Raj never shares chips (set by Thanoo)\nI sent you the full list in a DM."
+        "Raj never shares chips (set by Alex)\nI sent you the full list in a DM."
     )
     assert "milk (everywhere" in world.in_chat(None, RAJ)
 
@@ -107,7 +107,7 @@ def test_group_balances_in_the_group() -> None:
     world.say(YOU, FLAT, "yes")
     world.say(SAM, GOA, "help")
     balances = world.say(SAM, FLAT, "balances")
-    assert balances == "Sam owes Thanoo ₹1,000.00\nRaj owes Thanoo ₹1,000.00"
+    assert balances == "Sam owes Alex ₹1,000.00\nRaj owes Alex ₹1,000.00"
 
 
 def test_overall_balances_in_a_personal_chat() -> None:
@@ -139,7 +139,7 @@ def test_asking_in_a_group_shows_only_that_group_and_dms_the_rest() -> None:
     assert world.in_chat(None, YOU).startswith("Raj owes you ₹700.00")
     world.say(YOU, GOA, "balances in Flat 4B")
     assert world.in_chat(GOA) == "I sent you the rest in a DM."
-    assert "Sam owes Thanoo" in world.in_chat(None, YOU)
+    assert "Sam owes Alex" in world.in_chat(None, YOU)
 
 
 def test_no_dm_for_someone_who_never_messaged_the_bot() -> None:
@@ -153,9 +153,9 @@ def test_rules_about_you_include_other_peoples_notes() -> None:
     # SPEC 6.2: every rule with you as subject, scope and author included
     world = World()
     flat(world, YOU, SAM)
-    world.say(SAM, None, "Thanoo never shares dessert")
+    world.say(SAM, None, "Alex never shares dessert")
     world.say(SAM, None, "yes")
-    assert "Thanoo never shares dessert (Sam's notes, set by Sam)" in world.say(
+    assert "Alex never shares dessert (Sam's notes, set by Sam)" in world.say(
         YOU, None, "what rules are about me"
     )
 

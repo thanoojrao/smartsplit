@@ -20,11 +20,11 @@ def test_a_tour_of_every_prompt(clean_pg: Engine) -> None:
     world.say(RAJ, FLAT, "yes")
     world.say(SAM, FLAT, "I usually don't drink beer pitcher")
     world.say(YOU, FLAT, "Raj doesn't eat chips")
-    assert world.say(YOU, FLAT, "yes") == "Thanoo saved a rule: Raj never shares chips."
+    assert world.say(YOU, FLAT, "yes") == "Alex saved a rule: Raj never shares chips."
     world.say(YOU, FLAT, image=receipt("restaurant_tip"))
     world.say(SAM, FLAT, "1 no")
     assert "Saved: Toit" in world.say(YOU, FLAT, "yes")
-    assert "Looks like Thanoo already added this" in world.say(
+    assert "Looks like Alex already added this" in world.say(
         SAM, FLAT, image=receipt("restaurant_tip")
     )
     world.say(SAM, FLAT, "no")
@@ -51,17 +51,17 @@ def test_two_confirms_at_once_save_one_bill(clean_pg: Engine) -> None:
         replies = sorted("\n".join(m.text for m in r) for r in pool.map(world.bot.handle, confirms))
     assert replies[0].startswith("Saved: taxi")
     assert replies[1] == "There's nothing to save right now."
-    assert world.say(SAM, FLAT, "balances") == "Sam owes Thanoo ₹300.00"
+    assert world.say(SAM, FLAT, "balances") == "Sam owes Alex ₹300.00"
 
 
 def test_a_tour_of_m8_on_postgres(clean_pg: Engine) -> None:
     # Payments, square-up, bill changes and the outbox through real storage
     world = World(repository=SqlRepository(clean_pg))
     flat(world, YOU, SAM)
-    world.say(SAM, None, "add Thanoo +919876500001")
-    world.say(SAM, None, "lunch 400 with Thanoo")
+    world.say(SAM, None, "add Alex +919876500001")
+    world.say(SAM, None, "lunch 400 with Alex")
     world.say(SAM, None, "yes")
-    world.say(SAM, None, "lunch 600 with Thanoo")
+    world.say(SAM, None, "lunch 600 with Alex")
     world.say(SAM, None, "yes")
     assert world.tick().startswith("Sam added 2 bills:")
     assert "Change lunch" in world.say(YOU, None, "not mine 2")

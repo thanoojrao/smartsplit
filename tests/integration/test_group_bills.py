@@ -19,11 +19,11 @@ def test_receipt_photo_is_split_among_current_members_and_saved() -> None:
     world = World()
     flat(world, YOU, SAM, RAJ)
     summary = world.say(YOU, FLAT, image=receipt("restaurant_tip"))
-    assert "Toit, ₹2,047.00, paid by Thanoo." in summary
-    assert "Thanoo: ₹682.34" in summary and "Raj: ₹682.33" in summary
+    assert "Toit, ₹2,047.00, paid by Alex." in summary
+    assert "Alex: ₹682.34" in summary and "Raj: ₹682.33" in summary
     saved = world.say(YOU, FLAT, "yes")
     assert "Saved: Toit, ₹2,047.00." in saved
-    assert "Sam owes Thanoo ₹682.33" in saved
+    assert "Sam owes Alex ₹682.33" in saved
     assert {m.conversation.ref for m in world.last} == {FLAT}
     assert drafts(world) == [DraftState.SAVED]
 
@@ -69,7 +69,7 @@ def test_total_mismatch_is_shown_and_can_be_accepted() -> None:
     assert "share the difference" in asked
     saved = world.say(YOU, FLAT, "yes")
     assert "Saved: Kirana, ₹570.00." in saved
-    assert "Sam owes Thanoo ₹285.00" in saved
+    assert "Sam owes Alex ₹285.00" in saved
 
 
 def test_fixing_the_total_instead() -> None:
@@ -88,7 +88,7 @@ def test_review_edits_recompute_the_split() -> None:
     flat(world, YOU, SAM, RAJ)
     world.say(YOU, FLAT, image=receipt("total_mismatch"))
     fixed = world.say(YOU, FLAT, "line 2 is 150")
-    assert "Thanoo: ₹190.00" in fixed
+    assert "Alex: ₹190.00" in fixed
     assert "Couldn't read" not in fixed
     assert "Amounts must be more than 0" in world.say(YOU, FLAT, "add water 0")
     after_add = world.say(YOU, FLAT, "add water 30")
@@ -96,7 +96,7 @@ def test_review_edits_recompute_the_split() -> None:
     after_remove = world.say(YOU, FLAT, "remove water")
     assert "Kirana, ₹570.00" in after_remove
     details = world.say(YOU, FLAT, "details")
-    assert "1. Rice 5kg ₹420.00: Thanoo, Sam and Raj" in details
+    assert "1. Rice 5kg ₹420.00: Alex, Sam and Raj" in details
     without_raj = world.say(YOU, FLAT, "Raj had none of the rice")
     assert "Raj: ₹50.00" in without_raj
     weighted = world.say(YOU, FLAT, "2 for Sam, 1 for Raj on line 1")
@@ -164,7 +164,7 @@ def test_duplicate_kept_on_yes() -> None:
     world.say(SAM, FLAT, "yes")
     world.say(YOU, FLAT, image=receipt("restaurant_tip"))
     shown = world.say(YOU, FLAT, "yes")
-    assert "Toit, ₹2,047.00, paid by Thanoo." in shown
+    assert "Toit, ₹2,047.00, paid by Alex." in shown
     assert "Saved" in world.say(YOU, FLAT, "yes")
 
 
@@ -216,7 +216,7 @@ def test_adder_can_save_with_questions_open_and_only_the_adder() -> None:
     world.say(SAM, FLAT, "I usually don't drink beer pitcher")
     summary = world.say(YOU, FLAT, image=receipt("restaurant_tip"))
     assert "Does Sam share the Beer Pitcher" in summary
-    assert world.say(SAM, FLAT, "yes") == "Only Thanoo can save this bill."
+    assert world.say(SAM, FLAT, "yes") == "Only Alex can save this bill."
     assert "Saved" in world.say(YOU, FLAT, "yes")
 
 
@@ -256,7 +256,7 @@ def test_yes_after_no_puts_the_person_back() -> None:
     world.say(YOU, FLAT, image=receipt("restaurant_tip"))
     world.say(RAJ, FLAT, "1 no")
     world.say(SAM, FLAT, "1 yes")
-    assert "Beer Pitcher ₹950.00: Thanoo, Sam and Raj" in world.say(YOU, FLAT, "details")
+    assert "Beer Pitcher ₹950.00: Alex, Sam and Raj" in world.say(YOU, FLAT, "details")
 
 
 def test_a_bare_answer_goes_to_the_first_question_still_shown() -> None:
@@ -268,7 +268,7 @@ def test_a_bare_answer_goes_to_the_first_question_still_shown() -> None:
     world.say(SAM, FLAT, "1 no")
     after = world.say(RAJ, FLAT, "no")
     assert "Does" not in after
-    assert "Beer Pitcher ₹950.00: Thanoo" in world.say(YOU, FLAT, "details")
+    assert "Beer Pitcher ₹950.00: Alex" in world.say(YOU, FLAT, "details")
 
 
 def test_a_numbered_answer_is_for_the_question_not_the_duplicate_warning() -> None:
@@ -309,7 +309,7 @@ def test_duplicate_of_a_draft_under_review_in_a_personal_chat() -> None:
     # C11 across chats: Sam is reviewing it in his own chat, filed into Flat 4B
     world = World()
     flat(world, YOU, SAM)
-    world.say(SAM, None, "split with Thanoo", image=receipt("restaurant_tip"))
+    world.say(SAM, None, "split with Alex", image=receipt("restaurant_tip"))
     world.say(SAM, None, "add to Flat 4B")
     assert "Looks like Sam already added this" in world.say(
         YOU, FLAT, image=receipt("restaurant_tip")

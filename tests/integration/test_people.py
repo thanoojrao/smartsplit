@@ -33,7 +33,7 @@ def test_first_personal_message_welcomes_with_help() -> None:
     # A1
     world = World()
     reply = world.say(YOU, None, "hi")
-    assert reply.startswith("Hi Thanoo! I split bills.")
+    assert reply.startswith("Hi Alex! I split bills.")
     assert "Waiting for you" not in reply
     assert (
         world.say(YOU, None, "hi") == 'Sorry, I didn\'t get that. Say "help" to see what I can do.'
@@ -56,7 +56,7 @@ def test_new_group_chat_creates_the_group_and_asks_others_to_join() -> None:
     world = World()
     hello = world.say(YOU, FLAT, "help")
     assert (
-        'Hi Flat 4B! Thanoo is in. Everyone else who wants to split bills here, reply "join".'
+        'Hi Flat 4B! Alex is in. Everyone else who wants to split bills here, reply "join".'
         in hello
     )
     assert world.say(SAM, FLAT, "balances") == 'Sam, join splits here? Say "join".'
@@ -64,7 +64,7 @@ def test_new_group_chat_creates_the_group_and_asks_others_to_join() -> None:
     assert world.say(SAM, FLAT, "join") == "You're already in."
     world.say(RAJ, FLAT, "balances")
     assert world.say(RAJ, FLAT, "yes") == "Raj joined Flat 4B."
-    assert members(world) == ["Thanoo", "Sam", "Raj"]
+    assert members(world) == ["Alex", "Sam", "Raj"]
 
 
 def test_join_prompt_is_asked_once() -> None:
@@ -79,7 +79,7 @@ def test_add_someone_with_a_contact_card_or_number() -> None:
     world = World()
     flat(world, YOU, SAM)
     added = world.say(YOU, FLAT, "add Priya", contact=ContactAttachment("Priya", "098765 00004"))
-    assert added == "Thanoo added Priya to Flat 4B."
+    assert added == "Alex added Priya to Flat 4B."
     assert "Priya" in members(world)
     assert world.say(SAM, None, "add Meera 9876500009") == "Got it: Meera (+91•••••00009)."
 
@@ -91,7 +91,7 @@ def test_unknown_name_asks_for_a_contact_then_carries_on() -> None:
     asked = world.say(YOU, None, "dinner 900 with Meera")
     assert asked == "I don't know Meera yet. Send their contact card or number."
     resumed = world.say(YOU, None, "+91 98765 00009")
-    assert "dinner, ₹900.00, paid by Thanoo." in resumed
+    assert "dinner, ₹900.00, paid by Alex." in resumed
     assert "Meera: ₹450.00" in resumed
 
 
@@ -165,9 +165,9 @@ def test_moving_out_ends_membership_and_keeps_the_balance() -> None:
     world.say(YOU, FLAT, "yes")
     moved = world.say(SAM, FLAT, "Raj moved out")
     assert moved == "Raj left Flat 4B. Their balance stays until it's settled."
-    assert members(world) == ["Thanoo", "Sam"]
-    assert "Raj owes Thanoo ₹1,000.00" in world.say(YOU, FLAT, "balances")
-    assert "You owe Thanoo ₹1,000.00" in world.say(RAJ, None, "what do I owe")
+    assert members(world) == ["Alex", "Sam"]
+    assert "Raj owes Alex ₹1,000.00" in world.say(YOU, FLAT, "balances")
+    assert "You owe Alex ₹1,000.00" in world.say(RAJ, None, "what do I owe")
     assert "Raj" not in world.say(YOU, FLAT, "water 100, split all")
 
 
@@ -188,7 +188,7 @@ def test_a_leaver_is_taken_out_of_open_drafts() -> None:
     world.say(YOU, FLAT, image=receipt("restaurant_tip"))
     shown = world.say(SAM, FLAT, "Raj moved out")
     assert "Raj" not in shown.split("\n", 1)[1]
-    assert "Thanoo: ₹1,023.50" in shown and "Does" not in shown
+    assert "Alex: ₹1,023.50" in shown and "Does" not in shown
 
 
 def test_the_adder_leaving_cancels_the_draft() -> None:
@@ -214,7 +214,7 @@ def test_rejoining_is_explicit_and_old_group_rules_apply_again() -> None:
 
 
 def test_a_leaver_is_taken_out_of_a_group_draft_filed_from_a_personal_chat() -> None:
-    # B2/B3 across chats: the draft lives in Thanoo's personal chat
+    # B2/B3 across chats: the draft lives in Alex's personal chat
     world = World()
     flat(world, YOU, SAM, RAJ)
     world.say(YOU, None, "split with Sam and Raj", image=receipt("restaurant_tip"))

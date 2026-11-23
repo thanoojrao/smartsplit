@@ -14,7 +14,7 @@ def test_photo_with_a_caption_names_who_it_is_with() -> None:
     world = World()
     known(world)
     summary = world.say(YOU, None, "split with Sam and Raj", image=receipt("restaurant_tip"))
-    assert "Toit, ₹2,047.00, paid by Thanoo." in summary
+    assert "Toit, ₹2,047.00, paid by Alex." in summary
     assert "Sam: ₹682.33" in summary and "Raj: ₹682.33" in summary
     saved = world.say(YOU, None, "yes")
     assert "Saved: Toit, ₹2,047.00." in saved
@@ -49,7 +49,7 @@ def test_someone_owes_all_of_it() -> None:
     world = World()
     known(world)
     shown = world.say(YOU, None, "split with Sam, Sam owes all", image=receipt("restaurant_tip"))
-    assert "Sam: ₹2,047.00" in shown and "Thanoo: ₹0.00" in shown
+    assert "Sam: ₹2,047.00" in shown and "Alex: ₹0.00" in shown
 
 
 def test_the_payer_is_always_you_in_personal_splits() -> None:
@@ -71,8 +71,8 @@ def test_filing_a_personal_draft_into_a_group() -> None:
     world.say(YOU, None, "1 no")
     world.say(YOU, None, "yes")
     in_group = world.in_chat(FLAT)
-    assert in_group.startswith("Thanoo added a bill. Saved: Toit, ₹2,047.00.")
-    assert "Sam owes Thanoo" in in_group
+    assert in_group.startswith("Alex added a bill. Saved: Toit, ₹2,047.00.")
+    assert "Sam owes Alex" in in_group
     assert "Saved: Toit" in world.in_chat(None, YOU)
 
 

@@ -14,8 +14,8 @@ def owing_sam(world: World) -> None:
     flat(world, YOU, SAM, RAJ)
     world.say(SAM, FLAT, "rent 900, split all")
     world.say(SAM, FLAT, "yes")
-    world.say(SAM, None, "add Thanoo +919876500001")
-    world.say(SAM, None, "lunch 400 with Thanoo")
+    world.say(SAM, None, "add Alex +919876500001")
+    world.say(SAM, None, "lunch 400 with Alex")
     world.say(SAM, None, "yes")
     world.tick()
 
@@ -33,7 +33,7 @@ def test_a_payment_is_restated_spread_and_the_other_side_told() -> None:
     assert done == "Recorded.\nYou and Sam are settled up."
     world.tick()
     assert world.in_chat(None, SAM) == (
-        "Thanoo says they paid you ₹500.00.\nYou and Thanoo are settled up.\n"
+        "Alex says they paid you ₹500.00.\nYou and Alex are settled up.\n"
         'Reply "not received" if a payment didn\'t happen.'
     )
 
@@ -51,10 +51,10 @@ def test_the_receiver_can_record_it() -> None:
     # I7
     world = World()
     owing_sam(world)
-    asked = world.say(SAM, None, "Thanoo paid me 200")
-    assert asked.startswith(
-        "Record: Thanoo paid you ₹200.00 (Flat 4B ₹200.00)?"
-    ) or asked.startswith("Record: Thanoo paid you ₹200.00")
+    asked = world.say(SAM, None, "Alex paid me 200")
+    assert asked.startswith("Record: Alex paid you ₹200.00 (Flat 4B ₹200.00)?") or asked.startswith(
+        "Record: Alex paid you ₹200.00"
+    )
     world.say(SAM, None, "yes")
     world.tick()
     assert world.in_chat(None, YOU).startswith("Sam recorded that you paid them ₹200.00.")
@@ -68,8 +68,8 @@ def test_not_received_reverses_it_and_both_are_told() -> None:
     world.say(YOU, None, "yes")
     world.tick()
     undone = world.say(SAM, None, "not received")
-    assert undone.startswith("Undid the ₹500.00 payment between you and Thanoo.")
-    assert "Thanoo owes you ₹500.00" in undone
+    assert undone.startswith("Undid the ₹500.00 payment between you and Alex.")
+    assert "Alex owes you ₹500.00" in undone
     world.tick()
     assert world.in_chat(None, YOU) == (
         "Sam undid the ₹500.00 payment between you two (not received).\n"
@@ -99,7 +99,7 @@ def test_undo_last_payment_is_for_whoever_recorded_it() -> None:
     assert world.say(SAM, None, "undo last payment") == "You haven't recorded a payment to undo."
     assert world.say(YOU, None, "undo last payment").startswith("Undid the ₹500.00 payment")
     world.tick()
-    assert "Thanoo undid the ₹500.00 payment between you two (undone)." in world.in_chat(None, SAM)
+    assert "Alex undid the ₹500.00 payment between you two (undone)." in world.in_chat(None, SAM)
 
 
 def test_square_up_clears_the_groups_without_moving_money() -> None:
@@ -124,7 +124,7 @@ def test_square_up_clears_the_groups_without_moving_money() -> None:
     assert world.say(YOU, FLAT, "balances") == "Everyone is settled up here."
     assert world.say(YOU, GOA, "balances") == "Everyone is settled up here."
     world.tick()
-    assert world.in_chat(None, SAM).startswith("Thanoo squared up with you.")
+    assert world.in_chat(None, SAM).startswith("Alex squared up with you.")
     assert world.say(YOU, None, "square up with Sam") == "There's nothing to square up with Sam."
 
 
@@ -132,7 +132,7 @@ def test_a_restated_payment_goes_stale_when_balances_change() -> None:
     world = World()
     owing_sam(world)
     world.say(YOU, None, "paid Sam 500")
-    world.say(SAM, None, "chai 100 with Thanoo")
+    world.say(SAM, None, "chai 100 with Alex")
     world.say(SAM, None, "yes")
     assert world.say(YOU, None, "yes") == (
         "Balances changed meanwhile, so I didn't record it. Say it again?"
@@ -171,7 +171,7 @@ def test_a_square_up_goes_stale_when_other_members_change_the_group() -> None:
     # a group's pair amount comes from the plan over everyone, not only the two of them
     world = World()
     flat(world, YOU, SAM, RAJ, PRIYA)
-    world.say(SAM, FLAT, "rent 900 with me, Thanoo and Raj")
+    world.say(SAM, FLAT, "rent 900 with me, Alex and Raj")
     world.say(SAM, FLAT, "yes")
     world.say(YOU, None, "square up with Sam")
     world.say(PRIYA, FLAT, "dinner 1200 with me and Raj")
@@ -188,13 +188,13 @@ def test_payments_said_in_a_group_only_show_that_group() -> None:
     world.say(YOU, FLAT, "paid Sam 100")
     world.say(YOU, FLAT, "yes")
     assert world.in_chat(FLAT) == (
-        "Recorded.\nRaj owes Sam ₹300.00\nThanoo owes Sam ₹200.00\nI sent you the rest in a DM."
+        "Recorded.\nRaj owes Sam ₹300.00\nAlex owes Sam ₹200.00\nI sent you the rest in a DM."
     )
     assert world.in_chat(None, YOU).startswith("You owe Sam ₹400.00")
     world.tick()
     world.say(SAM, FLAT, "not received")
     assert "personal" not in world.in_chat(FLAT)
-    assert "Thanoo owes Sam ₹300.00" in world.in_chat(FLAT)
+    assert "Alex owes Sam ₹300.00" in world.in_chat(FLAT)
 
 
 def test_square_up_in_a_group_names_no_other_group() -> None:
@@ -229,7 +229,5 @@ def test_overpaying_in_a_group_stays_as_credit_there() -> None:
     assert "(Flat 4B ₹500.00)?" in asked
     assert "₹200.00 more than was owed" in asked
     world.say(YOU, FLAT, "yes")
-    # the ₹200 credit is netted in the group's plan: Raj now pays Thanoo instead of Sam
-    assert world.in_chat(FLAT).startswith(
-        "Recorded.\nRaj owes Thanoo ₹200.00\nRaj owes Sam ₹100.00"
-    )
+    # the ₹200 credit is netted in the group's plan: Raj now pays Alex instead of Sam
+    assert world.in_chat(FLAT).startswith("Recorded.\nRaj owes Alex ₹200.00\nRaj owes Sam ₹100.00")

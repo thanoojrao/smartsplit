@@ -25,8 +25,8 @@ def test_a_personal_split_tells_the_others_with_their_overall_balance() -> None:
     assert world.tick() != ""
     to_sam = world.in_chat(None, SAM)
     assert to_sam == (
-        "Thanoo added Toit (21 Nov): your share is ₹682.33.\n"
-        "Overall you owe Thanoo ₹682.33.\n"
+        "Alex added Toit (21 Nov): your share is ₹682.33.\n"
+        "Overall you owe Alex ₹682.33.\n"
         'Reply "ok", "details", "not mine", or tell me what to fix.'
     )
     assert "your share is ₹682.33" in world.in_chat(None, RAJ)
@@ -54,9 +54,9 @@ def test_never_used_the_bot_gets_an_invite_once_and_messages_wait() -> None:
     assert "Forward this" not in world.say(YOU, None, "yes")
     assert world.tick() == ""
     welcome = world.say(PRIYA, None, "hi")
-    assert "Waiting for you:\nYou owe Thanoo ₹300.00" in welcome
+    assert "Waiting for you:\nYou owe Alex ₹300.00" in welcome
     batch = world.tick()
-    assert batch.startswith("Thanoo added 2 bills:\n1. chai")
+    assert batch.startswith("Alex added 2 bills:\n1. chai")
     assert "2. lunch" in batch
 
 
@@ -68,8 +68,8 @@ def test_several_bills_in_one_tick_become_one_numbered_message() -> None:
         world.say(YOU, None, bill)
         world.say(YOU, None, "yes")
     message = world.tick()
-    assert message.startswith("Thanoo added 3 bills:")
-    assert "Overall you owe Thanoo ₹450.00." in message
+    assert message.startswith("Alex added 3 bills:")
+    assert "Overall you owe Alex ₹450.00." in message
     assert "lunch" in world.say(SAM, None, "details 2")
 
 
@@ -112,7 +112,7 @@ def test_an_idle_draft_is_reminded_once_then_expires() -> None:
     assert world.tick() == ""
     world.clock.advance(timedelta(hours=2))
     assert world.tick() == (
-        'Still waiting on the rent bill. Thanoo, say "yes" to save it, or "cancel".'
+        'Still waiting on the rent bill. Alex, say "yes" to save it, or "cancel".'
     )
     assert {m.conversation.ref for m in world.last} == {FLAT}
     world.clock.advance(timedelta(hours=2))
@@ -164,7 +164,7 @@ def test_a_receipt_left_unread_is_retried_by_tick() -> None:
     down.say(YOU, FLAT, image=receipt("restaurant_tip"))
     assert working.tick() == ""
     working.clock.advance(timedelta(minutes=3))
-    assert "Toit, ₹2,047.00, paid by Thanoo." in working.tick()
+    assert "Toit, ₹2,047.00, paid by Alex." in working.tick()
     assert drafts(working) == [DraftState.REVIEWING]
 
 
@@ -203,13 +203,13 @@ def test_a_mixed_batch_numbers_only_the_new_bills_and_says_the_balance_once() ->
     world.tick()
     world.say(YOU, None, "lunch 300 with Sam")
     world.say(YOU, None, "yes")
-    world.say(SAM, None, "Thanoo paid me 50")
+    world.say(SAM, None, "Alex paid me 50")
     world.say(SAM, None, "yes")
     world.say(YOU, None, "taxi 200 with Sam")
     world.say(YOU, None, "yes")
     message = world.tick()
-    assert message.count("Overall you owe Thanoo") == 1
-    assert "Thanoo added 2 bills:" in message
+    assert message.count("Overall you owe Alex") == 1
+    assert "Alex added 2 bills:" in message
     assert "lunch" in world.say(SAM, None, "details 1")
 
 
@@ -218,7 +218,7 @@ def test_an_idle_who_with_question_is_reminded_as_such() -> None:
     world.say(YOU, None, "help")
     world.say(YOU, None, "taxi 600")
     world.clock.advance(timedelta(hours=25))
-    assert world.tick() == "Still waiting on the taxi bill. Thanoo, who's it with?"
+    assert world.tick() == "Still waiting on the taxi bill. Alex, who's it with?"
 
 
 def test_the_daily_cap_resets_at_local_midnight() -> None:

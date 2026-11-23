@@ -31,7 +31,7 @@ def test_a_retried_message_is_processed_once() -> None:
     again = world.message(YOU, FLAT, "yes", message_id="wamid.2")
     world.send(again)
     assert world.send(again) == world.send(again)
-    assert world.say(SAM, FLAT, "balances") == "Sam owes Thanoo ₹300.00"
+    assert world.say(SAM, FLAT, "balances") == "Sam owes Alex ₹300.00"
 
 
 def test_model_down_changes_nothing() -> None:

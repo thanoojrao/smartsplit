@@ -23,7 +23,7 @@ def test_editing_a_saved_bill_is_confirmed_and_others_are_told_why() -> None:
     saved_toit(world)
     asked = world.say(YOU, None, "edit the Toit bill: Raj wasn't there, he left early")
     assert asked == (
-        "Change Toit: Thanoo ₹682.34 → ₹1,023.50, Sam ₹682.33 → ₹1,023.50, Raj ₹682.33 → ₹0.00?"
+        "Change Toit: Alex ₹682.34 → ₹1,023.50, Sam ₹682.33 → ₹1,023.50, Raj ₹682.33 → ₹0.00?"
         ' Say "yes" to confirm.'
     )
     done = world.say(YOU, None, "yes")
@@ -31,11 +31,11 @@ def test_editing_a_saved_bill_is_confirmed_and_others_are_told_why() -> None:
     assert "Sam owes you ₹1,023.50" in done
     world.tick()
     assert world.in_chat(None, SAM) == (
-        "Thanoo changed Toit (he left early): your share is now ₹1,023.50.\n"
-        "Overall you owe Thanoo ₹1,023.50."
+        "Alex changed Toit (he left early): your share is now ₹1,023.50.\n"
+        "Overall you owe Alex ₹1,023.50."
     )
-    assert world.in_chat(None, RAJ).startswith("Thanoo changed Toit (he left early)")
-    assert "You and Thanoo are settled up." in world.in_chat(None, RAJ)
+    assert world.in_chat(None, RAJ).startswith("Alex changed Toit (he left early)")
+    assert "You and Alex are settled up." in world.in_chat(None, RAJ)
 
 
 def test_any_participant_can_edit() -> None:
@@ -51,7 +51,7 @@ def test_not_mine_removes_you_and_re_splits_your_part() -> None:
     world = World()
     saved_toit(world)
     asked = world.say(RAJ, None, "not mine")
-    assert asked.startswith("Change Toit: Thanoo ₹682.34 → ₹1,023.50")
+    assert asked.startswith("Change Toit: Alex ₹682.34 → ₹1,023.50")
     world.say(RAJ, None, "yes")
     assert world.say(RAJ, None, "what do I owe") == "You're all settled up."
     world.tick()
@@ -73,7 +73,7 @@ def test_deleting_your_last_bill() -> None:
     assert asked == 'Delete Toit (₹2,047.00)? Say "yes" to confirm.'
     assert world.say(YOU, None, "yes") == "Deleted Toit.\nYou're all settled up."
     world.tick()
-    assert world.in_chat(None, SAM) == ("Thanoo deleted Toit.\nYou and Thanoo are settled up.")
+    assert world.in_chat(None, SAM) == ("Alex deleted Toit.\nYou and Alex are settled up.")
     assert world.say(YOU, None, "delete last bill") == "I can't find that bill."
 
 
@@ -97,7 +97,7 @@ def test_edits_to_group_bills_are_posted_in_the_group() -> None:
     asked = world.say(YOU, FLAT, "last bill: Raj wasn't there")
     assert "Raj ₹1,000.00 → ₹0.00" in asked
     done = world.say(YOU, FLAT, "yes")
-    assert done == "Changed rent.\nSam owes Thanoo ₹1,500.00"
+    assert done == "Changed rent.\nSam owes Alex ₹1,500.00"
     assert world.tick() == ""
 
 
@@ -107,7 +107,7 @@ def test_details_of_a_saved_bill() -> None:
     saved_toit(world)
     world.say(YOU, None, "show last 1 bills")
     details = world.say(YOU, None, "details 1")
-    assert details.startswith("Toit (21 Nov), paid by Thanoo, ₹2,047.00\n1. Margherita Pizza")
+    assert details.startswith("Toit (21 Nov), paid by Alex, ₹2,047.00\n1. Margherita Pizza")
     assert "Sam: ₹682.33" in details
     assert world.say(YOU, None, "details 4") == "I haven't listed a bill 4 here."
 
@@ -138,12 +138,12 @@ def test_a_line_edit_on_a_saved_bill_moves_its_total() -> None:
     world.say(YOU, FLAT, "yes")
     asked = world.say(YOU, FLAT, "last bill: add water 300")
     assert asked == (
-        "Change rent: total ₹3,000.00 → ₹3,300.00, Thanoo ₹1,500.00 → ₹1,650.00, "
+        "Change rent: total ₹3,000.00 → ₹3,300.00, Alex ₹1,500.00 → ₹1,650.00, "
         'Sam ₹1,500.00 → ₹1,650.00? Say "yes" to confirm.'
     )
     world.say(YOU, FLAT, "yes")
     world.say(YOU, FLAT, "last bill: line 1 is 3100")
-    assert world.say(YOU, FLAT, "yes") == "Changed rent.\nSam owes Thanoo ₹1,700.00"
+    assert world.say(YOU, FLAT, "yes") == "Changed rent.\nSam owes Alex ₹1,700.00"
 
 
 def test_details_of_a_saved_bill_show_tax_and_tip() -> None:
