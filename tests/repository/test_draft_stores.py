@@ -241,3 +241,14 @@ def test_replies_can_be_added_to_a_processed_message(repo: Repository) -> None:
         assert stored.replies == (first, later)
     with pytest.raises(KeyError), repo.unit_of_work() as uow:
         uow.processed.add_replies(CHAT, "m2", [later])
+
+
+def test_drafts_stuck_in_parsing(repo: Repository) -> None:
+    with repo.unit_of_work() as uow:
+        uow.drafts.add(draft("d1", state=DraftState.PARSING, minutes=1))
+        uow.drafts.add(draft("d2", chat=OTHER, state=DraftState.PARSING, minutes=5))
+        uow.drafts.add(draft("d3", chat=THIRD, state=DraftState.REVIEWING, minutes=1))
+
+    with repo.unit_of_work() as uow:
+        assert [d.id for d in uow.drafts.parsing_idle_since(at(5))] == ["d1", "d2"]
+        assert [d.id for d in uow.drafts.parsing_idle_since(at(4))] == ["d1"]

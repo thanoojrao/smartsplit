@@ -141,6 +141,15 @@ class SettlementStore(Store):
         )
         return tuple(_settlement(r) for r in rows)
 
+    def for_person(self, person_id: str) -> tuple[Settlement, ...]:
+        c = t.settlements.c
+        rows = self._execute(
+            select(t.settlements)
+            .where(or_(c.from_id == person_id, c.to_id == person_id))
+            .order_by(c.created_at, c.seq)
+        )
+        return tuple(_settlement(r) for r in rows)
+
     def for_payment(self, payment_id: str) -> tuple[Settlement, ...]:
         c = t.settlements.c
         rows = self._execute(
@@ -169,6 +178,22 @@ CLAIM_LOCK_ID = 0x534D53_434C41494D
 
 
 class NotificationStore(Store):
+    def exists_since(
+        self, actor_id: str, recipient_id: str, kind: NotificationKind, since: datetime
+    ) -> bool:
+        n = t.notifications.c
+        found = self._execute(
+            select(n.id)
+            .where(
+                n.actor_id == actor_id,
+                n.recipient_id == recipient_id,
+                n.kind == kind.value,
+                n.created_at >= since,
+            )
+            .limit(1)
+        ).first()
+        return found is not None
+
     def add(self, notification: Notification) -> None:
         self._execute(
             insert(t.notifications).values(

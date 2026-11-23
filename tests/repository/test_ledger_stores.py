@@ -173,3 +173,30 @@ def test_overlapping_claims_respect_the_daily_cap(clean_pg: Engine) -> None:
 
     assert first == ["n0", "n1"]
     assert second == []
+
+
+def test_settlements_of_a_person_in_every_context(repo: Repository) -> None:
+    with repo.unit_of_work() as uow:
+        uow.settlements.add(settlement("s2", FLAT, minutes=2))
+        uow.settlements.add(settlement("s1", GOA, minutes=1))
+        uow.settlements.add(
+            replace(settlement("s3", PersonalContext(), minutes=3), from_id="sam", to_id="priya")
+        )
+
+    with repo.unit_of_work() as uow:
+        assert [s.id for s in uow.settlements.for_person("raj")] == ["s1", "s2"]
+        assert [s.id for s in uow.settlements.for_person("sam")] == ["s1", "s2", "s3"]
+        assert uow.settlements.for_person("nobody") == ()
+
+
+def test_whether_a_notification_was_caused_since(repo: Repository) -> None:
+    _setup_people(repo)
+    reminder = NotificationKind.REMINDER
+    with repo.unit_of_work() as uow:
+        uow.notifications.add(notification("n1", "raj", kind=reminder, minutes=10))
+
+    with repo.unit_of_work() as uow:
+        assert uow.notifications.exists_since("sam", "raj", reminder, at(10))
+        assert not uow.notifications.exists_since("sam", "raj", reminder, at(11))
+        assert not uow.notifications.exists_since("raj", "raj", reminder, at(0))
+        assert not uow.notifications.exists_since("sam", "raj", NotificationKind.BILL_ADDED, at(0))

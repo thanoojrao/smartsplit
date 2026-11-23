@@ -74,6 +74,14 @@ class DraftStore:
         ]
         return tuple(sorted(found, key=lambda d: d.created_at))
 
+    def parsing_idle_since(self, idle_since: datetime) -> tuple[BillDraft, ...]:
+        stuck = [
+            d
+            for d in self.records.values()
+            if d.state is DraftState.PARSING and d.last_activity_at <= idle_since
+        ]
+        return tuple(sorted(stuck, key=lambda d: d.created_at))
+
     def due_for_reminder_or_expiry(self, idle_since: datetime) -> tuple[BillDraft, ...]:
         due = [
             d
@@ -140,11 +148,26 @@ class SettlementStore:
     def for_payment(self, payment_id: str) -> tuple[Settlement, ...]:
         return tuple(s for s in self.records.values() if s.payment_id == payment_id)
 
+    def for_person(self, person_id: str) -> tuple[Settlement, ...]:
+        mine = [s for s in self.records.values() if person_id in (s.from_id, s.to_id)]
+        return tuple(sorted(mine, key=lambda s: s.created_at))
+
 
 class NotificationStore:
     def __init__(self, people: PeopleStore) -> None:
         self.records: dict[str, Notification] = {}
         self._people = people
+
+    def exists_since(
+        self, actor_id: str, recipient_id: str, kind: NotificationKind, since: datetime
+    ) -> bool:
+        return any(
+            n.actor_id == actor_id
+            and n.recipient_id == recipient_id
+            and n.kind is kind
+            and n.created_at >= since
+            for n in self.records.values()
+        )
 
     def add(self, notification: Notification) -> None:
         require_reference(self._people.records, notification.recipient_id)

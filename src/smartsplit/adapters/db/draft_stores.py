@@ -170,6 +170,15 @@ class DraftStore(Store):
         )
         return tuple(_draft(r) for r in rows)
 
+    def parsing_idle_since(self, idle_since: datetime) -> tuple[BillDraft, ...]:
+        c = t.drafts.c
+        rows = self._execute(
+            select(t.drafts)
+            .where(c.state == DraftState.PARSING.value, c.last_activity_at <= idle_since)
+            .order_by(c.created_at, c.seq)
+        )
+        return tuple(_draft(r) for r in rows)
+
     def due_for_reminder_or_expiry(self, idle_since: datetime) -> tuple[BillDraft, ...]:
         c = t.drafts.c
         rows = self._execute(

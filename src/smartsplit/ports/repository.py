@@ -9,7 +9,7 @@ from contextlib import AbstractContextManager
 from datetime import date, datetime
 from typing import Protocol
 
-from smartsplit.domain.enums import DraftState, PromptStatus
+from smartsplit.domain.enums import DraftState, NotificationKind, PromptStatus
 from smartsplit.domain.messages import OutboundMessage
 from smartsplit.domain.model import (
     AnswerObservation,
@@ -159,6 +159,11 @@ class DraftStore(Protocol):
         first: a group draft can be under review in someone's personal chat (SPEC 10.4)."""
         ...
 
+    def parsing_idle_since(self, idle_since: datetime) -> tuple[BillDraft, ...]:
+        """Drafts still in `parsing` with no activity since `idle_since` (e.g. the model was
+        down, or the process stopped mid-read), oldest first, for `tick` to retry."""
+        ...
+
     def due_for_reminder_or_expiry(self, idle_since: datetime) -> tuple[BillDraft, ...]:
         """Awaiting-people or reviewing drafts with no activity since `idle_since`, oldest first.
 
@@ -208,6 +213,10 @@ class BillStore(Protocol):
 
 class SettlementStore(Protocol):
     def add(self, settlement: Settlement) -> None: ...
+    def for_person(self, person_id: str) -> tuple[Settlement, ...]:
+        """Every settlement row the person sends or receives, in any context, oldest first."""
+        ...
+
     def for_context(self, context: Context) -> tuple[Settlement, ...]:
         """Oldest first."""
         ...
@@ -217,6 +226,13 @@ class SettlementStore(Protocol):
 
 class NotificationStore(Protocol):
     def add(self, notification: Notification) -> None: ...
+    def exists_since(
+        self, actor_id: str, recipient_id: str, kind: NotificationKind, since: datetime
+    ) -> bool:
+        """Whether `actor_id` caused one of these for `recipient_id` since then, sent or not
+        (e.g. "remind Raj" at most once a day)."""
+        ...
+
     def claim_due(
         self, now: datetime, limit: int, per_person_daily_cap: int, day_start: datetime
     ) -> tuple[Notification, ...]:
