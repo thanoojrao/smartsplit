@@ -1,10 +1,14 @@
-"""Pure engine: splitting, tax folding and amount → weight conversion (SPEC sections 5-6).
+"""Pure engine: splitting, tax, exact amounts, rule resolution, matching and learning.
 
 The split engine's types and `split_receipt` are the FROZEN contract from SPEC section 5
 (defined in `engine/split.py`, pinned by tests/acceptance/test_split_engine.py).
 """
 
 from smartsplit.engine.exact import amounts_to_weights
+from smartsplit.engine.learning import learned_kind, observe
+from smartsplit.engine.matching import Match, match_item
+from smartsplit.engine.overrides import propagate_discount_overrides
+from smartsplit.engine.rules import ResolvedRule, resolve_rules
 from smartsplit.engine.split import (
     Assignment,
     ItemInput,
@@ -18,11 +22,18 @@ from smartsplit.engine.tax import TaxedLine, fold_item_tax
 __all__ = [
     "Assignment",
     "ItemInput",
+    "Match",
     "Question",
+    "ResolvedRule",
     "RuleInput",
     "SplitResult",
     "TaxedLine",
     "amounts_to_weights",
     "fold_item_tax",
+    "learned_kind",
+    "match_item",
+    "observe",
+    "propagate_discount_overrides",
+    "resolve_rules",
     "split_receipt",
 ]
