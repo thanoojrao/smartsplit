@@ -7,7 +7,7 @@ from smartsplit.config import Settings
 
 
 def test_defaults_and_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://x/y")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:dbpass@x/y")
     monkeypatch.setenv("SMARTSPLIT_API_TOKEN", "s3cret")
     monkeypatch.setenv("SMARTSPLIT_CURRENCY", "USD")
 
@@ -17,6 +17,8 @@ def test_defaults_and_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.api_token is not None
     assert settings.api_token.get_secret_value() == "s3cret"
     assert "s3cret" not in repr(settings)
+    assert "dbpass" not in repr(settings)
+    assert settings.database_url.get_secret_value().endswith("@x/y")
     assert settings.fuzzy_threshold == 85
 
 

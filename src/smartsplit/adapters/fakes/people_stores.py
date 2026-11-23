@@ -26,12 +26,17 @@ class PeopleStore:
         return next((p for p in self.records.values() if p.phone == phone), None)
 
     def add(self, person: Person) -> None:
-        if self.by_phone(person.phone):
-            raise ValueError("duplicate phone")
+        self._check_phone_free(person)
         insert(self.records, person.id, person)
 
     def update(self, person: Person) -> None:
+        self._check_phone_free(person)
         replace_existing(self.records, person.id, person)
+
+    def _check_phone_free(self, person: Person) -> None:
+        holder = self.by_phone(person.phone)
+        if holder is not None and holder.id != person.id:
+            raise ValueError("duplicate phone")
 
 
 class IdentityStore:
@@ -45,7 +50,8 @@ class IdentityStore:
         insert(self.records, (identity.channel, identity.external_ref), identity)
 
     def for_person(self, person_id: str) -> tuple[ChatIdentity, ...]:
-        return tuple(i for i in self.records.values() if i.person_id == person_id)
+        mine = [i for i in self.records.values() if i.person_id == person_id]
+        return tuple(sorted(mine, key=lambda i: (i.channel, i.external_ref)))
 
 
 class NicknameStore:
@@ -76,12 +82,17 @@ class GroupStore:
         return next((g for g in self.records.values() if g.channel_ref == key), None)
 
     def add(self, group: Group) -> None:
-        if group.channel_ref and self.by_channel_ref(group.channel_ref):
-            raise ValueError("duplicate channel_ref")
+        self._check_chat_free(group)
         insert(self.records, group.id, group)
 
     def update(self, group: Group) -> None:
+        self._check_chat_free(group)
         replace_existing(self.records, group.id, group)
+
+    def _check_chat_free(self, group: Group) -> None:
+        holder = self.by_channel_ref(group.channel_ref) if group.channel_ref else None
+        if holder is not None and holder.id != group.id:
+            raise ValueError("duplicate channel_ref")
 
 
 class MembershipStore:

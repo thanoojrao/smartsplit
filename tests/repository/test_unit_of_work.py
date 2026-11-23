@@ -1,14 +1,19 @@
 """Transactions, the conversation lock and the migration (SPEC section 12.2)."""
 
 import threading
+from datetime import timedelta
 
 import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import Engine, select, text
+from sqlalchemy import Engine, create_engine, select, text
+from sqlalchemy.exc import IntegrityError
 
 from smartsplit.adapters.db.repository import SqlRepository, lock_id
 from smartsplit.adapters.db.tables import metadata
+from smartsplit.adapters.fakes.repository import InMemoryRepository
+from smartsplit.domain.enums import ConversationKind
+from smartsplit.domain.model import Conversation
 from smartsplit.domain.values import ConversationKey
 from smartsplit.ports.repository import Repository
 from tests.repository.builders import CHAT, person
@@ -89,3 +94,30 @@ def test_migrations_match_the_table_definitions(clean_pg: Engine) -> None:
     with clean_pg.connect() as connection:
         context = MigrationContext.configure(connection, opts={"compare_type": True})
         assert compare_metadata(context, metadata) == []
+
+
+@pytest.mark.db
+def test_times_come_back_in_utc_whatever_the_server_timezone(pg_url: str, clean_pg: Engine) -> None:
+    kolkata = create_engine(pg_url, connect_args={"options": "-c timezone=Asia/Kolkata"})
+    repo = SqlRepository(kolkata)
+    with repo.unit_of_work() as uow:
+        uow.people.add(person("sam"))
+
+    with repo.unit_of_work() as uow:
+        found = uow.people.get("sam")
+    kolkata.dispose()
+    assert found is not None
+    assert found.created_at.utcoffset() == timedelta(0)
+
+
+@pytest.mark.db
+def test_a_conversation_belongs_to_a_group_or_a_person_not_both(clean_pg: Engine) -> None:
+    both = Conversation(CHAT, ConversationKind.GROUP, "Flat 4B", "g1", "sam", ())
+    with pytest.raises(IntegrityError), SqlRepository(clean_pg).unit_of_work() as uow:
+        uow.conversations.add(both)
+
+
+def test_the_fake_refuses_nested_units_of_work() -> None:
+    repo = InMemoryRepository()
+    with pytest.raises(RuntimeError), repo.unit_of_work(), repo.unit_of_work():
+        pass

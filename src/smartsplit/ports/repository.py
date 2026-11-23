@@ -30,6 +30,10 @@ from smartsplit.domain.prompts import Notification, ProcessedMessage, Prompt
 from smartsplit.domain.values import Context, ConversationKey, LocalScope, RuleScope
 
 
+class StaleDraftError(Exception):
+    """The draft's state changed since it was read (e.g. expired by `tick` meanwhile)."""
+
+
 class PeopleStore(Protocol):
     def get(self, person_id: str) -> Person | None: ...
     def by_phone(self, phone: str) -> Person | None: ...
@@ -40,7 +44,9 @@ class PeopleStore(Protocol):
 class IdentityStore(Protocol):
     def get(self, channel: str, external_ref: str) -> ChatIdentity | None: ...
     def add(self, identity: ChatIdentity) -> None: ...
-    def for_person(self, person_id: str) -> tuple[ChatIdentity, ...]: ...
+    def for_person(self, person_id: str) -> tuple[ChatIdentity, ...]:
+        """By channel, then external ref."""
+        ...
 
 
 class NicknameStore(Protocol):
@@ -130,7 +136,13 @@ class ReceiptStore(Protocol):
 class DraftStore(Protocol):
     def get(self, draft_id: str) -> BillDraft | None: ...
     def add(self, draft: BillDraft) -> None: ...
-    def update(self, draft: BillDraft) -> None: ...
+    def update(self, draft: BillDraft, expected_state: DraftState) -> None:
+        """Write the draft only if it is still in `expected_state` (SPEC section 12.2).
+
+        Raises StaleDraftError if its state changed meanwhile, KeyError if it doesn't exist.
+        """
+        ...
+
     def for_conversation(
         self, key: ConversationKey, states: Collection[DraftState]
     ) -> tuple[BillDraft, ...]:

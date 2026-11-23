@@ -68,6 +68,7 @@ def upgrade() -> None:
         sa.Column("group_id", sa.Text(), nullable=True),
         sa.Column("person_id", sa.Text(), nullable=True),
         sa.Column("last_listed_bill_ids", sa.ARRAY(sa.Text()), nullable=False),
+        sa.CheckConstraint("(group_id IS NULL) <> (person_id IS NULL)", name="group_or_person"),
         sa.PrimaryKeyConstraint("channel", "ref"),
     )
     op.create_table(

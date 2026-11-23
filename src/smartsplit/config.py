@@ -15,7 +15,8 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="SMARTSPLIT_", extra="ignore")
 
-    database_url: str = Field(validation_alias="DATABASE_URL")
+    database_url: SecretStr = Field(validation_alias="DATABASE_URL")
+    """Usually holds the database password, so it is a secret too."""
     anthropic_api_key: SecretStr | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
     api_token: SecretStr | None = None
     currency: str = Field(default="INR", pattern=r"^[A-Z]{3}$")

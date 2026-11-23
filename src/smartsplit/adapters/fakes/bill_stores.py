@@ -15,7 +15,7 @@ from smartsplit.domain.model import (
 )
 from smartsplit.domain.prompts import Notification, ProcessedMessage, Prompt
 from smartsplit.domain.values import Context, ConversationKey
-from smartsplit.ports.repository import IDLE_DRAFT_STATES
+from smartsplit.ports.repository import IDLE_DRAFT_STATES, StaleDraftError
 
 
 class ReceiptStore:
@@ -39,8 +39,13 @@ class DraftStore:
     def add(self, draft: BillDraft) -> None:
         insert(self.records, draft.id, draft)
 
-    def update(self, draft: BillDraft) -> None:
-        replace_existing(self.records, draft.id, draft)
+    def update(self, draft: BillDraft, expected_state: DraftState) -> None:
+        current = self.records.get(draft.id)
+        if current is None:
+            raise KeyError(draft.id)
+        if current.state is not expected_state:
+            raise StaleDraftError(draft.id)
+        self.records[draft.id] = draft
 
     def for_conversation(
         self, key: ConversationKey, states: Collection[DraftState]
@@ -126,6 +131,8 @@ class NotificationStore:
     def claim_due(
         self, now: datetime, limit: int, per_person_daily_cap: int, day_start: datetime
     ) -> tuple[Notification, ...]:
+        """Same batch semantics as Postgres: take up to `limit` deliverable rows, then drop
+        any that would push a person past the cap within this batch."""
         sent_today: dict[str, int] = {}
         for n in self.records.values():
             if n.sent_at is not None and n.sent_at >= day_start and _counts_toward_cap(n):
@@ -133,21 +140,29 @@ class NotificationStore:
         unsent = sorted(
             (n for n in self.records.values() if n.sent_at is None), key=lambda n: n.created_at
         )
+        batch = [n for n in unsent if self._deliverable(n, sent_today, per_person_daily_cap)]
         claimed: list[Notification] = []
-        for n in unsent:
-            if len(claimed) == limit:
-                break
+        for n in batch[:limit]:
             if _counts_toward_cap(n):
-                person = self._people.get(n.recipient_id)
-                if person is None or not (person.has_used_bot and person.notifications_enabled):
+                count = sent_today.get(n.recipient_id, 0)
+                if count >= per_person_daily_cap:
                     continue
-                if sent_today.get(n.recipient_id, 0) >= per_person_daily_cap:
-                    continue
-                sent_today[n.recipient_id] = sent_today.get(n.recipient_id, 0) + 1
+                sent_today[n.recipient_id] = count + 1
             sent = replace(n, sent_at=now)
             self.records[n.id] = sent
             claimed.append(sent)
         return tuple(claimed)
+
+    def _deliverable(self, n: Notification, sent_today: dict[str, int], cap: int) -> bool:
+        if not _counts_toward_cap(n):
+            return True
+        person = self._people.get(n.recipient_id)
+        return (
+            person is not None
+            and person.has_used_bot
+            and person.notifications_enabled
+            and sent_today.get(n.recipient_id, 0) < cap
+        )
 
 
 def _counts_toward_cap(notification: Notification) -> bool:

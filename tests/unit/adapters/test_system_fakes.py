@@ -19,6 +19,11 @@ def test_fixed_clock_needs_an_aware_time() -> None:
         FixedClock(datetime.fromisoformat("2026-11-01T00:00"))  # naive: no offset
 
 
+def test_fixed_clock_needs_utc() -> None:
+    with pytest.raises(ValueError):
+        FixedClock(datetime.fromisoformat("2026-11-01T00:00+05:30"))
+
+
 def test_sequential_ids() -> None:
     ids = SequentialIds("b")
 

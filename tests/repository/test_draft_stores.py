@@ -5,7 +5,8 @@ from datetime import date
 
 import pytest
 
-from smartsplit.domain.commands import AnswerPrompt, AssignLine, Edit, StartSplit
+from smartsplit.domain.commands import AnswerPrompt, Edit, StartSplit
+from smartsplit.domain.edits import AssignLine
 from smartsplit.domain.enums import DraftState, PromptKind, PromptStatus, RuleKind
 from smartsplit.domain.messages import OutboundMessage
 from smartsplit.domain.model import Receipt
@@ -17,7 +18,7 @@ from smartsplit.domain.prompts import (
     WhichPersonPayload,
 )
 from smartsplit.domain.values import ConversationKey, ExactAmount, GroupScope, PersonalContext
-from smartsplit.ports.repository import Repository
+from smartsplit.ports.repository import Repository, StaleDraftError
 from tests.repository.builders import CHAT, T0, at, draft, line, prompt, rule
 
 
@@ -46,7 +47,10 @@ def test_drafts_round_trip_and_update(repo: Repository) -> None:
     with repo.unit_of_work() as uow:
         uow.drafts.add(draft("d1"))
         uow.drafts.add(replace(draft("d2"), context=PersonalContext(), purchased_at=None))
-        uow.drafts.update(replace(draft("d1"), state=DraftState.SAVED, reminded_at=at(5)))
+        uow.drafts.update(
+            replace(draft("d1"), state=DraftState.SAVED, reminded_at=at(5)),
+            expected_state=DraftState.REVIEWING,
+        )
 
     with repo.unit_of_work() as uow:
         assert uow.drafts.get("d1") == replace(
@@ -59,7 +63,23 @@ def test_drafts_round_trip_and_update(repo: Repository) -> None:
 
 def test_updating_a_missing_draft_raises(repo: Repository) -> None:
     with pytest.raises(KeyError), repo.unit_of_work() as uow:
-        uow.drafts.update(draft("nope"))
+        uow.drafts.update(draft("nope"), expected_state=DraftState.REVIEWING)
+
+
+def test_a_draft_update_fails_if_its_state_changed_meanwhile(repo: Repository) -> None:
+    # SPEC 12.2: e.g. tick expired the draft while a "yes" was being handled.
+    with repo.unit_of_work() as uow:
+        uow.drafts.add(draft("d1", state=DraftState.EXPIRED))
+
+    with pytest.raises(StaleDraftError), repo.unit_of_work() as uow:
+        uow.drafts.update(
+            replace(draft("d1"), state=DraftState.SAVED), expected_state=DraftState.REVIEWING
+        )
+
+    with repo.unit_of_work() as uow:
+        stored = uow.drafts.get("d1")
+        assert stored is not None
+        assert stored.state is DraftState.EXPIRED
 
 
 def test_drafts_for_a_conversation_by_state(repo: Repository) -> None:

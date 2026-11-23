@@ -23,7 +23,7 @@ from smartsplit.domain.prompts import (
     PromptPayload,
 )
 from smartsplit.domain.values import ConversationKey, Override
-from smartsplit.ports.repository import IDLE_DRAFT_STATES
+from smartsplit.ports.repository import IDLE_DRAFT_STATES, StaleDraftError
 
 
 class ReceiptStore(Store):
@@ -126,12 +126,18 @@ class DraftStore(Store):
     def add(self, draft: BillDraft) -> None:
         self._db.execute(insert(t.drafts).values(_draft_values(draft)))
 
-    def update(self, draft: BillDraft) -> None:
-        require_one(
-            self._db.execute(
-                update(t.drafts).where(t.drafts.c.id == draft.id).values(_draft_values(draft))
-            ).rowcount
-        )
+    def update(self, draft: BillDraft, expected_state: DraftState) -> None:
+        c = t.drafts.c
+        changed = self._db.execute(
+            update(t.drafts)
+            .where(c.id == draft.id, c.state == expected_state.value)
+            .values(_draft_values(draft))
+        ).rowcount
+        if changed == 1:
+            return
+        if self.get(draft.id) is None:
+            raise KeyError(draft.id)
+        raise StaleDraftError(draft.id)
 
     def for_conversation(
         self, key: ConversationKey, states: Collection[DraftState]

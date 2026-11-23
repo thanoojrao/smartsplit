@@ -8,16 +8,14 @@ import pytest
 
 from smartsplit.adapters.db.codec import Json, decode, encode
 from smartsplit.domain.commands import (
-    AcceptDifference,
     AddManualBill,
     AnswerPrompt,
-    AssignLine,
     Command,
     DeleteBill,
     Edit,
     ShowHistory,
-    UnassignLine,
 )
+from smartsplit.domain.edits import AcceptDifference, AssignLine, UnassignLine
 from smartsplit.domain.enums import MatchHow, QuestionReason
 from smartsplit.domain.model import LineItem
 from smartsplit.domain.prompts import (
@@ -101,6 +99,14 @@ def test_datetimes_keep_their_timezone() -> None:
 def test_malformed_data_is_rejected(data: Json, hint: object) -> None:
     with pytest.raises(ValueError):
         decode(data, hint)
+
+
+def test_fields_added_later_with_defaults_still_decode() -> None:
+    stored_before: Json = {"type": "ShowHistory", "period": None}
+
+    assert decode(stored_before, Command) == ShowHistory()
+    with pytest.raises(ValueError):
+        decode({"type": "DeleteBill"}, Command)
 
 
 def test_unknown_types_are_refused() -> None:

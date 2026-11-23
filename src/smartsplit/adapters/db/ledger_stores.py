@@ -3,7 +3,7 @@
 from dataclasses import replace
 from datetime import datetime
 
-from sqlalchemy import ColumnElement, Row, func, insert, select, update
+from sqlalchemy import ColumnElement, Row, and_, func, insert, or_, select, update
 
 from smartsplit.adapters.db import tables as t
 from smartsplit.adapters.db.base import Store
@@ -183,6 +183,8 @@ class NotificationStore(Store):
     def claim_due(
         self, now: datetime, limit: int, per_person_daily_cap: int, day_start: datetime
     ) -> tuple[Notification, ...]:
+        """Held and capped recipients are filtered in SQL, so only up to `limit` deliverable
+        rows are locked (SKIP LOCKED), and a backlog of held rows never blocks anyone."""
         n, p = t.notifications.c, t.people.c
         reply = NotificationKind.REQUESTED_REPLY.value
         sent_today: dict[str, int] = dict(
@@ -192,21 +194,23 @@ class NotificationStore(Store):
                 .group_by(n.recipient_id)
             ).all()
         )
-        candidates = self._db.execute(
-            select(t.notifications, p.has_used_bot, p.notifications_enabled)
+        capped = [person for person, count in sent_today.items() if count >= per_person_daily_cap]
+        deliverable = or_(
+            n.kind == reply,
+            and_(p.has_used_bot, p.notifications_enabled, n.recipient_id.not_in(capped)),
+        )
+        rows = self._db.execute(
+            select(t.notifications)
             .join(t.people, p.id == n.recipient_id)
-            .where(n.sent_at.is_(None))
+            .where(n.sent_at.is_(None), deliverable)
             .order_by(n.created_at, n.seq)
+            .limit(limit)
             .with_for_update(of=t.notifications, skip_locked=True)
         ).all()
         claimed: list[Notification] = []
-        for row in candidates:
-            if len(claimed) == limit:
-                break
+        for row in rows:
             notification = _notification(row)
             if notification.kind is not NotificationKind.REQUESTED_REPLY:
-                if not (row.has_used_bot and row.notifications_enabled):
-                    continue
                 count = sent_today.get(notification.recipient_id, 0)
                 if count >= per_person_daily_cap:
                     continue

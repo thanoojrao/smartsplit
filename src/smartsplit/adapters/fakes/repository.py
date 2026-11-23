@@ -44,9 +44,17 @@ class InMemoryRepository:
 
     def __init__(self) -> None:
         self._committed = InMemoryUnitOfWork()
+        self._open = False
 
     @contextmanager
     def unit_of_work(self, lock: ConversationKey | None = None) -> Iterator[InMemoryUnitOfWork]:
-        working = copy.deepcopy(self._committed)
-        yield working
-        self._committed = working
+        """Nested units of work would silently lose writes here, so they are refused."""
+        if self._open:
+            raise RuntimeError("a unit of work is already open")
+        self._open = True
+        try:
+            working = copy.deepcopy(self._committed)
+            yield working
+            self._committed = working
+        finally:
+            self._open = False

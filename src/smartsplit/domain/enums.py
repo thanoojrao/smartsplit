@@ -43,9 +43,6 @@ class DraftState(StrEnum):
     EXPIRED = "expired"
 
 
-TERMINAL_DRAFT_STATES = frozenset({DraftState.SAVED, DraftState.CANCELLED, DraftState.EXPIRED})
-
-
 class PromptKind(StrEnum):
     ENGINE_QUESTION = "engine_question"
     WHO_WITH = "who_with"

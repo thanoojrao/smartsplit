@@ -29,12 +29,14 @@ def scope_columns(scope: RuleScope) -> tuple[str, str]:
 
 
 def scope_from(kind: str, ref: str) -> RuleScope:
+    """The inverse of `scope_columns`."""
     if kind == _EVERYWHERE:
         return Everywhere()
     return local_scope_from(kind, ref)
 
 
 def local_scope_from(kind: str, ref: str) -> LocalScope:
+    """Aliases and observations never live Everywhere, so that kind is rejected."""
     if kind == _GROUP:
         return GroupScope(ref)
     if kind == _NOTES:
@@ -48,8 +50,10 @@ def context_group_id(context: Context) -> str | None:
 
 
 def context_from(group_id: str | None) -> Context:
+    """The inverse of `context_group_id`."""
     return PersonalContext() if group_id is None else GroupContext(group_id)
 
 
 def key_from(channel: str, ref: str) -> ConversationKey:
+    """A conversation key from its two columns."""
     return ConversationKey(channel, ref)

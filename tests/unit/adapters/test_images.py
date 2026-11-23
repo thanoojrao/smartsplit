@@ -9,12 +9,13 @@ import pytest
 from smartsplit.adapters.fakes.images import InMemoryImageStore
 from smartsplit.adapters.fakes.system import FixedClock, SequentialIds
 from smartsplit.adapters.files import FileImageStore
+from smartsplit.ports.images import ImageStore
 
 T0 = datetime(2026, 11, 1, tzinfo=UTC)
 
 
 def test_file_store_saves_loads_and_names_by_type(tmp_path: Path) -> None:
-    store = FileImageStore(tmp_path / "images")
+    store: ImageStore = FileImageStore(tmp_path / "images")
 
     ref = store.save(b"jpeg bytes", "image/jpeg")
 
@@ -43,7 +44,7 @@ def test_file_store_prunes_old_images(tmp_path: Path) -> None:
 
 def test_in_memory_store_saves_loads_and_prunes() -> None:
     clock = FixedClock(T0)
-    store = InMemoryImageStore(clock, SequentialIds("img"))
+    store: ImageStore = InMemoryImageStore(clock, SequentialIds("img"))
     old = store.save(b"old", "image/png")
     clock.advance(timedelta(days=2))
     new = store.save(b"new", "image/png")

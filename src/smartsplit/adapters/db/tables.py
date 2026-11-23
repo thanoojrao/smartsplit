@@ -9,6 +9,7 @@ one-rule-per-(scope, subject, item) constraint is a plain unique key. A null
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -110,6 +111,7 @@ conversations = Table(
     Column("person_id", Text),
     Column("last_listed_bill_ids", ARRAY(Text), nullable=False),
     PrimaryKeyConstraint("channel", "ref"),
+    CheckConstraint("(group_id IS NULL) <> (person_id IS NULL)", name="group_or_person"),
 )
 
 items = Table("items", metadata, Column("key", Text, primary_key=True))

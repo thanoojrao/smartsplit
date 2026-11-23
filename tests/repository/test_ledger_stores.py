@@ -3,6 +3,10 @@
 from dataclasses import replace
 from datetime import timedelta
 
+import pytest
+from sqlalchemy import Engine
+
+from smartsplit.adapters.db.repository import SqlRepository
 from smartsplit.domain.enums import NotificationKind
 from smartsplit.domain.prompts import Notification
 from smartsplit.domain.values import GroupContext, PersonalContext
@@ -74,8 +78,11 @@ def test_claim_holds_non_users_and_opted_out_except_requested_replies(repo: Repo
         uow.notifications.add(
             notification("reply", "quiet", kind=NotificationKind.REQUESTED_REPLY, minutes=3)
         )
+        uow.notifications.add(
+            notification("reply2", "new", kind=NotificationKind.REQUESTED_REPLY, minutes=4)
+        )
 
-    assert _claim(repo, 10) == ["reply"]
+    assert _claim(repo, 10) == ["reply", "reply2"]
 
     with repo.unit_of_work() as uow:
         new = uow.people.get("new")
@@ -112,3 +119,33 @@ def test_claimed_notifications_keep_their_fields(repo: Repository) -> None:
     with repo.unit_of_work() as uow:
         (claimed,) = uow.notifications.claim_due(at(5), 10, 5, day_start=at(5) - timedelta(days=1))
     assert claimed == replace(original, sent_at=at(5))
+
+
+def test_a_capped_backlog_does_not_starve_other_people(repo: Repository) -> None:
+    _setup_people(repo)
+    with repo.unit_of_work() as uow:
+        uow.people.add(person("priya"))
+        uow.notifications.add(notification("sent", "raj", minutes=0, sent_at=at(1)))
+        for n in range(3):
+            uow.notifications.add(notification(f"raj{n}", "raj", minutes=2 + n))
+        uow.notifications.add(notification("priya", "priya", minutes=9))
+
+    assert _claim(repo, 10, cap=1, limit=2) == ["priya"]
+
+
+@pytest.mark.db
+def test_concurrent_claims_skip_each_others_rows(clean_pg: Engine) -> None:
+    repo = SqlRepository(clean_pg)
+    _setup_people(repo)
+    with repo.unit_of_work() as uow:
+        for n in range(4):
+            uow.notifications.add(notification(f"n{n}", "raj", minutes=n))
+
+    with repo.unit_of_work() as first:
+        first_ids = [n.id for n in first.notifications.claim_due(at(10), 2, 10, at(0))]
+        with repo.unit_of_work() as second:
+            second_ids = [n.id for n in second.notifications.claim_due(at(10), 10, 10, at(0))]
+
+    assert first_ids == ["n0", "n1"]
+    assert second_ids == ["n2", "n3"]
+    assert _claim(repo, 11) == []

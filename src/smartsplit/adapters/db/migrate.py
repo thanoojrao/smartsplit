@@ -9,6 +9,7 @@ MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
 def alembic_config(database_url: str) -> Config:
+    """An Alembic config pointing at the packaged migrations; env.py reads the URL from it."""
     config = Config()
     config.set_main_option("script_location", str(MIGRATIONS_DIR))
     config.attributes["database_url"] = database_url

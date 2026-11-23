@@ -30,6 +30,24 @@ def test_phone_is_unique(repo: Repository) -> None:
         uow.people.add(person("other", "+919876543210"))
 
 
+def test_changing_a_phone_to_one_already_taken_raises(repo: Repository) -> None:
+    with repo.unit_of_work() as uow:
+        uow.people.add(person("sam", "+919876543210"))
+        uow.people.add(person("raj", "+919876543211"))
+
+    with pytest.raises(DUPLICATE), repo.unit_of_work() as uow:
+        uow.people.update(person("raj", "+919876543210"))
+
+
+def test_linking_a_group_to_a_chat_already_taken_raises(repo: Repository) -> None:
+    with repo.unit_of_work() as uow:
+        uow.groups.add(Group("g1", "Flat 4B", CHAT, T0))
+        uow.groups.add(Group("g2", "Other", None, T0))
+
+    with pytest.raises(DUPLICATE), repo.unit_of_work() as uow:
+        uow.groups.update(Group("g2", "Other", CHAT, T0))
+
+
 def test_updating_a_missing_record_raises(repo: Repository) -> None:
     with pytest.raises(KeyError), repo.unit_of_work() as uow:
         uow.people.update(person("ghost"))
@@ -47,7 +65,7 @@ def test_two_identities_map_to_one_person(repo: Repository) -> None:
             "whatsapp_lid", "123@lid", "sam"
         )
         assert uow.identities.get("whatsapp", "nope") is None
-        assert {i.channel for i in uow.identities.for_person("sam")} == {"whatsapp", "whatsapp_lid"}
+        assert [i.channel for i in uow.identities.for_person("sam")] == ["whatsapp", "whatsapp_lid"]
 
 
 def test_nicknames_are_per_owner_and_replaceable(repo: Repository) -> None:

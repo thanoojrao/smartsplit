@@ -7,8 +7,8 @@ class FixedClock:
     """A clock that only moves when told to."""
 
     def __init__(self, now: datetime) -> None:
-        if now.tzinfo is None:
-            raise ValueError("FixedClock needs a timezone-aware time")
+        if now.utcoffset() != timedelta(0):
+            raise ValueError("FixedClock needs a timezone-aware UTC time")
         self._now = now
 
     def now(self) -> datetime:

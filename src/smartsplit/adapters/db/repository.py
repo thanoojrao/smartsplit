@@ -4,7 +4,7 @@ import hashlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import Connection, Engine, func, select
+from sqlalchemy import Connection, Engine, func, select, text
 
 from smartsplit.adapters.db import draft_stores, ledger_stores, people_stores, rule_stores
 from smartsplit.domain.values import ConversationKey
@@ -42,6 +42,8 @@ def lock_id(key: ConversationKey) -> int:
 
 
 class SqlRepository:
+    """The Repository port on Postgres; every unit of work is one transaction."""
+
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
 
@@ -49,6 +51,7 @@ class SqlRepository:
     def unit_of_work(self, lock: ConversationKey | None = None) -> Iterator[SqlUnitOfWork]:
         """Commit on success, roll back on exception; the lock lasts until the transaction ends."""
         with self._engine.begin() as connection:
+            connection.execute(text("SET LOCAL TIME ZONE 'UTC'"))  # times come back in UTC
             if lock is not None:
                 connection.execute(select(func.pg_advisory_xact_lock(lock_id(lock))))
             yield SqlUnitOfWork(connection)

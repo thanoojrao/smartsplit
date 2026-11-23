@@ -106,12 +106,20 @@ def _decode_tuple(data: Json, args: tuple[Any, ...]) -> tuple[Any, ...]:
     return tuple(_decode(item, arg) for item, arg in zip(data, args, strict=True))
 
 
+def _decode_field(data: dict[str, Json], field: dataclasses.Field[Any]) -> Any:
+    """A field added later with a default still decodes records stored before it existed."""
+    if field.name in data:
+        return _decode(data[field.name], field.type)
+    if field.default is not dataclasses.MISSING:
+        return field.default
+    raise ValueError(f"missing field {field.name!r}")
+
+
 def _decode_class(data: Json, cls: type) -> Any:
     if dataclasses.is_dataclass(cls):
         if not isinstance(data, dict) or data.get("type") != cls.__name__:
             raise ValueError(f"expected a {cls.__name__}")
-        kwargs = {f.name: _decode(data[f.name], f.type) for f in dataclasses.fields(cls)}
-        return cls(**kwargs)
+        return cls(**{f.name: _decode_field(data, f) for f in dataclasses.fields(cls)})
     if issubclass(cls, Enum):
         return cls(data)
     if cls is datetime:

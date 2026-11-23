@@ -76,7 +76,7 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (M1) A bare string as an override raises ValueError. Why: a `str` is a `Sequence[str]` and would silently split by letters.
 - (M1) CI uses `actions/checkout@v7` and `astral-sh/setup-uv@v7` (both Node 24). Why: GitHub deprecated Node 20.
 
-- (M2) Domain split into `enums.py`, `values.py`, `model.py`, `messages.py`, `commands.py`, `prompts.py`, `phone.py`; `smartsplit.domain` re-exports only the most used names. Command fields with natural defaults (empty tuples, None) have them, so `Edit` lists `op` before `target`. Why: readable construction in services, tests and the fake interpreter; field names are as agreed.
+- (M2) Domain split into `enums.py`, `values.py`, `model.py`, `messages.py`, `commands.py`, `prompts.py`, `phone.py`; `smartsplit.domain` re-exports only the most used names. Command fields with natural defaults (empty tuples, None) have them, so required fields come first (`Edit.op` before `target`, `AddRule.item`/`kind` before `subject`, `RecordPayment.amount` before `payer`/`payee`); `NotThisItem.item_said` is optional (None = no item named). Edit operations live in `domain/edits.py`. Why: readable construction in services, tests and the fake interpreter; field names are as agreed.
 - (M2) Port errors are `ReceiptUnreadableError` and `LlmUnavailableError` (CONTRACTS said `ReceiptUnreadable`/`LlmUnavailable`). Why: ruff N818 requires the `Error` suffix; renaming beats suppressing a lint rule.
 - (M2) Store method lists finalized for what M3 needs plus CONTRACTS' special queries; later milestones add queries as they need them (e.g. "held notifications for a person", "bills by adder"). Why: no speculative methods. `due_for_reminder_or_expiry(idle_since)` takes the cutoff, so the 24h/3-day policy stays in services.
 - (M2) `UnitOfWork` exposes its stores as read-only properties. Why: Protocol attributes are invariant in mypy; properties let implementations return their concrete stores.
@@ -86,8 +86,14 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (M2) Repository contract tests run every case against the in-memory fake and real Postgres. The Postgres schema is rebuilt from the migrations once per session and all tables are truncated before each test. Why: proves the fake behaves like the database; truncation gives each test a clean schema at a fraction of the cost of re-migrating.
 - (M2) The in-memory repository deep-copies state per unit of work and commits by swapping. Why: real rollback semantics in unit tests.
 - (M2) Added the `pydantic.mypy` plugin to `[tool.mypy]`. Why: without it mypy thinks `Settings()` needs every required field as an argument (pydantic-settings fills them from the environment); the plugin adds pydantic-aware checking and loosens nothing else.
-- (M2) `config.Settings` validates currency (ISO code), region, timezone (zoneinfo) and numeric limits at startup; `invite_template` has a neutral default (operators set their wa.me link). Why: misconfiguration fails fast.
+- (M2) `config.Settings` validates the shape of currency (three capital letters) and region, timezone (zoneinfo) and numeric limits at startup; `invite_template` has a neutral default (operators set their wa.me link). Why: misconfiguration fails fast.
 - (M2) `FileImageStore` names files `<uuid hex><ext>` and refuses refs that aren't a plain file name. Why: an image_ref from the DB can never escape the image directory.
+
+- (M2 review) `claim_due` filters held and already-capped recipients in SQL and locks at most `limit` rows (`FOR UPDATE SKIP LOCKED`); a batch that would push one person past the cap drops the extra rows (they wait for the next tick). Two concurrent claimers can still exceed one person's cap slightly, because each counts only committed sends. Why: no backlog of held rows gets locked or starves others; `tick` normally runs one at a time, so the small cap race is accepted.
+- (M2 review) `DraftStore.update(draft, expected_state)` writes only if the draft is still in that state, else `StaleDraftError` (port error). Why: SPEC 12.2 "draft state changes are conditional on the expected current state" (e.g. `tick` expiring a draft while "yes" is handled).
+- (M2 review) Every Postgres unit of work runs `SET LOCAL TIME ZONE 'UTC'`. Why: CONTRACTS requires UTC datetimes; a server in another zone would otherwise return local offsets.
+- (M2 review) `DATABASE_URL` is a `SecretStr`. Why: it usually contains the DB password.
+- (M2 review) The codec fills missing fields from their dataclass defaults. Why: adding a defaulted field to a command later must not break prompts already stored.
 
 ## Made by Claude (design review, technical)
 

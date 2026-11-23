@@ -7,9 +7,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from smartsplit.adapters.db import tables as t
 from smartsplit.adapters.db.base import Store, require_one
-from smartsplit.adapters.db.mapping import (
-    key_from,
-)
+from smartsplit.adapters.db.mapping import key_from
 from smartsplit.domain.enums import ConversationKind
 from smartsplit.domain.model import (
     ChatIdentity,
