@@ -151,7 +151,12 @@ forbidden_modules = ["typer"]
 [[tool.importlinter.contracts]]
 name = "Adapters are independent of each other"
 type = "independence"
-modules = ["smartsplit.adapters.db", "smartsplit.adapters.llm", "smartsplit.adapters.fakes"]
+modules = [
+    "smartsplit.adapters.db",
+    "smartsplit.adapters.llm",
+    "smartsplit.adapters.files",
+    "smartsplit.adapters.fakes",
+]
 
 [[tool.importlinter.contracts]]
 name = "Settings are read only at the edges and injected elsewhere"

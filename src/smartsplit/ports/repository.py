@@ -145,6 +145,10 @@ class DraftStore(Protocol):
         ...
 
 
+IDLE_DRAFT_STATES = frozenset({DraftState.AWAITING_PEOPLE, DraftState.REVIEWING})
+"""Drafts that wait on people and can be reminded about or expire (SPEC section 10.4)."""
+
+
 class PromptStore(Protocol):
     def get(self, prompt_id: str) -> Prompt | None: ...
     def add(self, prompt: Prompt) -> None: ...

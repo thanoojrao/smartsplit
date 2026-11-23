@@ -77,7 +77,7 @@ class AssignLine:
 
 @dataclass(frozen=True, slots=True)
 class UnassignLine:
-    """"Raj had none of the wine"; `line` None means every line."""
+    """ "Raj had none of the wine"; `line` None means every line."""
 
     line: LineRef | None
     people: tuple[PersonRef, ...]
@@ -100,7 +100,7 @@ class AcceptDifference:
 
 @dataclass(frozen=True, slots=True)
 class NotThisItem:
-    """"That's not milk": `item_said` is the item named instead, if any."""
+    """ "That's not milk": `item_said` is the item named instead, if any."""
 
     line: LineRef
     item_said: str | None = None
@@ -147,7 +147,7 @@ class CancelDraft:
 
 @dataclass(frozen=True, slots=True)
 class Acknowledge:
-    """"ok" to a notification; needs no reply."""
+    """ "ok" to a notification; needs no reply."""
 
 
 @dataclass(frozen=True, slots=True)

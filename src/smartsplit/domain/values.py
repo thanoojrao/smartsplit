@@ -25,7 +25,7 @@ class Weight:
 
 @dataclass(frozen=True, slots=True)
 class ExactAmount:
-    """"Sam's part was 100", before the name is resolved."""
+    """ "Sam's part was 100", before the name is resolved."""
 
     person: PersonRef
     cents: Cents
