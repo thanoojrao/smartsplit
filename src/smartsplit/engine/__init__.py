@@ -4,6 +4,7 @@ The split engine's types and `split_receipt` are the FROZEN contract from SPEC s
 (defined in `engine/split.py`, pinned by tests/acceptance/test_split_engine.py).
 """
 
+from smartsplit.engine.duplicates import DuplicateCandidate, find_likely_duplicate
 from smartsplit.engine.exact import amounts_to_weights
 from smartsplit.engine.learning import learned_kind, observe
 from smartsplit.engine.matching import Match, match_item
@@ -21,6 +22,7 @@ from smartsplit.engine.tax import TaxedLine, fold_item_tax
 
 __all__ = [
     "Assignment",
+    "DuplicateCandidate",
     "ItemInput",
     "Match",
     "Question",
@@ -30,6 +32,7 @@ __all__ = [
     "TaxedLine",
     "amounts_to_weights",
     "discount_links",
+    "find_likely_duplicate",
     "fold_item_tax",
     "learned_kind",
     "match_item",

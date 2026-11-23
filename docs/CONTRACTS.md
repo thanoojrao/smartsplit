@@ -272,7 +272,7 @@ class DuplicateCandidate: id: str, is_draft: bool, context: Context, total_cents
                           purchased_at: date | None, people: frozenset[str]
 def find_likely_duplicate(context: Context, total_cents: Cents, purchased_at: date,
                           people: frozenset[str], candidates: Sequence[DuplicateCandidate],
-                          window_days: int) -> DuplicateCandidate | None
+                          *, window_days: int) -> DuplicateCandidate | None
     # same group context (or, for personal splits, same set of people); callers pass saved bills
     # that are neither reversed nor reversing, plus other active drafts
 ```

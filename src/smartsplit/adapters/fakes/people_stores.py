@@ -146,6 +146,9 @@ class ConversationStore:
     def get(self, key: ConversationKey) -> Conversation | None:
         return self.records.get(key)
 
+    def personal_for(self, person_id: str) -> Conversation | None:
+        return next((c for c in self.records.values() if c.person_id == person_id), None)
+
     def add(self, conversation: Conversation) -> None:
         _check_group_or_person(conversation)
         insert(self.records, conversation.key, conversation)

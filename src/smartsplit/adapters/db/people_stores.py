@@ -206,23 +206,32 @@ def _conversation_values(conversation: Conversation) -> dict[str, object]:
     }
 
 
+def _conversation(row: Row[tuple[object, ...]]) -> Conversation:
+    m = row._mapping
+    return Conversation(
+        key_from(m["channel"], m["ref"]),
+        ConversationKind(m["kind"]),
+        m["name"],
+        m["group_id"],
+        m["person_id"],
+        tuple(m["last_listed_bill_ids"]),
+    )
+
+
 class ConversationStore(Store):
     def get(self, key: ConversationKey) -> Conversation | None:
         c = t.conversations.c
         row = self._execute(
             select(t.conversations).where(c.channel == key.channel, c.ref == key.ref)
         ).first()
-        if row is None:
-            return None
-        m = row._mapping
-        return Conversation(
-            key,
-            ConversationKind(m["kind"]),
-            m["name"],
-            m["group_id"],
-            m["person_id"],
-            tuple(m["last_listed_bill_ids"]),
-        )
+        return _conversation(row) if row else None
+
+    def personal_for(self, person_id: str) -> Conversation | None:
+        c = t.conversations.c
+        row = self._execute(
+            select(t.conversations).where(c.person_id == person_id).order_by(c.channel, c.ref)
+        ).first()
+        return _conversation(row) if row else None
 
     def add(self, conversation: Conversation) -> None:
         self._execute(insert(t.conversations).values(_conversation_values(conversation)))
