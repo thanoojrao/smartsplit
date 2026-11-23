@@ -23,14 +23,43 @@ def add_stated_rule(
     author_id: str,
     now: datetime,
 ) -> Rule:
-    """Store a rule someone said, replacing any rule for the same scope, subject and item.
+    """Store a rule someone said, replacing any rule for the same scope, subject and item."""
+    rule = propose_stated_rule(
+        uow,
+        rule_id=rule_id,
+        conversation_kind=conversation_kind,
+        group_id=group_id,
+        subject_id=subject_id,
+        item=item,
+        kind=kind,
+        author_id=author_id,
+        now=now,
+    )
+    put_rule(uow, rule)
+    return rule
+
+
+def propose_stated_rule(
+    uow: UnitOfWork,
+    *,
+    rule_id: str,
+    conversation_kind: ConversationKind,
+    group_id: str | None,
+    subject_id: str,
+    item: str,
+    kind: RuleKind,
+    author_id: str,
+    now: datetime,
+) -> Rule:
+    """The rule as it would be stored, after the permission check; nothing is written, so a
+    rule about someone else can be restated and confirmed first (SPEC 12.3).
 
     The scope comes from where it was said and about whom (`stated_rule_scope`), so a group
     chat can never create someone's Everywhere rule.
     """
     scope = stated_rule_scope(conversation_kind, group_id, author_id, subject_id)
     _check_may_change(uow, scope, author_id, now)
-    rule = Rule(
+    return Rule(
         rule_id,
         subject_id,
         normalize_item_name(item),
@@ -40,9 +69,11 @@ def add_stated_rule(
         RuleSource.STATED,
         now,
     )
+
+
+def put_rule(uow: UnitOfWork, rule: Rule) -> None:
     uow.rules.put(rule)
     uow.items.ensure(rule.item_key)
-    return rule
 
 
 def delete_rule(
@@ -59,12 +90,34 @@ def delete_rule(
 
     Returns the deleted rule, or None if there was none.
     """
-    scope = stated_rule_scope(conversation_kind, group_id, by, subject_id)
-    _check_may_change(uow, scope, by, now)
-    rule = uow.rules.find(scope, subject_id, normalize_item_name(item))
+    rule = find_stated_rule(
+        uow,
+        conversation_kind=conversation_kind,
+        group_id=group_id,
+        subject_id=subject_id,
+        item=item,
+        by=by,
+        now=now,
+    )
     if rule is not None:
         uow.rules.delete(rule.id)
     return rule
+
+
+def find_stated_rule(
+    uow: UnitOfWork,
+    *,
+    conversation_kind: ConversationKind,
+    group_id: str | None,
+    subject_id: str,
+    item: str,
+    by: str,
+    now: datetime,
+) -> Rule | None:
+    """The rule `by` may delete from this chat, after the permission check (SPEC 6.2)."""
+    scope = stated_rule_scope(conversation_kind, group_id, by, subject_id)
+    _check_may_change(uow, scope, by, now)
+    return uow.rules.find(scope, subject_id, normalize_item_name(item))
 
 
 def _check_may_change(uow: UnitOfWork, scope: RuleScope, speaker_id: str, now: datetime) -> None:
