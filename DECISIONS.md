@@ -225,6 +225,7 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (M4) Square-up settles each group until its greedy plan shows nothing between the two (the loop ends:
   each round shrinks |balance(a)| + |balance(b)|), then one personal row in the opposite direction.
 - A learned rule is only undone by stating or deleting a rule; later `included` answers just stop a new streak. Why: simple and predictable; the summary shows learned rules.
+- (Live) Canonicalize maps a kind of a known item to its key ("Masala Chai" → "tea"), but not a product sharing only a word ("Milk Chocolate" is not "milk"); the interpreter prompt says a bare "yes" to a shown bill is ConfirmDraft. Why: the first live run missed both.
 
 ## Open (waiting for the user)
 

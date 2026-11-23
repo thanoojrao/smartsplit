@@ -5,14 +5,12 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 ## Next up
 
 M1–M9 done: **CHECKPOINT B** reached; PR #1 is open and green, waiting on the user's review.
-Now: **live model checks** before merging. The key is set as an environment variable (`SMARTSPLIT_ANTHROPIC_API_KEY`, or `ANTHROPIC_API_KEY`)
-on the cloud environment (only sessions started after it was added can see it; check with
-`[ -n "$SMARTSPLIT_ANTHROPIC_API_KEY$ANTHROPIC_API_KEY" ]`, never print it). Run
-`SMARTSPLIT_LIVE_LLM=1 uv run pytest tests/live -v` (the receipt test plus four conversation
-scenarios in `tests/live/test_live_conversation.py`, about 30 calls on `claude-sonnet-5-5`); the
-run ends with a "model usage" table (calls, tokens, cache reads/writes, estimated USD).
-Report to the user what passed and what the model got wrong; fix code or prompts for real
-failures (never loosen a check to make a live test pass), push to the PR branch, rerun.
+Live model checks done (2026-11-23): run 1 passed 2/5 (a bare "yes" to a shown bill came back
+Unknown; "Cappuccino" didn't map to the known "coffee" key, so Raj's coffee rule asked nothing).
+Prompts fixed in `91d9cd1`; run 2 passed 5/5, 40 calls, about $0.09, interpret cache reads
+working. Next: the user's review of PR #1, then merge. To recheck the model later:
+`SMARTSPLIT_LIVE_LLM=1 uv run pytest tests/live -v` (key in `SMARTSPLIT_ANTHROPIC_API_KEY`,
+never print it).
 Left as is for now, by the user's choice: the user's own name still appears as the example
 person in `docs/USE_CASES.md`, `docs/USE_CASE_TRACE.md` and `LICENSE`.
 
