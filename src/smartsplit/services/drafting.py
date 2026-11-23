@@ -15,6 +15,7 @@ from smartsplit.domain.prompts import EngineQuestionPayload, Prompt
 from smartsplit.domain.values import Context, ExactAmount, GroupContext, Override, Weighted
 from smartsplit.engine import amounts_to_weights
 from smartsplit.ports.llm import ParsedReceipt
+from smartsplit.ports.system import IdGenerator
 from smartsplit.services.errors import NotAllowedError
 from smartsplit.services.names import Directory
 from smartsplit.services.speaker import current_member_ids
@@ -88,12 +89,12 @@ def who_for_personal(
     return Who(participants, turn.speaker.id, owes_all_id)
 
 
-def lines_from_receipt(turn: Turn, parsed: ParsedReceipt) -> tuple[LineItem, ...]:
+def lines_from_receipt(ids: IdGenerator, parsed: ParsedReceipt) -> tuple[LineItem, ...]:
     """Domain lines with ids; the parser's discount index becomes a line id."""
-    ids = [turn.ids.new_id() for _ in parsed.lines]
+    line_ids = [ids.new_id() for _ in parsed.lines]
     return tuple(
         LineItem(
-            id=ids[n],
+            id=line_ids[n],
             position=n + 1,
             name=line.name,
             quantity=line.quantity,
@@ -101,7 +102,7 @@ def lines_from_receipt(turn: Turn, parsed: ParsedReceipt) -> tuple[LineItem, ...
             taxed=line.taxed,
             confidence=line.confidence,
             canonical=None,
-            discount_for=ids[line.discount_for_index]
+            discount_for=line_ids[line.discount_for_index]
             if line.discount_for_index is not None
             else None,
             match_how=MatchHow.NONE,
