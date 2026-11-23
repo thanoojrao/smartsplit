@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from smartsplit.domain.messages import InboundMessage, OutboundMessage
+from smartsplit.domain.messages import OutboundMessage
 from smartsplit.domain.model import Conversation, Person
 from smartsplit.ports.repository import UnitOfWork
 from smartsplit.ports.system import IdGenerator
@@ -35,7 +35,6 @@ class Turn:
     ids: IdGenerator
     now: datetime
     settings: OrchestratorSettings
-    message: InboundMessage
     speaker: Person
     conversation: Conversation
     replies: list[OutboundMessage] = field(default_factory=list)

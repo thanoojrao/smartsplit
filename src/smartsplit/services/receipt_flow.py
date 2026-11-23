@@ -61,7 +61,7 @@ def add_photo(turn: Turn, image_ref: str, image: ImageAttachment, who: Who | Non
 def answer_who_with(
     turn: Turn, draft: BillDraft, prompt: Prompt, answer: AnswerPrompt, directory: Directory
 ) -> None:
-    """A listed option or names; then the receipt is read."""
+    """A listed option or names; then the receipt is read (a typed bill goes straight to review)."""
     payload = prompt.payload
     if not isinstance(payload, WhoWithPayload):
         raise NotAllowedError("That isn't a question about who it's with.")
@@ -82,6 +82,9 @@ def answer_who_with(
             raise NotAllowedError('Say who it\'s with, like "with Sam and Raj".')
         changed = replace(draft, participants=tuple(dict.fromkeys([draft.added_by, *people])))
     mark_answered(turn, prompt, answer)
+    if draft.image_ref is None:
+        turn.reply(present(turn, save(turn, draft, replace(changed, state=DraftState.REVIEWING))))
+        return
     save(turn, draft, replace(changed, state=DraftState.PARSING))
     turn.to_parse.append(draft.id)
 
