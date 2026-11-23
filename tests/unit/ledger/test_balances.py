@@ -48,11 +48,13 @@ shares_st = st.dictionaries(people, st.integers(-10_000, 10**9), min_size=1)
 def test_balances_always_sum_to_zero(
     bills: list[tuple[str, dict[str, int]]], settlements: list[tuple[str, str, int]]
 ) -> None:
+    originals = [bill(FLAT, payer, shares) for payer, shares in bills]
+    reversals = [
+        bill(FLAT, b.payer_id, {s.person_id: -s.cents for s in b.shares}, reverses=b.id)
+        for b in originals[::2]
+    ]
     flat = ledger(
-        FLAT,
-        ABC,
-        [bill(FLAT, payer, shares) for payer, shares in bills],
-        [paid(FLAT, f, t, c) for f, t, c in settlements],
+        FLAT, ABC, originals + reversals, [paid(FLAT, f, t, c) for f, t, c in settlements]
     )
 
     assert sum(s.cents for s in balances(flat)) == 0

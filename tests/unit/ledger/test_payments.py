@@ -12,6 +12,8 @@ from smartsplit.ledger import (
     ContextLedger,
     Transfer,
     allocate_payment,
+    balances,
+    overall_between,
     pair_debts,
     square_up,
 )
@@ -44,6 +46,34 @@ def test_otherwise_largest_debt_first_then_oldest_bill() -> None:
 
     assert allocations == (Allocation(TRIP, 500), Allocation(GOA, 300), Allocation(FLAT, 100))
     assert overpaid == 0
+
+
+def test_a_small_payment_only_touches_the_largest_debt() -> None:
+    allocations, overpaid = allocate_payment("raj", "me", 400, raj_owes_me(), named=None)
+
+    assert allocations == (Allocation(TRIP, 400),)
+    assert overpaid == 0
+
+
+def test_a_deleted_bill_does_not_count_as_the_oldest() -> None:
+    # Goa's oldest bill was deleted (reversed), so the flat's bill is the oldest left.
+    old = bill(GOA, "me", {"raj": 300}, minutes=1)
+    contexts = [
+        ledger(FLAT, ("me", "raj"), [bill(FLAT, "me", {"raj": 300}, minutes=50)]),
+        ledger(
+            GOA,
+            ("me", "raj"),
+            [
+                old,
+                bill(GOA, "me", {"raj": -300}, minutes=2, reverses=old.id),
+                bill(GOA, "me", {"raj": 300}, minutes=60),
+            ],
+        ),
+    ]
+
+    allocations, _ = allocate_payment("raj", "me", 300, contexts, named=None)
+
+    assert allocations == (Allocation(FLAT, 300),)
 
 
 def test_beyond_what_is_owed_goes_to_personal_splits() -> None:
@@ -124,9 +154,16 @@ group_bills = st.lists(
 )
 
 
-@given(st.lists(group_bills, min_size=1, max_size=3))
-def test_after_square_up_every_context_shows_nothing_between_the_two(
-    groups: list[list[tuple[str, dict[str, int]]]],
+def total_money(person: str, ledgers: list[ContextLedger]) -> int:
+    return sum(s.cents for led in ledgers for s in balances(led) if s.person_id == person)
+
+
+@given(
+    groups=st.lists(group_bills, min_size=1, max_size=3),
+    personal=st.lists(st.tuples(st.sampled_from(["a", "b"]), st.integers(1, 10_000)), max_size=3),
+)
+def test_after_square_up_only_personal_splits_show_anything_between_the_two(
+    groups: list[list[tuple[str, dict[str, int]]]], personal: list[tuple[str, int]]
 ) -> None:
     contexts = [
         ledger(
@@ -136,13 +173,20 @@ def test_after_square_up_every_context_shows_nothing_between_the_two(
         )
         for n, bills in enumerate(groups)
     ]
+    other = {"a": "b", "b": "a"}
+    contexts.append(
+        ledger(PERSONAL, ("a", "b"), [bill(PERSONAL, p, {other[p]: c}) for p, c in personal])
+    )
 
     rows = square_up("a", "b", contexts)
+    after = apply(contexts, rows)
 
-    for led in apply(contexts, rows):
+    for led in after[:-1]:
         assert owed_to("a", pair_debts(led)).get("b", 0) == 0
-    net = sum(t.amount_cents if t.from_id == "a" else -t.amount_cents for _, t in rows)
-    assert net == 0
+    assert {c for c, _ in overall_between("a", "b", after).breakdown} <= {PERSONAL}
+    # No money changes hands: everyone's real position across contexts is unchanged.
+    for person in ("a", "b", "c", "d", "e"):
+        assert total_money(person, after) == total_money(person, contexts)
     assert all(t.amount_cents > 0 for _, t in rows)
 
 

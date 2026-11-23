@@ -150,8 +150,28 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (Fix) Keys the model creates count as known for the rest of the receipt. Why: near-duplicate lines cost one model call.
 - (Fix) Empty `ANTHROPIC_API_KEY`/`SMARTSPLIT_API_TOKEN` load as unset; `fuzzy_threshold` must be ≥ 1; the invite default matches `.env.example`. Why: a copied `.env` behaves as expected; threshold 0 matched empty names to anything.
 - (Fix review) Postgres constraint errors are translated to port errors at each store call (and again at commit), so both backends raise `DuplicateKeyError` etc. at the same moment; storage errors live in `ports/errors.py`. On Postgres the error also aborts the transaction, so callers catch it outside the unit of work. Why: parity between fake and Postgres.
+- (M4) Payments are allocated per context: "what A owes B" is the sum of contexts where A owes B, not
+  netted across contexts (netting is what square-up is for). A payment in a named context (said in a
+  group chat, or "for the trip") stays there entirely, overpayment included, as a credit in that
+  context; the overpaid amount is returned only so the bot can restate it (SPEC 10.6). Ties after
+  "oldest bill between the two" go by input order; bills that were deleted (reversed) don't count. Why:
+  SPEC 9 "recorded in a group chat → that group"; each context's balance stays the truth.
+- (M4) Square-up settles each group until its greedy plan shows nothing between the two (the loop ends:
+  each round shrinks |balance(a)| + |balance(b)|), then one personal row in the opposite direction.
 - A learned rule is only undone by stating or deleting a rule; later `included` answers just stop a new streak. Why: simple and predictable; the summary shows learned rules.
 
 ## Open (waiting for the user)
 
-(none)
+- **Square-up when a group's greedy plan reshuffles (M4 review).** SPEC §9 asks for two things: every
+  context's amount between A and B becomes 0, *and* the overall net moves into personal splits with
+  rows that net to zero. Usually both hold. But a group shows A–B through its greedy plan, and settling
+  the shown amount can reshuffle the plan, so clearing it fully can take slightly more than was shown
+  (about 1.5% of random groups; e.g. shown 15, settled 19). Then rows that net to zero leave an overall
+  view of 19, not 15. Options:
+  - **(a, recommended, built now)** Keep rows netting to zero: nobody's real money changes, and the
+    confirm step restates the exact effect ("afterwards you owe Sam ₹190 in personal splits").
+  - (b) Put the pre-square-up net (15) into personal splits; the rows then don't net to zero, so real
+    balances shift by the difference.
+  - (c) Settle only the amount shown in each group (one round), accepting that a group may still show
+    a small A–B amount afterwards.
+  Reversible; (a) is implemented and tested (everyone's total across contexts is unchanged).

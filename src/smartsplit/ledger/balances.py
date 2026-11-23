@@ -31,7 +31,7 @@ def simplify_debts(balances: Sequence[Share], order: Sequence[str]) -> tuple[Tra
     """
     if sum(share.cents for share in balances) != 0:
         raise ValueError("balances must sum to 0")
-    rank = rank_by(order)
+    rank = _rank_by(order)
     owed = {s.person_id: s.cents for s in balances if s.cents > 0}
     owing = {s.person_id: -s.cents for s in balances if s.cents < 0}
     transfers: list[Transfer] = []
@@ -63,7 +63,7 @@ def pair_debts(ledger: ContextLedger) -> tuple[Transfer, ...]:
                 _add(owes, share.person_id, bill.payer_id, share.cents)
     for settlement in ledger.settlements:
         _add(owes, settlement.from_id, settlement.to_id, -settlement.amount_cents)
-    rank = rank_by(ledger.member_order)
+    rank = _rank_by(ledger.member_order)
     transfers = [
         Transfer(a, b, amount) if amount > 0 else Transfer(b, a, -amount)
         for (a, b), amount in owes.items()
@@ -80,12 +80,13 @@ def _add(owes: dict[tuple[str, str], int], debtor: str, creditor: str, cents: in
         owes[(creditor, debtor)] = owes.get((creditor, debtor), 0) - cents
 
 
-def rank_by(order: Sequence[str]) -> Callable[[str], tuple[int, str]]:
+def _rank_by(order: Sequence[str]) -> Callable[[str], tuple[int, str]]:
     """Sort key: position in `order`, people not in it after everyone else, then by id."""
     position = {person: n for n, person in enumerate(order)}
     return lambda person: (position.get(person, len(position)), person)
 
 
 def _ordered(people: dict[str, int], order: Sequence[str]) -> list[str]:
+    in_order = set(order)
     known = [p for p in order if p in people]
-    return known + sorted(p for p in people if p not in set(order))
+    return known + sorted(p for p in people if p not in in_order)

@@ -299,7 +299,8 @@ def overall_between(me: str, other: str, ledgers: Sequence[ContextLedger]) -> Ov
 def overall_for(me: str, ledgers: Sequence[ContextLedger]) -> tuple[OverallBalance, ...]
 def allocate_payment(payer: str, payee: str, amount: Cents, ledgers: Sequence[ContextLedger],
                      named: Context | None) -> tuple[tuple[Allocation, ...], Cents]
-    # second value: the part beyond what payer owed (overpayment; goes to PersonalContext)
+    # second value: the part beyond what payer owed (overpayment). Unnamed: it goes to
+    # PersonalContext. Named context: the whole amount stays there as a credit.
     # tie-break: the context whose oldest bill between the pair is oldest
 def square_up(a: str, b: str, ledgers: Sequence[ContextLedger]) -> tuple[tuple[Context, Transfer], ...]
 ```

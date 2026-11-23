@@ -3,29 +3,28 @@
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from smartsplit.domain.values import Context, GroupContext, PersonalContext, Share
+from smartsplit.domain.values import Cents, Context, GroupContext, PersonalContext, Share
 from smartsplit.ledger.balances import balances, pair_debts, simplify_debts
 from smartsplit.ledger.model import Allocation, ContextLedger, Transfer
 from smartsplit.ledger.overall import owed_to
-
-_MAX_SQUARE_UP_ROUNDS = 100
-"""Re-simplifying after each settlement converges in a few rounds; this only guards bugs."""
 
 
 def allocate_payment(
     payer: str,
     payee: str,
-    amount: int,
+    amount: Cents,
     ledgers: Sequence[ContextLedger],
     named: Context | None,
-) -> tuple[tuple[Allocation, ...], int]:
+) -> tuple[tuple[Allocation, ...], Cents]:
     """Split one real payment from `payer` to `payee` across contexts.
 
-    A named context (the group chat it was said in, or "for the trip") takes all of it.
-    Otherwise it pays off the contexts where payer owes payee, largest first, ties to the
-    context whose oldest bill between the two is oldest; anything beyond what payer owes goes
-    to the personal context (payee now owes payer). Returns the allocations and the overpaid
-    part: beyond what payer owed in total, or in the named context.
+    A named context (the group chat it was said in, or "for the trip") takes all of it, any
+    overpayment included: it becomes a credit in that context. Otherwise it pays off the
+    contexts where payer owes payee, largest first, ties to the context whose oldest bill
+    between the two is oldest, then input order; anything beyond those debts goes to the
+    personal context (payee now owes payer). "What payer owes" is per context, not netted
+    across contexts (netting is what square-up is for). Returns the allocations and the
+    overpaid part, which the bot restates before recording (SPEC 10.6).
     """
     if amount <= 0:
         raise ValueError("a payment must be positive")
@@ -64,6 +63,9 @@ def square_up(
     settled repeatedly until the pair amount it shows is 0.
     """
     rows: list[tuple[Context, Transfer]] = []
+    # Rows net to zero, so each person's real money across contexts is unchanged. When a
+    # group's greedy plan reshuffles, the settled amount can exceed the pair amount it showed,
+    # so the overall *view* between the two can move slightly (DECISIONS.md "Open").
     total = 0
     for ledger in ledgers:
         if isinstance(ledger.context, GroupContext):
@@ -80,15 +82,19 @@ def _clear_group_pair(a: str, b: str, ledger: ContextLedger) -> int:
     """Total that a must pay b (negative: b pays a) so the group shows nothing between them."""
     current = {share.person_id: share.cents for share in balances(ledger)}
     settled = 0
-    for _ in range(_MAX_SQUARE_UP_ROUNDS):
-        shares = [Share(person, cents) for person, cents in current.items()]
-        owed = owed_to(b, simplify_debts(shares, ledger.member_order)).get(a, 0)
-        if owed == 0:
-            return settled
+    # Ends: each round pays a debtor→creditor transfer between a and b, which shrinks
+    # |balance(a)| + |balance(b)| without flipping either sign.
+    while owed := _shown(a, b, current, ledger.member_order):
         current[a] = current.get(a, 0) + owed
         current[b] = current.get(b, 0) - owed
         settled += owed
-    raise RuntimeError("square-up did not converge")
+    return settled
+
+
+def _shown(a: str, b: str, current: dict[str, int], order: Sequence[str]) -> int:
+    """What the group's greedy plan shows a owing b (negative: b owes a)."""
+    shares = [Share(person, cents) for person, cents in current.items()]
+    return owed_to(b, simplify_debts(shares, order)).get(a, 0)
 
 
 def _owes(payer: str, payee: str, ledger: ContextLedger | None) -> int:
@@ -100,10 +106,13 @@ def _owes(payer: str, payee: str, ledger: ContextLedger | None) -> int:
 def _oldest_bill_between(ledger: ContextLedger, a: str, b: str) -> datetime:
     """When the first bill between the two (both in it, or one paid) was added; contexts
     without one sort last."""
+    reversed_ids = {bill.reverses_id for bill in ledger.bills if bill.reverses_id}
     times = [
         bill.created_at
         for bill in ledger.bills
-        if bill.reverses_id is None and {a, b} <= {*bill.participants, bill.payer_id}
+        if bill.reverses_id is None
+        and bill.id not in reversed_ids
+        and {a, b} <= {*bill.participants, bill.payer_id}
     ]
     return min(times, default=datetime.max.replace(tzinfo=UTC))
 

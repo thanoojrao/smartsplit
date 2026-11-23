@@ -31,6 +31,8 @@ class Transfer:
 
 @dataclass(frozen=True, slots=True)
 class Allocation:
+    """The part of one payment that is booked in one context."""
+
     context: Context
     amount_cents: Cents
 
