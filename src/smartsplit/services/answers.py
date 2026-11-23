@@ -18,6 +18,7 @@ from smartsplit.domain.prompts import (
     NeedContactPayload,
     Prompt,
     RuleChangeEffect,
+    StoredImage,
     WhichPersonPayload,
 )
 from smartsplit.services.drafting import active_draft, present, split_of
@@ -33,7 +34,7 @@ from smartsplit.services.saving import confirm, save_bill
 from smartsplit.services.text import name_for
 from smartsplit.services.turn import Turn
 
-type Rerun = Callable[[Turn, Command], None]
+type Rerun = Callable[[Turn, Command, StoredImage | None], None]
 """Handles a command again once the person it named is known."""
 
 
@@ -46,33 +47,46 @@ def answerable(turn: Turn) -> list[Prompt]:
     ]
 
 
+TAKES_ANY_ANSWER = frozenset(
+    {PromptKind.WHO_WITH, PromptKind.WHICH_PERSON, PromptKind.NEED_CONTACT}
+)
+"""Prompts whose answer is a number, names or a phone number rather than yes or no."""
+
+
 def handle_answer(turn: Turn, answer: AnswerPrompt, directory: Directory, rerun: Rerun) -> None:
     prompts = answerable(turn)
     direct = [p for p in prompts if p.kind is not PromptKind.ENGINE_QUESTION]
     questions = [p for p in prompts if p.kind is PromptKind.ENGINE_QUESTION]
-    if direct:
+    plain = answer.choice is None and not answer.people and not answer.excluding
+    if direct and (direct[-1].kind in TAKES_ANY_ANSWER or plain or not questions):
         _answer_direct(turn, direct[-1], answer, directory, rerun)
         return
-    if answer.yes is True and answer.choice is None:
+    if answer.yes is True and plain:
         draft = active_draft(turn)
-        if draft is None:
-            turn.reply("There's nothing to save right now.")
+        if draft is None or draft.state is not DraftState.REVIEWING:
+            _aside(turn, "There's nothing to save right now.")
             return
         confirm(turn, draft)
         return
     if not questions:
-        if answer.yes is False:
-            turn.reply("OK.")
-            return
-        raise NotAllowedError("I wasn't asking anything.")
+        _aside(turn, "OK." if answer.yes is False else "I wasn't asking anything.")
+        return
     _answer_question(turn, questions, answer, directory)
+
+
+def _aside(turn: Turn, text: str) -> None:
+    """A reply to something that answered nothing; silent for unaddressed group chatter."""
+    if turn.addressed:
+        turn.reply(text)
 
 
 def _answer_question(
     turn: Turn, questions: Sequence[Prompt], answer: AnswerPrompt, directory: Directory
 ) -> None:
-    """ "2 no" or "1 Sam and Raj" picks the question by its number; otherwise the first one."""
-    n = answer.choice or 1
+    """ "2 no" or "1: Sam and Raj" picks the question by its number in the batch; otherwise
+    the first one still unanswered."""
+    unanswered = [n for n, q in enumerate(questions, 1) if not q.answers]
+    n = answer.choice or (unanswered[0] if unanswered else 1)
     if not 1 <= n <= len(questions):
         raise NotAllowedError(f"There are only {len(questions)} questions open.")
     prompt = questions[n - 1]
@@ -157,7 +171,7 @@ def _which_person(
         raise NotAllowedError(f"Pick a number from 1 to {len(payload.candidate_ids)}.")
     chosen = payload.candidate_ids[n - 1]
     _remember(turn, prompt, answer, chosen, payload.said)
-    resume(turn, payload.pending, rerun)
+    resume(turn, payload.pending, payload.image, rerun)
 
 
 def _need_contact(
@@ -168,7 +182,7 @@ def _need_contact(
         raise NotAllowedError(f"Send {payload.said}'s contact card or phone number.")
     person = person_with_phone(turn, payload.said, answer.text)
     _remember(turn, prompt, answer, person.id, payload.said)
-    resume(turn, payload.pending, rerun)
+    resume(turn, payload.pending, payload.image, rerun)
 
 
 def _remember(turn: Turn, prompt: Prompt, answer: AnswerPrompt, person_id: str, said: str) -> None:
@@ -178,22 +192,24 @@ def _remember(turn: Turn, prompt: Prompt, answer: AnswerPrompt, person_id: str, 
         turn.uow.nicknames.put(Nickname(turn.speaker.id, person_id, key))
 
 
-def resume(turn: Turn, pending: Command, rerun: Rerun) -> None:
+def resume(turn: Turn, pending: Command, image: StoredImage | None, rerun: Rerun) -> None:
     """Run the command that was waiting; a further unknown name is asked about in turn."""
     try:
-        rerun(turn, pending)
+        rerun(turn, pending, image)
     except NeedsClarificationError as unclear:
-        ask_who(turn, unclear, pending)
+        ask_who(turn, unclear, pending, image)
 
 
-def ask_who(turn: Turn, unclear: NeedsClarificationError, pending: Command) -> None:
+def ask_who(
+    turn: Turn, unclear: NeedsClarificationError, pending: Command, image: StoredImage | None
+) -> None:
     """ "Which Sam?" with a numbered list, or a request for a contact card."""
     if not unclear.candidate_ids:
-        payload_contact = NeedContactPayload(unclear.said, pending)
+        payload_contact = NeedContactPayload(unclear.said, pending, image)
         open_prompt(turn, None, PromptKind.NEED_CONTACT, payload_contact, turn.speaker.id)
         turn.reply(f"I don't know {unclear.said} yet. Send their contact card or number.")
         return
-    payload = WhichPersonPayload(unclear.said, unclear.candidate_ids, pending)
+    payload = WhichPersonPayload(unclear.said, unclear.candidate_ids, pending, image)
     open_prompt(turn, None, PromptKind.WHICH_PERSON, payload, turn.speaker.id)
     options = [
         f"{n}. {_label(turn, person_id)}" for n, person_id in enumerate(unclear.candidate_ids, 1)
@@ -205,4 +221,5 @@ def _label(turn: Turn, person_id: str) -> str:
     person = turn.uow.people.get(person_id)
     if person is None:
         return "someone"
-    return f"{name_for(turn.uow, turn.speaker.id, person_id)} ({mask_phone(person.phone)})"
+    viewer = None if turn.in_group else turn.speaker.id
+    return f"{name_for(turn.uow, viewer, person_id)} ({mask_phone(person.phone)})"

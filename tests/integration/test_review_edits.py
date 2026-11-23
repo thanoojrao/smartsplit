@@ -3,6 +3,8 @@
 from smartsplit.adapters.fakes.llm import FakeCanonicalizer
 from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, World, flat, receipt
 
+OUTSIDER = 'Priya isn\'t in Flat 4B. "add Priya" with a contact.'
+
 
 def reviewing() -> World:
     world = World(canonical=FakeCanonicalizer({"OAT MLK 1L": "milk"}))
@@ -19,9 +21,7 @@ def test_payer_change_in_a_group_draft() -> None:
 def test_payer_must_be_a_member() -> None:
     world = reviewing()
     world.say(YOU, None, "add Priya +919876500004")
-    assert world.say(YOU, FLAT, "Priya paid") == (
-        "The payer has to be a current member of this group."
-    )
+    assert world.say(YOU, FLAT, "Priya paid") == OUTSIDER
 
 
 def test_people_added_and_removed() -> None:
@@ -35,9 +35,7 @@ def test_people_added_and_removed() -> None:
 def test_only_members_can_be_added() -> None:
     world = reviewing()
     world.say(YOU, None, "add Priya +919876500004")
-    assert world.say(YOU, FLAT, "add Priya to the bill") == (
-        "Only current members of this group can be in its bills."
-    )
+    assert world.say(YOU, FLAT, "add Priya to the bill") == OUTSIDER
 
 
 def test_accepting_the_difference_during_review() -> None:

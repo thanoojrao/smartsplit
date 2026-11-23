@@ -4,7 +4,7 @@ Handlers resolve every name before writing anything, so a NeedsClarificationErro
 nothing half done; the orchestrator rolls back on NotAllowedError either way.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 
 from smartsplit.domain.commands import (
     Acknowledge,
@@ -31,8 +31,8 @@ from smartsplit.domain.commands import (
 )
 from smartsplit.domain.edits import EditOp
 from smartsplit.domain.enums import DraftState, PromptKind
-from smartsplit.domain.messages import ImageAttachment
 from smartsplit.domain.model import BillDraft
+from smartsplit.domain.prompts import StoredImage
 from smartsplit.domain.values import GroupContext, Override, PersonalContext
 from smartsplit.services.answers import answerable, handle_answer
 from smartsplit.services.drafting import (
@@ -56,7 +56,8 @@ from smartsplit.services.membership import (
     member_left,
     set_nickname,
 )
-from smartsplit.services.names import Directory, directory
+from smartsplit.services.names import Directory, directory, group_directory
+from smartsplit.services.prompting import drop
 from smartsplit.services.queries import show_balances
 from smartsplit.services.receipt_flow import add_photo
 from smartsplit.services.review import apply_edit, save
@@ -68,23 +69,21 @@ from smartsplit.services.text import HELP
 from smartsplit.services.turn import Turn
 
 
-@dataclass(frozen=True, slots=True)
-class Photo:
-    """A receipt image already stored, waiting for its draft."""
-
-    image_ref: str
-    image: ImageAttachment
-
-
-def dispatch(turn: Turn, command: Command, photo: Photo | None = None) -> None:
+def dispatch(turn: Turn, command: Command, photo: StoredImage | None = None) -> None:
     """Run one command for the speaker in this chat."""
     if turn.in_group and not _may_act_here(turn, command):
         ask_to_join(turn)
         return
-    people = directory(turn.uow, turn.speaker.id)
+    people = (
+        group_directory(turn.uow, turn.speaker.id, turn.conversation.group_id)
+        if turn.conversation.group_id
+        else directory(turn.uow, turn.speaker.id)
+    )
+    if not isinstance(command, AnswerPrompt | Unknown | Acknowledge | Help):
+        drop_stale_prompts(turn)
     match command:
         case StartSplit() if photo is not None:
-            add_photo(turn, photo.image_ref, photo.image, _who_for_photo(turn, command, people))
+            add_photo(turn, photo, _who_for_photo(turn, command, people))
         case StartSplit():
             turn.reply("Send the receipt photo with that message.")
         case AddManualBill():
@@ -105,6 +104,19 @@ def dispatch(turn: Turn, command: Command, photo: Photo | None = None) -> None:
             _file_into_group(turn, name)
         case _:
             _people_and_rules(turn, command, people)
+
+
+STALE_WHEN_IGNORED = frozenset(
+    {PromptKind.WHICH_PERSON, PromptKind.NEED_CONTACT, PromptKind.CONFIRM_ACTION}
+)
+
+
+def drop_stale_prompts(turn: Turn) -> None:
+    """A new command means the speaker moved on: their unanswered "which Sam?", contact
+    request or restated action is dropped, so it can't catch a later "yes" or number."""
+    for prompt in answerable(turn):
+        if prompt.kind in STALE_WHEN_IGNORED and prompt.asked_of == turn.speaker.id:
+            drop(turn, prompt)
 
 
 def _people_and_rules(turn: Turn, command: Command, people: Directory) -> None:

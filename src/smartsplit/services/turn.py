@@ -38,6 +38,8 @@ class Turn:
     speaker: Person
     conversation: Conversation
     replies: list[OutboundMessage] = field(default_factory=list)
+    addressed: bool = True
+    """False for group chatter the bot only read because a question is open (SPEC 10.2)."""
     to_parse: list[str] = field(default_factory=list)
     """Drafts that moved to `parsing` this turn: read after commit, outside the lock (12.2)."""
 

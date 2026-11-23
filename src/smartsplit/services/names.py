@@ -5,14 +5,15 @@ past bill with. Several matches → ask which one; none → ask for a contact ca
 Model output never supplies ids (SPEC 12.3): only these names are ever resolved.
 """
 
-from dataclasses import dataclass
+from collections.abc import Collection
+from dataclasses import dataclass, replace
 
 from smartsplit.domain import normalize_item_name
 from smartsplit.domain.phone import normalize_phone
 from smartsplit.domain.values import PersonRef
 from smartsplit.ports.llm import NameablePerson
 from smartsplit.ports.repository import UnitOfWork
-from smartsplit.services.errors import NeedsClarificationError
+from smartsplit.services.errors import NeedsClarificationError, NotAllowedError
 from smartsplit.services.speaker import current_member_ids
 
 SELF_WORDS = frozenset({"i", "me", "myself"})
@@ -29,6 +30,8 @@ class Directory:
     by_name: dict[str, tuple[str, ...]]
     by_phone: dict[str, str]
     people: tuple[NameablePerson, ...]
+    group_name: str | None = None
+    """Set for a group chat's directory: an unknown name is someone outside the group."""
 
     def resolve(self, said: PersonRef, region: str) -> str:
         """A person id, or NeedsClarificationError."""
@@ -41,6 +44,10 @@ class Directory:
         matches = self.by_nickname.get(key) or self.by_name.get(key, ())
         if len(matches) == 1:
             return matches[0]
+        if not matches and self.group_name is not None:
+            raise NotAllowedError(
+                f'{said} isn\'t in {self.group_name}. "add {said}" with a contact.'
+            )
         raise NeedsClarificationError(said, matches)
 
     def _by_phone(self, said: str, region: str) -> str | None:
@@ -52,8 +59,20 @@ class Directory:
             return None
 
 
-def directory(uow: UnitOfWork, speaker_id: str) -> Directory:
-    """Build the speaker's directory from nicknames, current groups and past bills."""
+def group_directory(uow: UnitOfWork, speaker_id: str, group_id: str) -> Directory:
+    """The speaker's names for the people of one group, current and past."""
+    ever = {m.person_id for m in uow.memberships.for_group(group_id)}
+    group = uow.groups.get(group_id)
+    found = directory(uow, speaker_id, ever)
+    return replace(found, group_name=group.name if group else "this group")
+
+
+def directory(uow: UnitOfWork, speaker_id: str, within: Collection[str] | None = None) -> Directory:
+    """Build the speaker's directory from nicknames, current groups and past bills.
+
+    `within` limits it to those people (in a group chat: everyone who was ever a member), so
+    a group chat never asks about, or shows, someone from outside the group.
+    """
     known: dict[str, set[str]] = {}
     by_nickname: dict[str, list[str]] = {}
     for nickname in uow.nicknames.for_owner(speaker_id):
@@ -67,6 +86,13 @@ def directory(uow: UnitOfWork, speaker_id: str) -> Directory:
         others.update(bill.participants)
     others.update(known)
     others.add(speaker_id)  # "Sam and Raj", said by Raj, includes Raj
+    if within is not None:
+        allowed = {*within, speaker_id}
+        others &= allowed
+        known = {p: n for p, n in known.items() if p in allowed}
+        by_nickname = {
+            k: [p for p in v if p in allowed] for k, v in by_nickname.items() if set(v) & allowed
+        }
     by_name: dict[str, list[str]] = {}
     by_phone: dict[str, str] = {}
     for person_id in sorted(others):

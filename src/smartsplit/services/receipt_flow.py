@@ -9,9 +9,13 @@ from dataclasses import replace
 
 from smartsplit.domain.commands import AnswerPrompt
 from smartsplit.domain.enums import DraftState, PromptKind
-from smartsplit.domain.messages import ImageAttachment
 from smartsplit.domain.model import BillDraft, Receipt
-from smartsplit.domain.prompts import DuplicateWarningPayload, Prompt, WhoWithPayload
+from smartsplit.domain.prompts import (
+    DuplicateWarningPayload,
+    Prompt,
+    StoredImage,
+    WhoWithPayload,
+)
 from smartsplit.domain.values import GroupContext, PersonalContext
 from smartsplit.engine import DuplicateCandidate, find_likely_duplicate
 from smartsplit.ports.llm import ParsedReceipt
@@ -27,7 +31,7 @@ from smartsplit.services.text import money, name_for
 from smartsplit.services.turn import Turn
 
 
-def add_photo(turn: Turn, image_ref: str, image: ImageAttachment, who: Who | None) -> None:
+def add_photo(turn: Turn, image: StoredImage, who: Who | None) -> None:
     """Start a receipt, or queue it behind the draft under review. `who` None: a personal
     photo with nobody named, so the bot asks who it's with first."""
     context = turn.conversation.group_id
@@ -48,7 +52,7 @@ def add_photo(turn: Turn, image_ref: str, image: ImageAttachment, who: Who | Non
         lines=(),
         totals=(0, 0, 0),
         state=state,
-        image=(image_ref, image.mime_type),
+        image=(image.image_ref, image.mime_type),
     )
     if current is not None:
         turn.reply(f"I'll do this one after we finish the {current.description} bill.")

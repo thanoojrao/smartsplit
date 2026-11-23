@@ -192,10 +192,11 @@ def answer_question(
         people = tuple(p for p in draft.participants if p in chosen and p not in out)
     elif payload.reason is QuestionReason.SOFT_RULE and payload.member_id and answer.yes is False:
         people = tuple(p for p in now_on if p != payload.member_id)
-    elif answer.yes is not None:
-        people = now_on
+    elif payload.reason is QuestionReason.SOFT_RULE and payload.member_id and answer.yes:
+        with_member = {*now_on, payload.member_id}
+        people = tuple(p for p in draft.participants if p in with_member)
     else:
-        raise NotAllowedError('Answer "yes", "no", or say who shares it.')
+        raise NotAllowedError('Say who shares it, like "1: Sam and Raj".')
     if not people:
         raise NotAllowedError("Someone has to share it.")
     record_answer(turn, prompt, answer)

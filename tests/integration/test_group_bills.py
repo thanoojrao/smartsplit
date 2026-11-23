@@ -55,7 +55,7 @@ def test_only_current_members_can_be_in_a_group_bill() -> None:
     flat(world, YOU, SAM)
     world.say(YOU, None, "add Priya +919876500004")
     reply = world.say(YOU, FLAT, "split with me and Priya", image=receipt("restaurant_tip"))
-    assert "Only current members" in reply
+    assert reply == 'Priya isn\'t in Flat 4B. "add Priya" with a contact.'
     assert drafts(world) == []
 
 

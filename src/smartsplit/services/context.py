@@ -4,10 +4,10 @@ from datetime import date
 
 from smartsplit.domain.enums import ConversationKind, PromptKind, PromptStatus
 from smartsplit.domain.model import Conversation
-from smartsplit.ports.llm import InterpretContext
+from smartsplit.ports.llm import InterpretContext, NameablePerson
 from smartsplit.ports.repository import UnitOfWork
 from smartsplit.services.drafting import ACTIVE
-from smartsplit.services.names import directory
+from smartsplit.services.names import directory, group_directory
 from smartsplit.services.speaker import current_member_ids
 from smartsplit.services.summary import Renderer
 from smartsplit.services.text import money, name_for
@@ -24,8 +24,13 @@ def interpret_context(
 ) -> InterpretContext:
     """Who the speaker can name, the open questions and the bill under review, as text."""
     viewer = speaker_id if kind is ConversationKind.PERSONAL else None
-    nameable = directory(uow, speaker_id).people if speaker_id else ()
     group_id = conversation.group_id if conversation else None
+    if speaker_id is None:
+        nameable: tuple[NameablePerson, ...] = ()
+    elif group_id is not None:
+        nameable = group_directory(uow, speaker_id, group_id).people
+    else:
+        nameable = directory(uow, speaker_id).people
     members = current_member_ids(uow, group_id) if group_id else []
     groups = []
     if speaker_id:

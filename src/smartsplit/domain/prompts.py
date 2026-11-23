@@ -31,17 +31,28 @@ class WhoWithPayload:
 
 
 @dataclass(frozen=True, slots=True)
+class StoredImage:
+    """A receipt photo already in the ImageStore, waiting for its draft."""
+
+    image_ref: str
+    mime_type: str
+
+
+@dataclass(frozen=True, slots=True)
 class WhichPersonPayload:
     said: PersonRef
     candidate_ids: tuple[str, ...]
     pending: Command
     """The command to resume once the person is chosen."""
+    image: StoredImage | None = None
+    """The photo that came with `pending`, so the receipt isn't lost meanwhile."""
 
 
 @dataclass(frozen=True, slots=True)
 class NeedContactPayload:
     said: PersonRef
     pending: Command
+    image: StoredImage | None = None
 
 
 @dataclass(frozen=True, slots=True)
