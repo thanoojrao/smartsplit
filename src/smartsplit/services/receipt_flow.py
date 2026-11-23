@@ -5,29 +5,26 @@ and listed on the turn, the orchestrator parses after the commit, and `finish_pa
 the result back in a second transaction, only if the draft is still waiting for it.
 """
 
-from collections import Counter
 from dataclasses import replace
 
 from smartsplit.domain.commands import AnswerPrompt
 from smartsplit.domain.enums import DraftState, PromptKind
 from smartsplit.domain.messages import ImageAttachment
 from smartsplit.domain.model import BillDraft, Receipt
-from smartsplit.domain.prompts import DuplicateWarningPayload, ListOption, Prompt, WhoWithPayload
+from smartsplit.domain.prompts import DuplicateWarningPayload, Prompt, WhoWithPayload
 from smartsplit.domain.values import GroupContext, PersonalContext
 from smartsplit.engine import DuplicateCandidate, find_likely_duplicate
 from smartsplit.ports.llm import ParsedReceipt
 from smartsplit.services.drafting import ACTIVE, Who, active_draft, new_draft, present
 from smartsplit.services.errors import NotAllowedError
+from smartsplit.services.lifecycle import ask_who_with, finish, start_next
 from smartsplit.services.matching import MatchedLines, remember_matches
 from smartsplit.services.names import Directory
 from smartsplit.services.prompting import mark_answered, open_prompt
 from smartsplit.services.review import save
-from smartsplit.services.saving import finish, start_next
 from smartsplit.services.speaker import current_member_ids
 from smartsplit.services.text import money, name_for
 from smartsplit.services.turn import Turn
-
-WHO_WITH_OPTIONS = 6
 
 
 def add_photo(turn: Turn, image_ref: str, image: ImageAttachment, who: Who | None) -> None:
@@ -59,46 +56,6 @@ def add_photo(turn: Turn, image_ref: str, image: ImageAttachment, who: Who | Non
         turn.to_parse.append(draft.id)
     else:
         ask_who_with(turn, draft)
-
-
-def begin(turn: Turn, draft: BillDraft) -> None:
-    """A queued draft's turn: read it, or first ask who it's with."""
-    if isinstance(draft.context, PersonalContext) and draft.participants == (draft.added_by,):
-        waiting = replace(draft, state=DraftState.AWAITING_PEOPLE)
-        save(turn, draft, waiting)
-        ask_who_with(turn, waiting)
-        return
-    save(turn, draft, replace(draft, state=DraftState.PARSING))
-    turn.to_parse.append(draft.id)
-
-
-def ask_who_with(turn: Turn, draft: BillDraft) -> None:
-    """A numbered list of the speaker's groups and most frequent split partners (D2)."""
-    options = _who_with_options(turn)
-    open_prompt(turn, draft.id, PromptKind.WHO_WITH, WhoWithPayload(options), draft.added_by)
-    listed = [f"{o.n}. {o.label}" for o in options]
-    turn.reply("\n".join(["Who's this with?", *listed, 'Or say names: "with Sam and Raj".']))
-
-
-def _who_with_options(turn: Turn) -> tuple[ListOption, ...]:
-    uow, me = turn.uow, turn.speaker.id
-    options: list[ListOption] = []
-    for membership in uow.memberships.for_person(me):
-        group = uow.groups.get(membership.group_id)
-        if membership.left_at is None and group is not None:
-            options.append(ListOption(len(options) + 1, (), group.id, group.name))
-    partners = Counter(
-        p
-        for bill in uow.bills.for_participant(me)
-        if isinstance(bill.context, PersonalContext)
-        for p in bill.participants
-        if p != me
-    )
-    for person_id, _ in partners.most_common():
-        options.append(
-            ListOption(len(options) + 1, (person_id,), None, name_for(uow, me, person_id))
-        )
-    return tuple(options[:WHO_WITH_OPTIONS])
 
 
 def answer_who_with(

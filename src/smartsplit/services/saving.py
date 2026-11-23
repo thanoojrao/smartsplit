@@ -1,9 +1,7 @@
 """Confirming, saving and cancelling drafts, and starting the next queued one (SPEC 10.4)."""
 
-from dataclasses import replace
-
 from smartsplit.domain import normalize_item_name
-from smartsplit.domain.enums import DraftState, PromptKind, PromptStatus
+from smartsplit.domain.enums import DraftState, PromptKind
 from smartsplit.domain.model import Bill, BillDraft, BillLine
 from smartsplit.domain.prompts import ConfirmTotalPayload
 from smartsplit.domain.values import EqualSplit, GroupContext, Share, Weight, Weighted
@@ -11,8 +9,8 @@ from smartsplit.services.drafting import split_of
 from smartsplit.services.errors import NotAllowedError
 from smartsplit.services.learning import LineAnswer, learn_from_bill
 from smartsplit.services.ledgers import group_balances_text, overall_text
-from smartsplit.services.prompting import drop, open_prompt
-from smartsplit.services.review import save
+from smartsplit.services.lifecycle import finish, start_next
+from smartsplit.services.prompting import open_prompt
 from smartsplit.services.rules import is_current_member
 from smartsplit.services.scopes import local_scope_for
 from smartsplit.services.splitting import DraftSplit, effective_overrides
@@ -151,21 +149,3 @@ def cancel(turn: Turn, draft: BillDraft) -> None:
     who = f"{turn.speaker.display_name} cancelled" if turn.in_group else "Cancelled"
     turn.reply(f"{who} the {draft.description} bill. Nothing was saved.")
     start_next(turn, draft)
-
-
-def finish(turn: Turn, draft: BillDraft, state: DraftState) -> None:
-    """End the draft and drop whatever it was still asking."""
-    save(turn, draft, replace(draft, state=state))
-    for prompt in turn.uow.prompts.for_draft(draft.id):
-        if prompt.status in (PromptStatus.OPEN, PromptStatus.PENDING):
-            drop(turn, prompt)
-
-
-def start_next(turn: Turn, ended: BillDraft) -> None:
-    """The oldest queued draft in that chat starts; its receipt is read after this commit."""
-    queued = turn.uow.drafts.for_conversation(ended.conversation, (DraftState.QUEUED,))
-    if not queued:
-        return
-    following = queued[0]
-    save(turn, following, replace(following, state=DraftState.PARSING))
-    turn.to_parse.append(following.id)
