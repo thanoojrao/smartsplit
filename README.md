@@ -5,7 +5,7 @@ It remembers house rules like "don't add milk to Raj", asks when it isn't sure,
 and keeps a running ledger of who owes whom. It's self-hostable and open source.
 A WhatsApp bot front end is planned.
 
-> Status: first build complete (CLI and HTTP API; WhatsApp gateway not yet). See `PROGRESS.md` and `docs/SPEC.md`.
+> Status: revision 2 in progress: the bot is a conversation agent (CLI and HTTP API; WhatsApp gateway not yet). See `PROGRESS.md` and `docs/SPEC.md`.
 
 ## Quick start (local)
 
@@ -19,43 +19,43 @@ bash scripts/check.sh          # lint, types, architecture, tests
 
 ## Try it (no API key needed)
 
-The CLI is a chat app in your terminal. Offline it uses stand-ins for the model: a keyword
-interpreter for chat text, and "receipts" that are recorded model answers
-(`tests/fixtures/receipts/*.json`). Everything is stored in Postgres, so start it first
-(see Quick start; `DATABASE_URL` must be set).
+`smartsplit demo` plays a short scripted conversation through the real bot and database:
+people join a flat, Raj says he doesn't drink milk, Alex sends a receipt (a recorded model
+answer), saves it, and Sam records a payment that waits for his "yes". The model's steps are
+scripted, so it needs no key. Postgres must be running (see Quick start; `DATABASE_URL` set).
+
+```bash
+uv run smartsplit demo
+```
+
+## Talk to it (needs a key)
+
+The bot is a conversation agent: the model reads the recent chat and calls tools; code does
+all the money arithmetic and asks for a "yes" before money moves. Set
+`ANTHROPIC_API_KEY` (or `SMARTSPLIT_ANTHROPIC_API_KEY`), then:
 
 ```bash
 uv run smartsplit person add Alex +919876500001
 uv run smartsplit person add Sam  +919876500002
-uv run smartsplit person add Raj  +919876500003
 uv run smartsplit group create "Flat 4B" --as Alex
 uv run smartsplit member add "Flat 4B" Sam
-uv run smartsplit member add "Flat 4B" Raj
-
-uv run smartsplit say "Raj doesn't drink milk" --as Raj --in "Flat 4B"
-uv run smartsplit receipt add tests/fixtures/receipts/grocery_taxed_mix.json --as Alex --in "Flat 4B"
-uv run smartsplit say "details" --as Alex --in "Flat 4B"
-uv run smartsplit say "yes" --as Alex --in "Flat 4B"
-
-uv run smartsplit say "chai 300 with Sam" --as Alex --in personal
-uv run smartsplit say "yes" --as Alex --in personal      # Sam's message is printed as [to Sam]
-uv run smartsplit say "paid Alex 100" --as Sam --in personal
+uv run smartsplit receipt add photo.jpg --as Alex --in "Flat 4B" --caption "split this"
+uv run smartsplit say "looks right, save it" --as Alex --in "Flat 4B"
+uv run smartsplit say "I paid Alex 300" --as Sam --in personal
 uv run smartsplit say "yes" --as Sam --in personal
-uv run smartsplit balances --as Alex
-uv run smartsplit rules --about Raj
-uv run smartsplit tick                                     # deliver messages, nudge idle bills
+uv run smartsplit balances --as Alex            # operator reads need no key
+uv run smartsplit rules --about Sam
+uv run smartsplit tick                          # deliver messages, nudge idle bills
 ```
 
 Each reply is printed under the chat it went to: `[Flat 4B]`, `[you]`, or `[to Sam]` for
-someone else's personal chat. With a real key, add `--live` (e.g.
-`uv run smartsplit --live receipt add photo.jpg --as Alex --in "Flat 4B"`) and set
-`ANTHROPIC_API_KEY`.
+someone else's personal chat.
 
 ## Run the API
 
 ```bash
 export SMARTSPLIT_API_TOKEN=...   # required; the API refuses to start without it
-export SMARTSPLIT_OFFLINE=1       # or set ANTHROPIC_API_KEY for the real model
+export ANTHROPIC_API_KEY=...      # required too
 uv run uvicorn --factory smartsplit.entrypoints.api.server:from_environment
 curl -s localhost:8000/healthz
 curl -s -X POST localhost:8000/v1/messages -H "Authorization: Bearer $SMARTSPLIT_API_TOKEN" \
@@ -63,11 +63,9 @@ curl -s -X POST localhost:8000/v1/messages -H "Authorization: Bearer $SMARTSPLIT
   "conversation": {"channel": "whatsapp", "ref": "flat"}, "conversation_kind": "group",
   "conversation_name": "Flat 4B", "sender_ref": "+919876500001",
   "sender_phone": "+919876500001", "sender_name": "Alex", "addressed_to_bot": true,
-  "text": "help"}'
+  "reply_to_bot": false, "text": "hi"}'
 ```
 
-The API needs `ANTHROPIC_API_KEY`, or `SMARTSPLIT_OFFLINE=1` to run on the offline stand-ins
-like the CLI.
 `POST /v1/messages` takes the gateway's message and returns the replies to deliver;
 call `POST /v1/tick` every minute or so. `GET /v1/groups/{id}/balances`,
 `GET /v1/people/{id}/balances` and `GET /v1/people/{id}/rules` are operator reads.

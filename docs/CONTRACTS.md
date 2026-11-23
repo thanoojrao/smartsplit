@@ -15,8 +15,8 @@ agreed; changing them later is a decision to log in DECISIONS.md.
 - `confidence` is the only float in the model and never takes part in money math.
 
 **Where things live** (import-linter enforced): everything in §1 is in `smartsplit.domain`
-(`domain/model.py`, `domain/messages.py`, `domain/prompts.py`); §2 in `smartsplit.engine`; §3 in
-`smartsplit.ledger`; §4 in `smartsplit.ports` (incl. the port errors); §1.7's tool arguments, §5's
+(`domain/model.py`, `domain/messages.py`, `domain/prompts.py`, and §1.7's tool arguments in `domain/tools.py`, see DECISIONS M10); §2 in `smartsplit.engine`; §3 in
+`smartsplit.ledger`; §4 in `smartsplit.ports` (incl. the port errors); the tool implementations and §5's
 `Orchestrator` and `NotAllowedError` in `smartsplit.services`.
 Error classes end in `Error` (ruff N818): `ReceiptUnreadableError`, `LlmUnavailableError`,
 `NotAllowedError`; storage errors live in `smartsplit.ports.errors`: `StaleDraftError` and the
@@ -115,7 +115,8 @@ class BillDraft:  # mutable working copy, updated through the repository
                   lines: tuple[LineItem, ...], tax_cents: Cents, other_adjustments_cents: Cents,
                   total_cents: Cents, participants: tuple[str, ...],
                   overrides: tuple[tuple[str, Override], ...], owes_all_id: str | None,
-                  possible_duplicate_of: DuplicateRef | None, state: DraftState, version: int,
+                  possible_duplicate_of: DuplicateRef | None, waiting_for: tuple[str, ...],
+                  state: DraftState, version: int,
                   created_at, last_activity_at, reminded_at: datetime | None
 class DuplicateRef: bill_id: str | None, draft_id: str | None        # exactly one set
 
@@ -373,7 +374,9 @@ services need; method lists in `ports/repository.py`): `people`, `identities`, `
   needs no lock on it.
 - `notifications.claim_due(now, limit, per_person_daily_cap, day_start)` (claims serialized by an
   advisory lock, rows taken with SKIP LOCKED); `tick_batches.unacked_before(when)`, `ack(batch_id)`.
-- `llm_usage.add(counter, day)` runs in its own unit of work, never inside a turn's.
+- `Repository.count_usage(counter, day)` counts one model call in its own committed transaction,
+  never inside a turn's; `llm_usage.get` reads the counts.
+- `UnitOfWork.savepoint()`: a block whose writes are undone if it raises (one tool call).
 
 ### 4.1 Parser output
 
@@ -395,14 +398,16 @@ class ToolCall:   id: str, name: str, arguments: Mapping[str, object]
 class ToolResult: call_id: str, ok: bool, data: Mapping[str, object], error: str | None,
                   shown: tuple[str, ...]          # code-rendered text appended to the reply (SPEC §8.5)
 class ModelUsage: input_tokens, cache_read_tokens, cache_write_tokens, output_tokens: int
-class ModelStep:  tool_calls: tuple[ToolCall, ...], text: str | None, usage: ModelUsage
+class ModelStep:  tool_calls: tuple[ToolCall, ...], text: str | None, usage: ModelUsage,
+                  replay: tuple[Mapping[str, object], ...]   # provider blocks, sent back unchanged
                   # no tool calls → the turn ends; `text` (may be empty) is the model's part of the reply
 class AgentRequest:
     system: str
-    tools: tuple[ToolSpec, ...]                   # empty for the last allowed step
+    tools: tuple[ToolSpec, ...]                   # always the fixed list (the cached prefix)
     turn_input: str                               # <state>…</state><recent_chat>…</recent_chat><message>…</message>
     history: tuple[tuple[ModelStep, tuple[ToolResult, ...]], ...]   # this turn's earlier steps only
     timeout_seconds: float                        # min(LLM timeout, time left for the message)
+    final: bool                                   # the last allowed step: no tool may be called
 
 class AgentModel(Protocol):
     def step(self, request: AgentRequest) -> ModelStep: ...   # raises LlmUnavailableError
