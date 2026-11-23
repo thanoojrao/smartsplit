@@ -4,22 +4,22 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 ## Next up
 
-Pre-build work is finished and agreed with the user: SPEC, USE_CASES, CONTRACTS (v2, agreed),
-DESIGN_REVIEW, USE_CASE_TRACE, DECISIONS, setup and CI. **Start M1** and continue through M2 and M3
-without stopping, then stop at CHECKPOINT A.
+M1 is done. **Continue with M2**, then M3, then stop at CHECKPOINT A (no stop between M2 and M3).
 
-M1 = `split_receipt` (SPEC §5, CONTRACTS §2) incl. weighted overrides, plus `fold_item_tax` (§5.1) and
-`amounts_to_weights` (§5.2), in `src/smartsplit/engine/` (split into modules; keep the public names
-importable from `smartsplit.engine`). The frozen engine types in `engine/__init__.py` must not change
-except as SPEC §5 allows. Done when `bash scripts/check.sh` exits 0, CI is green, and the review gate
-(`docs/REVIEW.md`, range `fc41671..HEAD` for M1, since M0's commit is `fc41671`) has no open must-fix.
-Also bump `actions/checkout` and `astral-sh/setup-uv` in `.github/workflows/ci.yml` to versions that run
-on Node 24 (GitHub warned that Node 20 is deprecated).
+M2 = everything in CONTRACTS §1 in `smartsplit.domain` (`enums.py`, `values.py`, `model.py`,
+`messages.py`, `commands.py`, `prompts.py`, plus a `phone.py` E.164 helper using `phonenumbers`);
+the ports from CONTRACTS §4 in `smartsplit.ports` (Clock, IdGenerator, ImageStore, ReceiptParser,
+CommandInterpreter, Repository with a unit of work and one store per aggregate, the port errors);
+`src/smartsplit/config.py` (pydantic-settings, SPEC §12.1); the Postgres adapter in `adapters/db`
+(SQLAlchemy Core tables, Alembic migration, advisory lock per conversation); a filesystem ImageStore
+in `adapters/files` (add it to the "Adapters are independent" import-linter contract); in-memory
+fakes in `adapters/fakes`; and repository tests run against real Postgres (`db` marker,
+`TEST_DATABASE_URL`, fail-not-skip). Review range for M2: `42c46b6..HEAD`.
 
 ## Milestones
 
 - [x] M0 — Scaffold: spec, tooling, quality gate, frozen engine contract + acceptance tests
-- [ ] M1 — Split engine (SPEC §5): `split_receipt` incl. weighted overrides, `fold_item_tax` (§5.1), `amounts_to_weights` (§5.2); all acceptance tests pass + own unit tests (negative subtotals, many members, large amounts, weights, exact amounts, validation)
+- [x] M1 — Split engine (SPEC §5): `split_receipt` incl. weighted overrides, `fold_item_tax` (§5.1), `amounts_to_weights` (§5.2); all acceptance tests pass + own unit tests (negative subtotals, many members, large amounts, weights, exact amounts, validation)
 - [ ] M2 — Domain model, messages and commands (CONTRACTS §1) + ports incl. ImageStore with unit of work (CONTRACTS §4) + `config.py` + Postgres adapter with Alembic migration + filesystem ImageStore (add `adapters.files` to the independence contract) + repository tests against real Postgres
 - [ ] M3 — Rules and matching (SPEC §6): scopes, `resolve_rules`, item matching with per-scope aliases and discount linking, learning, with a fake LLM canonicalizer
 
@@ -37,7 +37,10 @@ on Node 24 (GitHub warned that Node 20 is deprecated).
 ## Log
 
 - M0: scaffold created by hand. Engine contract frozen in `src/smartsplit/engine/__init__.py`. Commit `fc41671`.
+- M1: `split_receipt` (weighted overrides, clamped adjustments, one floor + largest-remainder helper), `fold_item_tax`, `amounts_to_weights`; frozen types moved to `engine/split.py` and re-exported; CI actions on Node 24; 74 tests, 100% coverage; review: no must-fix. Commit `42c46b6`.
 
 ## Follow-ups
 
 (non-blocking review findings go here)
+
+- (M1 review) `amounts_to_weights` raises on no fixed amounts: the orchestrator (M7) must use a plain list override for an equal split, never route "no exact amounts" here.
