@@ -31,8 +31,8 @@ and the outcome goes into SPEC/USE_CASES/DECISIONS.
 | P19 | There's no "include" rule, so "Raj drinks milk now" can only delete a rule, and a group can't override Raj's everywhere exclude. | Keep three rule kinds. "Raj drinks milk now" deletes the rule in that scope. Accept that a group can't force-include someone's everywhere exclude (they can still answer per bill). | **agreed** |
 | P20 | A coupon "MILK 20% OFF" is split among everyone, so Raj (who skips milk) gets a credit. | The receipt reader links a discount line to the item it reduces; it gets that item's key, so the same people share it. Unclear discounts are shared by all. | **agreed** |
 | P21 | History and membership use the date a bill was added, not when the purchase happened; "this month" has no timezone. | Use the purchase date (from the receipt, or "yesterday" in a manual bill), else the date added. "What did I spend" = my shares. Timezone in config. | **agreed** |
-| P22 | Someone wants to be removed from the system. | Specify now, build later: "forget me" removes identities, nicknames, rules and images, and replaces name/phone with "Former member" while keeping ledger rows so others' balances stay correct. | pending |
-| P23 | Adding 5 bills with someone who hasn't used the bot gives 5 invite texts. | Invite text only on the first bill with each non-user. | pending |
+| P22 | Someone wants to be removed from the system. | Specify now, build later: "forget me" removes identities, nicknames, rules and images, and replaces name/phone with "Former member" while keeping ledger rows so others' balances stay correct. | **agreed** |
+| P23 | Adding 5 bills with someone who hasn't used the bot gives 5 invite texts. | Invite text only on the first bill with each non-user. | **agreed** |
 | P24 | Tip rule jumps: a: +1000, b: −1000 → raw sum 0 → equal 50/50; change b to −999 → a pays all 100. | Drop the "raw sum ≤ 0" condition: weight by clamped totals; split equally only if all clamped totals are 0. (Changes a rule you approved.) | pending |
 
 ## Part 2 — Spec fixes (technical; recommendation applied unless the user objects)
