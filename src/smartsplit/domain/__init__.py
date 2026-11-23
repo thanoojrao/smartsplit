@@ -2,6 +2,10 @@
 
 from enum import StrEnum
 
+from smartsplit.domain.model import Cents, Weight
+
+__all__ = ["Cents", "QuestionReason", "RuleKind", "Weight", "normalize_item_name"]
+
 
 class RuleKind(StrEnum):
     """How a member relates to an item key (SPEC section 5)."""

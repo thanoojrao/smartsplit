@@ -14,7 +14,7 @@ jobs:
     name: Frozen files unchanged
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Compare tests/acceptance and scripts/check.sh with main
@@ -53,8 +53,8 @@ jobs:
       TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/smartsplit_test
       HYPOTHESIS_PROFILE: ci
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - name: Python 3.12
         run: uv python install 3.12 && uv python pin 3.12
       - name: Create the test database

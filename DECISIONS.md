@@ -70,6 +70,12 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (M1 prep, user-approved) Conflicting rules for one member/key follow §5 order: `only` beats `exclude`/`soft_exclude`; no soft-rule question when `only` applies. Why: already implied by the spec's step order.
 - (M1 prep, user-approved) Negative shares round with the same floor + largest-remainder rule. Why: one rounding rule, always sums exactly.
 
+- (M1) The frozen engine types and `split_receipt` moved verbatim from `engine/__init__.py` to `engine/split.py`, re-exported from `smartsplit.engine`. Why: the package is split into modules (split, tax, exact, rounding) without circular imports; the public contract is unchanged.
+- (M1) One rounding helper, `round_preserving_total`, serves both `split_receipt` and `fold_item_tax`. Why: one floor + largest-remainder rule everywhere.
+- (M1) `amounts_to_weights` follows the CONTRACTS signature (`fixed` as (person, cents) pairs, returns `Weight`s). Weights are scaled by the number of others and reduced by their gcd, so fixed people get exactly their amount. If the fixed amounts use the whole line, the others are left out (weights must be positive). No fixed amounts, a person listed twice, or a line ≤ 0 raise ValueError. Why: exact, and keeps the weight invariant.
+- (M1) A bare string as an override raises ValueError. Why: a `str` is a `Sequence[str]` and would silently split by letters.
+- (M1) CI uses `actions/checkout@v7` and `astral-sh/setup-uv@v7` (both Node 24). Why: GitHub deprecated Node 20.
+
 ## Made by Claude (design review, technical)
 
 - Group balance (incl. settlements) is the source of truth inside a group; who-owes-whom there = `simplify_debts`; personal splits use raw pairs; overall = sum. Why: one consistent model; following the bot's advice can't corrupt the overall view.
