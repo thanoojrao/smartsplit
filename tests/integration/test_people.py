@@ -206,7 +206,70 @@ def test_rejoining_is_explicit_and_old_group_rules_apply_again() -> None:
     world.say(YOU, FLAT, "yes")
     world.say(SAM, FLAT, "Raj moved out")
     world.clock.advance(timedelta(days=1))
-    assert world.say(RAJ, FLAT, "balances") == 'Raj, join splits here? Say "join".'
+    assert "Raj owes" not in world.say(RAJ, FLAT, "balances")  # a leaver can still look
+    assert world.say(RAJ, FLAT, "chai 100, split all") == 'Raj, join splits here? Say "join".'
     world.say(RAJ, FLAT, "join")
     shown = world.say(YOU, FLAT, "milk 300, split all")
     assert "Raj skipped: milk (group rule)" in shown
+
+
+def test_a_leaver_is_taken_out_of_a_group_draft_filed_from_a_personal_chat() -> None:
+    # B2/B3 across chats: the draft lives in Thanoo's personal chat
+    world = World()
+    flat(world, YOU, SAM, RAJ)
+    world.say(YOU, None, "split with Sam and Raj", image=receipt("restaurant_tip"))
+    world.say(YOU, None, "add to Flat 4B")
+    world.say(SAM, FLAT, "Raj moved out")
+    assert world.in_chat(None, YOU) == "Raj left Flat 4B, so they're out of Toit."
+    saved = world.say(YOU, None, "yes")
+    assert "Raj" not in saved
+
+
+def test_the_adder_leaving_cancels_a_filed_draft_in_their_chat() -> None:
+    world = World()
+    flat(world, YOU, SAM, RAJ)
+    world.say(RAJ, None, "split with Sam", image=receipt("restaurant_tip"))
+    world.say(RAJ, None, "add to Flat 4B")
+    world.say(SAM, FLAT, "Raj moved out")
+    assert world.in_chat(None, RAJ) == "The Toit bill was cancelled: whoever added it left."
+
+
+def test_only_whoever_gave_a_number_can_correct_it() -> None:
+    # A12
+    world = World()
+    flat(world, YOU, SAM)
+    world.say(YOU, FLAT, "add Priya +919876500044")
+    refused = world.say(SAM, None, "Priya's number is +919876500055")
+    assert refused == "Only whoever gave me their number can correct it."
+
+
+def test_group_names_only_cover_the_group() -> None:
+    # SPEC 10.7: no "which Sam?" listing someone from another group to the whole group
+    world = World()
+    other_sam = Someone("Sam", "+919876500012")
+    flat(world, YOU, SAM)
+    world.say(other_sam, None, "help")
+    world.say(YOU, "Goa trip", "help")
+    world.say(other_sam, "Goa trip", "join")
+    shown = world.say(YOU, FLAT, "split with me and Sam", image=receipt("restaurant_tip"))
+    assert "Which" not in shown and "Sam: ₹1,023.50" in shown
+
+
+def test_unaddressed_chatter_is_ignored_while_someone_elses_prompt_is_open() -> None:
+    # B1: Sam's "join splits here?" is only Sam's to answer
+    world = World()
+    flat(world, YOU, RAJ)
+    world.say(SAM, FLAT, "balances")
+    calls_before = world.model_calls(RAJ)
+    for text in ("yes", "no", "2", "who took my charger"):
+        assert world.say(RAJ, FLAT, text, addressed=False) == ""
+    assert world.model_calls(RAJ) == calls_before
+
+
+def test_unaddressed_non_answers_get_no_reply() -> None:
+    # B1: an open line question makes the bot read chatter, but only answers count
+    world = World()
+    flat(world, YOU, SAM)
+    world.say(SAM, FLAT, "I usually don't drink beer pitcher")
+    world.say(YOU, FLAT, image=receipt("restaurant_tip"))
+    assert world.say(SAM, FLAT, "5 no", addressed=False) == ""

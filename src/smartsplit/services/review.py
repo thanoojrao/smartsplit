@@ -130,11 +130,7 @@ def _people_edit(
             payer = directory.resolve(person, region)
             if payer not in current_member_ids(turn.uow, draft.context.group_id):
                 raise NotAllowedError("The payer has to be a current member of this group.")
-            return replace(draft, payer_id=payer, participants=_with(draft.participants, payer))
-
-
-def _with(people: tuple[str, ...], person: str) -> tuple[str, ...]:
-    return tuple(dict.fromkeys([*people, person]))
+            return replace(draft, payer_id=payer)
 
 
 def _check_in_bill(draft: BillDraft, override: Override) -> None:

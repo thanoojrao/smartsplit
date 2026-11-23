@@ -147,7 +147,8 @@ class ConversationStore:
         return self.records.get(key)
 
     def personal_for(self, person_id: str) -> Conversation | None:
-        return next((c for c in self.records.values() if c.person_id == person_id), None)
+        mine = [c for c in self.records.values() if c.person_id == person_id]
+        return min(mine, key=lambda c: (c.key.channel, c.key.ref), default=None)
 
     def add(self, conversation: Conversation) -> None:
         _check_group_or_person(conversation)

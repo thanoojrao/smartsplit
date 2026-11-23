@@ -245,3 +245,72 @@ def test_bill_learns_from_answers() -> None:
     summary = world.say(YOU, FLAT, "chips 100, split all")
     assert "Does Sam" not in summary
     assert "Sam skipped: chips" in summary
+
+
+def test_yes_after_no_puts_the_person_back() -> None:
+    # G3: the latest answer wins in both directions
+    world = World()
+    flat(world, YOU, SAM, RAJ)
+    world.say(SAM, FLAT, "I usually don't drink beer pitcher")
+    world.say(RAJ, FLAT, "I usually don't drink beer pitcher")
+    world.say(YOU, FLAT, image=receipt("restaurant_tip"))
+    world.say(RAJ, FLAT, "1 no")
+    world.say(SAM, FLAT, "1 yes")
+    assert "Beer Pitcher ₹950.00: Thanoo, Sam and Raj" in world.say(YOU, FLAT, "details")
+
+
+def test_a_bare_answer_goes_to_the_first_question_still_shown() -> None:
+    world = World()
+    flat(world, YOU, SAM, RAJ)
+    world.say(SAM, FLAT, "I usually don't drink beer pitcher")
+    world.say(RAJ, FLAT, "I usually don't drink beer pitcher")
+    world.say(YOU, FLAT, image=receipt("restaurant_tip"))
+    world.say(SAM, FLAT, "1 no")
+    after = world.say(RAJ, FLAT, "no")
+    assert "Does" not in after
+    assert "Beer Pitcher ₹950.00: Thanoo" in world.say(YOU, FLAT, "details")
+
+
+def test_a_numbered_answer_is_for_the_question_not_the_duplicate_warning() -> None:
+    world = World()
+    flat(world, YOU, SAM)
+    world.say(SAM, FLAT, "I usually don't drink beer pitcher")
+    world.say(SAM, FLAT, "taxi 2047, split all")
+    world.say(SAM, FLAT, "yes")
+    shown = world.say(YOU, FLAT, image=receipt("restaurant_tip"))
+    assert "Looks like Sam already added this" in shown and "1) Does Sam" in shown
+    answered = world.say(YOU, FLAT, "1 no")
+    assert "dropped" not in answered and "Sam: ₹" in answered
+    assert "Toit, ₹2,047.00" in world.say(YOU, FLAT, "yes")
+
+
+def test_no_line_question_needs_names() -> None:
+    world = World()
+    flat(world, YOU, SAM)
+    world.say(YOU, FLAT, "Sam doesn't eat chips")
+    world.say(YOU, FLAT, "yes")
+    world.say(YOU, FLAT, "I don't eat chips")
+    shown = world.say(YOU, FLAT, "chips 100, split all")
+    assert "1) Who shares the chips" in shown
+    assert world.say(YOU, FLAT, "1 no") == 'Say who shares it, like "1: Sam and Raj".'
+    assert "Sam: ₹100.00" in world.say(YOU, FLAT, "1: Sam")
+
+
+def test_an_only_rule_says_whose_line_it_is() -> None:
+    world = World()
+    flat(world, YOU, SAM, RAJ)
+    world.say(YOU, FLAT, "beer pitcher is Sam's")
+    world.say(YOU, FLAT, "yes")
+    shown = world.say(YOU, FLAT, image=receipt("restaurant_tip"))
+    assert "Beer Pitcher is Sam's (group rule)" in shown
+
+
+def test_duplicate_of_a_draft_under_review_in_a_personal_chat() -> None:
+    # C11 across chats: Sam is reviewing it in his own chat, filed into Flat 4B
+    world = World()
+    flat(world, YOU, SAM)
+    world.say(SAM, None, "split with Thanoo", image=receipt("restaurant_tip"))
+    world.say(SAM, None, "add to Flat 4B")
+    assert "Looks like Sam already added this" in world.say(
+        YOU, FLAT, image=receipt("restaurant_tip")
+    )

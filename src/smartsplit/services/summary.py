@@ -100,17 +100,26 @@ class Renderer:
     def _skipped(
         self, draft: BillDraft, resolved: Sequence[ResolvedRule], split: DraftSplit
     ) -> list[str]:
-        """Who a rule kept off a line, with the reason only for group rules and own notes."""
+        """Who a rule kept off a line, with the reason only for group rules and own notes; a
+        line an `only` rule gives to some people says whose it is."""
         who = {a.item_id: set(a.member_ids) for a in split.result.assignments}
         notes: list[str] = []
         for rule in resolved:
-            if rule.input.kind is not RuleKind.EXCLUDE:
-                continue
-            for line in _lines_with_key(draft.lines, rule.input.item_key):
-                if rule.input.member_id not in who.get(line.id, set()):
-                    notes.append(
-                        f"{self.name(rule.input.member_id)} skipped: {line.name}{self._why(rule)}"
-                    )
+            lines = _lines_with_key(draft.lines, rule.input.item_key)
+            if rule.input.kind is RuleKind.EXCLUDE:
+                notes += [
+                    f"{self.name(rule.input.member_id)} skipped: {line.name}{self._why(rule)}"
+                    for line in lines
+                    if rule.input.member_id not in who.get(line.id, set())
+                ]
+            elif rule.input.kind is RuleKind.ONLY:
+                notes += [
+                    f"{line.name} is {self.name(rule.input.member_id)}'s{self._why(rule)}"
+                    for line in lines
+                    if who.get(line.id)
+                    and rule.input.member_id in who[line.id]
+                    and len(who[line.id]) < len(draft.participants)
+                ]
         return notes
 
     def _why(self, rule: ResolvedRule) -> str:

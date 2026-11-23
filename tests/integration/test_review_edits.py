@@ -1,6 +1,7 @@
 """Every review edit on a draft, and the refusals that keep it consistent (C6, G6, SPEC 10.4)."""
 
 from smartsplit.adapters.fakes.llm import FakeCanonicalizer
+from smartsplit.domain.values import GroupScope
 from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, World, flat, receipt
 
 OUTSIDER = 'Priya isn\'t in Flat 4B. "add Priya" with a contact.'
@@ -89,6 +90,11 @@ def test_forgetting_a_wrong_match() -> None:
     assert "New match: OAT MLK 1L → milk?" in shown
     fixed = world.say(YOU, FLAT, "that's not milk")
     assert "New match" not in fixed
+    assert "1. OAT MLK 1L ₹240.00" in world.say(YOU, FLAT, "details")
+    with world.repository.unit_of_work() as uow:
+        group = uow.groups.by_channel_ref(world.message(YOU, FLAT).conversation)
+        assert group is not None
+        assert uow.aliases.for_scope(GroupScope(group.id)) == ()
 
 
 def test_details_and_edits_need_a_draft() -> None:

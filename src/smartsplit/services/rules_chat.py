@@ -123,16 +123,21 @@ def _scope_name(turn: Turn, rule: Rule) -> str:
         case GroupScope(group_id):
             group = turn.uow.groups.get(group_id)
             return group.name if group else "a group"
-        case NotesScope():
+        case NotesScope(owner_id) if owner_id == turn.speaker.id:
             return "your notes"
+        case NotesScope(owner_id):
+            return f"{name_for(turn.uow, _viewer(turn), owner_id)}'s notes"
 
 
 def _visible(turn: Turn, rule: Rule) -> bool:
-    """Your own everywhere rules, your notes, and rules of groups you are in."""
+    """Every rule about you (SPEC 6.2: scope and author included), your notes, and the rules
+    of groups you are in."""
     me = turn.speaker.id
+    if rule.subject_id == me:
+        return True
     match rule.scope:
         case Everywhere():
-            return rule.subject_id == me
+            return False
         case NotesScope(owner_id):
             return owner_id == me
         case GroupScope(group_id):

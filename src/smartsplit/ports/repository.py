@@ -81,7 +81,8 @@ class MembershipStore(Protocol):
 class ConversationStore(Protocol):
     def get(self, key: ConversationKey) -> Conversation | None: ...
     def personal_for(self, person_id: str) -> Conversation | None:
-        """The person's own 1:1 chat with the bot, if they have one (oldest if several)."""
+        """The person's own 1:1 chat with the bot, if they have one (the first by channel and
+        ref if several, so both backends agree)."""
         ...
 
     def add(self, conversation: Conversation) -> None: ...

@@ -159,12 +159,18 @@ def _rules_and_questions(turn: Turn, command: Command, people: Directory) -> Non
 
 
 def _may_act_here(turn: Turn, command: Command) -> bool:
-    """Non-members can join, ask for help, or answer their own "join splits here?"."""
+    """Non-members can join, ask for help, or answer their own "join splits here?"; people
+    who left can still ask for balances."""
     group_id = turn.conversation.group_id or ""
     if turn.speaker.id in current_member_ids(turn.uow, group_id):
         return True
     if isinstance(command, JoinGroup | Help | Unknown | Acknowledge):
         return True
+    was_member = any(
+        m.person_id == turn.speaker.id for m in turn.uow.memberships.for_group(group_id)
+    )
+    if was_member and isinstance(command, ShowBalances):
+        return True  # a leaver's balance stays, and they can still see it (B2)
     return isinstance(command, AnswerPrompt) and any(
         p.kind is PromptKind.JOIN_GROUP for p in answerable(turn)
     )

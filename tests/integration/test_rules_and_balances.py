@@ -1,6 +1,7 @@
 """Rules said in chat, matching shown in the summary, balances and privacy (F11-F16, I1-I4)."""
 
 from smartsplit.adapters.fakes.llm import FakeCanonicalizer
+from smartsplit.domain.values import GroupScope
 from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, World, flat, receipt
 
 GOA = "Goa trip"
@@ -146,3 +147,33 @@ def test_no_dm_for_someone_who_never_messaged_the_bot() -> None:
     world.say(YOU, FLAT, "help")
     world.say(SAM, FLAT, "join")
     assert world.say(SAM, FLAT, "what do I owe") == "Everyone is settled up here."
+
+
+def test_rules_about_you_include_other_peoples_notes() -> None:
+    # SPEC 6.2: every rule with you as subject, scope and author included
+    world = World()
+    flat(world, YOU, SAM)
+    world.say(SAM, None, "Thanoo never shares dessert")
+    world.say(SAM, None, "yes")
+    assert "Thanoo never shares dessert (Sam's notes, set by Sam)" in world.say(
+        YOU, None, "what rules are about me"
+    )
+
+
+def aliases(world: World) -> dict[str, str]:
+    with world.repository.unit_of_work() as uow:
+        group = uow.groups.by_channel_ref(world.message(YOU, FLAT).conversation)
+        assert group is not None
+        return {a.raw_name: a.item_key for a in uow.aliases.for_scope(GroupScope(group.id))}
+
+
+def test_a_fixed_match_is_remembered_for_the_group() -> None:
+    # F12: the alias now points at the item named
+    world = World(canonical=FakeCanonicalizer({"2% MLK GAL": "milk"}))
+    flat(world, YOU, SAM)
+    world.say(YOU, FLAT, "milk 100, split all")
+    world.say(YOU, FLAT, "yes")
+    world.say(YOU, FLAT, image=receipt("grocery_taxed_mix"))
+    assert aliases(world)["2% mlk gal"] == "milk"
+    world.say(YOU, FLAT, "that's not milk, it's yogurt")
+    assert aliases(world)["2% mlk gal"] == "yogurt"

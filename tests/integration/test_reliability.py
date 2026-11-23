@@ -5,7 +5,8 @@ from collections.abc import Sequence
 from smartsplit.domain.commands import AddRule, Command, RecordPayment
 from smartsplit.domain.enums import DraftState, RuleKind
 from smartsplit.ports.llm import InterpretContext, LlmUnavailableError
-from smartsplit.services.text import READ_LATER, TRY_AGAIN
+from smartsplit.services.text import OVER_LIMIT, READ_LATER, TRY_AGAIN
+from smartsplit.services.turn import OrchestratorSettings
 from tests.integration.world import FLAT, SAM, YOU, World, flat, receipt
 
 
@@ -55,6 +56,7 @@ def test_a_photo_with_the_model_down_is_kept_for_later() -> None:
         assert [d.state for d in uow.drafts.for_conversation(key, list(DraftState))] == [
             DraftState.PARSING
         ]
+    assert working.say(YOU, FLAT, "yes") == "There's nothing to save right now."
 
 
 class TrickedInterpreter:
@@ -108,3 +110,30 @@ def test_rules_about_others_need_the_speakers_yes() -> None:
 def test_amounts_from_the_model_are_bounded() -> None:
     world = World(interpreter=TrickedInterpreter(RecordPayment(-500, payee="Sam")))
     assert "Amounts must be more than 0" in world.say(YOU, None, "paid Sam -500")
+
+
+def test_a_retried_photo_returns_the_summary_again() -> None:
+    # K5: the summary is added to the stored replies after the receipt is read
+    world = World()
+    flat(world, YOU, SAM)
+    photo = world.message(YOU, FLAT, image=receipt("restaurant_tip"), message_id="wamid.p")
+    first = world.send(photo)
+    assert "Toit, ₹2,047.00" in first
+    assert world.send(photo) == first
+    assert world.parser.calls == 1
+
+
+def test_over_the_daily_limit() -> None:
+    # SPEC 12.2: the bot says so, also for photos; group chatter just gets no reply
+    world = World(settings=OrchestratorSettings(llm_calls_per_person_per_day=3))
+    world.say(YOU, None, "help")
+    world.say(YOU, FLAT, "help")
+    world.say(SAM, None, "help")
+    world.say(SAM, FLAT, "join")
+    world.say(YOU, FLAT, "balances")
+    assert world.say(YOU, FLAT, "balances") == OVER_LIMIT
+    assert world.say(YOU, FLAT, image=receipt("restaurant_tip")) == OVER_LIMIT
+    assert world.parser.calls == 0
+    world.say(SAM, FLAT, "I usually don't drink beer pitcher")
+    world.say(SAM, FLAT, "taxi 100, split all")
+    assert world.say(YOU, FLAT, "lol", addressed=False) == ""

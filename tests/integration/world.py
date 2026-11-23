@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from itertools import count
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from smartsplit.adapters.fakes.images import InMemoryImageStore
 from smartsplit.adapters.fakes.interpreter import KeywordInterpreter
@@ -25,6 +26,8 @@ from smartsplit.services.orchestrator import Orchestrator
 from smartsplit.services.turn import OrchestratorSettings
 
 T0 = datetime(2026, 11, 21, 12, 0, tzinfo=UTC)
+_MESSAGE_IDS = count()
+"""Shared by every World, so two bots on one database never reuse a message id."""
 RECEIPTS = Path(__file__).parent.parent / "fixtures" / "receipts"
 
 
@@ -60,7 +63,6 @@ class World:
     """None: the keyword fake, which canonicalizes with `canonical`."""
     settings: OrchestratorSettings = field(default_factory=OrchestratorSettings)
     last: list[OutboundMessage] = field(default_factory=list)
-    _ids: "count[int]" = field(default_factory=count)
 
     def __post_init__(self) -> None:
         ids = SequentialIds()
@@ -90,7 +92,7 @@ class World:
     ) -> InboundMessage:
         group = chat is not None
         return InboundMessage(
-            message_id=message_id or f"m{next(self._ids)}",
+            message_id=message_id or f"m{next(_MESSAGE_IDS)}",
             conversation=ConversationKey("test", chat or f"dm:{who.phone}"),
             conversation_kind=ConversationKind.GROUP if group else ConversationKind.PERSONAL,
             conversation_name=chat,
@@ -123,6 +125,14 @@ class World:
         """All reply texts, joined; `chat` None is the speaker's personal chat."""
         message = self.message(who, chat, text, image=image, contact=contact, addressed=addressed)
         return self.send(message)
+
+    def model_calls(self, who: Someone) -> int:
+        """Model calls counted for this person today (SPEC 12.2)."""
+        with self.repository.unit_of_work() as uow:
+            person = uow.people.by_phone(who.phone)
+            today = self.clock.now().astimezone(ZoneInfo(self.settings.timezone)).date()
+            usage = uow.llm_usage.get(person.id, today) if person else None
+            return usage.calls if usage else 0
 
     def in_chat(self, chat: str | None, who: Someone | None = None) -> str:
         """Only the texts of the last replies that went to one chat."""

@@ -62,9 +62,11 @@ def _pair_here(turn: Turn, group_id: str, other: str) -> str:
 
 
 def send_privately(turn: Turn, text: str) -> None:
-    """Wider answers go to the asker's personal chat, if they have one (10.7)."""
+    """Wider answers go to the asker's personal chat, never to the group (10.7)."""
     if turn.direct(turn.speaker.id, text):
         turn.reply("I sent you the rest in a DM.")
+    else:
+        turn.reply("Message me 1:1 and I'll send you the rest there.")
 
 
 def _group_named(turn: Turn, name: str) -> str:

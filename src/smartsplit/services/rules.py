@@ -11,34 +11,6 @@ from smartsplit.services.errors import NotAllowedError
 from smartsplit.services.scopes import stated_rule_scope
 
 
-def add_stated_rule(
-    uow: UnitOfWork,
-    *,
-    rule_id: str,
-    conversation_kind: ConversationKind,
-    group_id: str | None,
-    subject_id: str,
-    item: str,
-    kind: RuleKind,
-    author_id: str,
-    now: datetime,
-) -> Rule:
-    """Store a rule someone said, replacing any rule for the same scope, subject and item."""
-    rule = propose_stated_rule(
-        uow,
-        rule_id=rule_id,
-        conversation_kind=conversation_kind,
-        group_id=group_id,
-        subject_id=subject_id,
-        item=item,
-        kind=kind,
-        author_id=author_id,
-        now=now,
-    )
-    put_rule(uow, rule)
-    return rule
-
-
 def propose_stated_rule(
     uow: UnitOfWork,
     *,
@@ -74,34 +46,6 @@ def propose_stated_rule(
 def put_rule(uow: UnitOfWork, rule: Rule) -> None:
     uow.rules.put(rule)
     uow.items.ensure(rule.item_key)
-
-
-def delete_rule(
-    uow: UnitOfWork,
-    *,
-    conversation_kind: ConversationKind,
-    group_id: str | None,
-    subject_id: str,
-    item: str,
-    by: str,
-    now: datetime,
-) -> Rule | None:
-    """Drop the rule for (subject, item) in the scope of this chat, as in "Raj drinks milk now".
-
-    Returns the deleted rule, or None if there was none.
-    """
-    rule = find_stated_rule(
-        uow,
-        conversation_kind=conversation_kind,
-        group_id=group_id,
-        subject_id=subject_id,
-        item=item,
-        by=by,
-        now=now,
-    )
-    if rule is not None:
-        uow.rules.delete(rule.id)
-    return rule
 
 
 def find_stated_rule(

@@ -17,7 +17,12 @@ from smartsplit.domain.values import (
 from smartsplit.engine import ItemInput, resolve_rules, split_receipt
 from smartsplit.ports.repository import UnitOfWork
 from smartsplit.services.errors import NotAllowedError
-from smartsplit.services.rules import add_stated_rule, delete_rule, is_current_member
+from smartsplit.services.rules import (
+    find_stated_rule,
+    is_current_member,
+    propose_stated_rule,
+    put_rule,
+)
 from smartsplit.services.scopes import local_scope_for, stated_rule_scope
 
 T0 = datetime(2026, 11, 1, tzinfo=UTC)
@@ -65,7 +70,7 @@ def add(
     rule_id: str = "r1",
     minutes: int = 0,
 ) -> Rule:
-    return add_stated_rule(
+    rule = propose_stated_rule(
         uow,
         rule_id=rule_id,
         conversation_kind=kind_of_chat,
@@ -76,12 +81,14 @@ def add(
         author_id=author,
         now=LATER + timedelta(minutes=minutes),
     )
+    put_rule(uow, rule)
+    return rule
 
 
 def delete(
     uow: UnitOfWork, kind_of_chat: ConversationKind, by: str, item: str = "milk"
 ) -> Rule | None:
-    return delete_rule(
+    rule = find_stated_rule(
         uow,
         conversation_kind=kind_of_chat,
         group_id="flat" if kind_of_chat is GROUP else None,
@@ -90,6 +97,9 @@ def delete(
         by=by,
         now=LATER,
     )
+    if rule is not None:
+        uow.rules.delete(rule.id)
+    return rule
 
 
 def test_a_stated_rule_is_stored_normalized_and_its_item_is_known() -> None:

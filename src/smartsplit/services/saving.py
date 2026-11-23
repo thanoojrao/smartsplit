@@ -66,7 +66,12 @@ def save_bill(turn: Turn, draft: BillDraft, split: DraftSplit) -> Bill:
             else None
         )
         if chat is not None and chat.key != turn.conversation.key:
-            turn.post(chat, f"{turn.speaker.display_name} added a bill. {saved}\n{balances}")
+            shares = "\n".join(
+                f"{name_for(turn.uow, None, share.person_id)}: {money(share.cents, currency)}"
+                for share in bill.shares
+            )
+            added = f"{turn.speaker.display_name} added a bill. {saved}"
+            turn.post(chat, f"{added}\n{shares}\n{balances}")
         turn.reply(f"{saved}\n{balances}")
     else:
         turn.reply(f"{saved}\n{overall_text(turn.uow, turn.speaker.id, currency)}")

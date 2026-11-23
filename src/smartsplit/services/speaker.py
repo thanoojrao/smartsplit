@@ -3,7 +3,7 @@
 from dataclasses import dataclass, replace
 from datetime import datetime
 
-from smartsplit.domain.enums import ConversationKind, PromptStatus
+from smartsplit.domain.enums import ConversationKind
 from smartsplit.domain.messages import InboundMessage
 from smartsplit.domain.model import ChatIdentity, Conversation, Group, Membership, Person
 from smartsplit.domain.phone import normalize_phone
@@ -110,11 +110,6 @@ def current_member_ids(uow: UnitOfWork, group_id: str) -> list[str]:
 
 def next_position(uow: UnitOfWork, group_id: str) -> int:
     return max((m.position for m in uow.memberships.for_group(group_id)), default=0) + 1
-
-
-def waits_for_an_answer(uow: UnitOfWork, conversation: Conversation) -> bool:
-    """Open prompts in this chat: then an unaddressed message may be an answer (SPEC 10.2)."""
-    return bool(uow.prompts.for_conversation(conversation.key, [PromptStatus.OPEN]))
 
 
 def addressed(message: InboundMessage) -> bool:

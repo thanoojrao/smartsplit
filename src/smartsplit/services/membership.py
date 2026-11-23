@@ -10,7 +10,8 @@ from smartsplit.domain.enums import DraftState, PromptKind, PromptStatus
 from smartsplit.domain.model import BillDraft, Membership, Nickname, Person
 from smartsplit.domain.phone import mask_phone, normalize_phone
 from smartsplit.domain.prompts import EngineQuestionPayload, JoinGroupPayload
-from smartsplit.services.drafting import ACTIVE, present
+from smartsplit.domain.values import GroupContext
+from smartsplit.services.drafting import present
 from smartsplit.services.errors import NeedsClarificationError, NotAllowedError
 from smartsplit.services.lifecycle import finish, start_next
 from smartsplit.services.names import Directory
@@ -100,17 +101,16 @@ def member_left(turn: Turn, person_id: str) -> None:
     turn.uow.memberships.end(group_id, person_id, turn.now)
     name = name_for(turn.uow, None, person_id)
     turn.reply(f"{name} left {turn.conversation.name}. Their balance stays until it's settled.")
-    for draft in turn.uow.drafts.for_conversation(
-        turn.conversation.key, (*ACTIVE, DraftState.QUEUED)
-    ):
+    for draft in turn.uow.drafts.open_in_context(GroupContext(group_id)):
         _leave_draft(turn, draft, person_id)
 
 
 def _leave_draft(turn: Turn, draft: BillDraft, person_id: str) -> None:
     """The adder leaving cancels the draft; anyone else is taken out and it is re-split."""
+    here = draft.conversation == turn.conversation.key
     if draft.added_by == person_id:
         finish(turn, draft, DraftState.CANCELLED)
-        turn.reply(f"The {draft.description} bill was cancelled: whoever added it left.")
+        _tell(turn, draft, f"The {draft.description} bill was cancelled: whoever added it left.")
         start_next(turn, draft)
         return
     if person_id not in draft.participants:
@@ -127,8 +127,27 @@ def _leave_draft(turn: Turn, draft: BillDraft, person_id: str) -> None:
         draft, participants=tuple(p for p in draft.participants if p != person_id), payer_id=payer
     )
     changed = save(turn, draft, left)
-    if changed.state is DraftState.REVIEWING:
+    if changed.state is not DraftState.REVIEWING:
+        return
+    if here:
         turn.reply(present(turn, changed))
+    else:
+        name = name_for(turn.uow, None, person_id)
+        _tell(
+            turn,
+            draft,
+            f"{name} left {turn.conversation.name}, so they're out of {draft.description}.",
+        )
+
+
+def _tell(turn: Turn, draft: BillDraft, text: str) -> None:
+    """Say it in the draft's own chat, which for a filed bill is someone's personal chat."""
+    if draft.conversation == turn.conversation.key:
+        turn.reply(text)
+        return
+    chat = turn.uow.conversations.get(draft.conversation)
+    if chat is not None:
+        turn.post(chat, text)
 
 
 def set_nickname(turn: Turn, person_id: str, nickname: str) -> None:
@@ -144,11 +163,13 @@ def _nickname(turn: Turn, person_id: str, name: str) -> None:
 
 
 def correct_number(turn: Turn, directory: Directory, said: str, phone: str) -> None:
-    """Only for someone who has never used the bot: after that the number is theirs (A12)."""
+    """Only by whoever gave the number, and only until that person uses the bot (A12)."""
     person_id = directory.resolve(said, turn.settings.default_region)
     person = turn.uow.people.get(person_id)
     if person is None or person.has_used_bot:
         raise NotAllowedError("Their number came from their own chat, so it can't be changed.")
+    if person.phone_added_by != turn.speaker.id:
+        raise NotAllowedError("Only whoever gave me their number can correct it.")
     try:
         number = normalize_phone(phone, turn.settings.default_region)
     except ValueError as error:

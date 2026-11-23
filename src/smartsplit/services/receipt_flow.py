@@ -19,7 +19,7 @@ from smartsplit.domain.prompts import (
 from smartsplit.domain.values import GroupContext, PersonalContext
 from smartsplit.engine import DuplicateCandidate, find_likely_duplicate
 from smartsplit.ports.llm import ParsedReceipt
-from smartsplit.services.drafting import ACTIVE, Who, active_draft, new_draft, present
+from smartsplit.services.drafting import Who, active_draft, new_draft, present
 from smartsplit.services.errors import NotAllowedError
 from smartsplit.services.lifecycle import ask_who_with, finish, start_next
 from smartsplit.services.matching import MatchedLines, remember_matches
@@ -136,7 +136,8 @@ def parse_failed(turn: Turn, draft: BillDraft) -> None:
 
 
 def _duplicate_warning(turn: Turn, draft: BillDraft) -> list[str]:
-    """A same-total bill or open draft in the same place within a few days (C11)."""
+    """A same-total bill or open draft in the same group (or between the same people) within a
+    few days, wherever that draft is being reviewed (C11)."""
     uow = turn.uow
     bills = uow.bills.for_context(draft.context)
     reversed_ids = {b.reverses_id for b in bills if b.reverses_id}
@@ -151,7 +152,7 @@ def _duplicate_warning(turn: Turn, draft: BillDraft) -> list[str]:
         DuplicateCandidate(
             d.id, True, d.context, d.total_cents, d.purchased_at, frozenset(d.participants)
         )
-        for d in uow.drafts.for_conversation(draft.conversation, (*ACTIVE, DraftState.QUEUED))
+        for d in uow.drafts.open_in_context(draft.context)
         if d.id != draft.id and d.lines
     ]
     found = find_likely_duplicate(

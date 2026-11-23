@@ -1,6 +1,6 @@
 """Personal splits in a 1:1 chat with the bot (use cases D1-D5)."""
 
-from tests.integration.world import FLAT, RAJ, SAM, YOU, World, flat, receipt
+from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, Someone, World, flat, receipt
 
 
 def known(world: World) -> None:
@@ -85,8 +85,45 @@ def test_filing_needs_membership() -> None:
     assert world.say(YOU, None, "add to Flat 4B") == "You're not in a group called Flat 4B."
 
 
-def test_only_the_adder_cancels_a_personal_split() -> None:
+def test_cancelling_a_personal_split() -> None:
     world = World()
     known(world)
     world.say(YOU, None, "taxi 600 with Sam")
     assert world.say(YOU, None, "cancel") == "Cancelled the taxi bill. Nothing was saved."
+
+
+def test_the_photo_waits_while_the_bot_asks_who_someone_is() -> None:
+    # A11 with a photo: the receipt isn't lost while the contact is asked for
+    world = World()
+    world.say(YOU, None, "help")
+    asked = world.say(YOU, None, "split with Meera", image=receipt("restaurant_tip"))
+    assert asked == "I don't know Meera yet. Send their contact card or number."
+    resumed = world.say(YOU, None, "+91 98765 00009")
+    assert "Toit, ₹2,047.00" in resumed and "Meera: ₹1,023.50" in resumed
+
+
+def test_moving_on_drops_an_unanswered_which_person() -> None:
+    world = World()
+    other_sam = Someone("Sam", "+919876500012")
+    flat(world, YOU, SAM)
+    world.say(other_sam, None, "help")
+    world.say(YOU, "Goa trip", "help")
+    world.say(other_sam, "Goa trip", "join")
+    assert world.say(YOU, None, "chai 100 with Sam").startswith("Which Sam?")
+    world.say(YOU, None, "add Priya +919876500004")
+    world.say(YOU, None, "pizza 600 with Priya")
+    assert "Saved: pizza" in world.say(YOU, None, "yes")
+
+
+def test_no_dm_without_a_personal_chat() -> None:
+    # SPEC 10.7: the wider answer never goes to the group, even with nowhere else to send it
+    world = World()
+    flat(world, YOU, SAM)
+    world.say(YOU, "Goa trip", "help")
+    world.say(PRIYA, "Goa trip", "join")
+    world.say(PRIYA, FLAT, "join")
+    world.say(YOU, "Goa trip", "boat 300, split all")
+    world.say(YOU, "Goa trip", "yes")
+    assert world.say(PRIYA, FLAT, "balances") == (
+        "Everyone is settled up here.\nMessage me 1:1 and I'll send you the rest there."
+    )
