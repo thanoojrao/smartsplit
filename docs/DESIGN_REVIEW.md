@@ -77,7 +77,7 @@ and the outcome goes into SPEC/USE_CASES/DECISIONS.
 | R11 | Adding by number reveals the stored name ("Added Priya Sharma"). | Show the adder only the name they gave. |
 | R12 | Forced `tool_choice` may not be supported on the configured model. | Verify against current API docs in M5/M6 before relying on it. |
 
-## Part 4 — Engineering setup (E2–E8, E10, E11 .env.example, E14 done 2026-11-23; E1, E9, E13 await the user; E11 config/pytest-socket and E12 in their milestones)
+## Part 4 — Engineering setup (E1–E10, E11 .env.example, E13, E14 done 2026-11-23; E11 config/pytest-socket and E12 in their milestones)
 
 | # | Problem | Fix | When |
 |---|---|---|---|

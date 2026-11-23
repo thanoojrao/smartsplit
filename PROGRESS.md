@@ -8,8 +8,7 @@ PAUSED before building, finishing pre-build setup with the user. Done so far: vi
 SPEC rewrite, USE_CASES rewrite, four independent design reviews (`docs/DESIGN_REVIEW.md`), all
 P1–P24 product answers, and every review fix applied to SPEC/USE_CASES/DECISIONS.
 Remaining, in order:
-1. ~~Engineering setup fixes E3–E8, E10, E14~~ (done). E1, E9, E13 wait for the user's OK
-   (DECISIONS "Open").
+1. ~~Engineering setup fixes~~ (done, incl. CI, compaction hook, branch rule).
 2. Step 4 of the plan: agree data shapes and contracts with the user (domain model, ports, messages).
 3. Then start M1.
 
