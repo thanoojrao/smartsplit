@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from smartsplit.adapters.fakes.llm import FakeReceiptParser
-from smartsplit.ports.llm import ParsedLine, ReceiptUnreadableError
+from smartsplit.ports.llm import NotAReceipt, ParsedLine, ReceiptUnreadableError
 from smartsplit.services.receipt_output import receipt_from_model_output
 
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "receipts"
@@ -19,7 +19,7 @@ def recorded(name: str) -> object:
 
 def parse(name: str, currency: str = "INR") -> object:
     return FakeReceiptParser(max_lines=150).parse(
-        (FIXTURES / f"{name}.json").read_bytes(), "image/jpeg", currency
+        (FIXTURES / f"{name}.json").read_bytes(), "image/jpeg", currency, 30
     )
 
 
@@ -189,5 +189,6 @@ def test_the_fake_parser_reads_recorded_output_and_refuses_photos() -> None:
         recorded("restaurant_tip"), "INR", 150
     )
     with pytest.raises(ReceiptUnreadableError):
-        parser.parse(b"\xff\xd8\xff not json", "image/jpeg", "INR")
+        parser.parse(b"\xff\xd8\xff not json", "image/jpeg", "INR", 30)
     assert parser.calls == 1
+    assert isinstance(parser.parse(b'{"is_receipt": false}', "image/jpeg", "INR", 30), NotAReceipt)

@@ -8,7 +8,6 @@ from typer.testing import CliRunner
 
 from smartsplit.entrypoints.api.server import from_environment
 from smartsplit.entrypoints.cli import app
-from tests.integration.world import RECEIPTS
 
 pytestmark = pytest.mark.db
 
@@ -25,34 +24,21 @@ def environment(
 
 
 def test_the_console_script_runs_the_demo(environment: None) -> None:
+    # K1: no key; the real tools and database; Raj's rule keeps him off the milk
+    result = CliRunner().invoke(app, ["demo"])
+    assert result.exit_code == 0, result.output
+    assert "Raj skipped: 2% MLK GAL" in result.output
+    assert "Waiting for Sam to say yes." in result.output
+    assert "  Recorded." in result.output
+    assert "[to Alex]" in result.output
+
+
+def test_operator_commands_need_no_key_but_talking_does(environment: None) -> None:
     runner = CliRunner()
-
-    def run(*args: str) -> str:
-        result = runner.invoke(app, list(args))
-        assert result.exit_code == 0, result.output
-        return result.output
-
-    # the README walkthrough: Raj's rule keeps him off the milk
-    run("person", "add", "Alex", "+919876500001")
-    run("person", "add", "Sam", "+919876500002")
-    run("person", "add", "Raj", "+919876500003")
-    run("group", "create", "Flat 4B", "--as", "Alex")
-    run("member", "add", "Flat 4B", "Sam")
-    run("member", "add", "Flat 4B", "Raj")
-    run("say", "Raj doesn't drink milk", "--as", "Raj", "--in", "Flat 4B")
-    receipt = str(RECEIPTS / "grocery_taxed_mix.json")
-    shown = run("receipt", "add", receipt, "--as", "Alex", "--in", "Flat 4B")
-    assert "Raj skipped: 2% MLK GAL (group rule)" in shown
-    details = run("say", "details", "--as", "Alex", "--in", "Flat 4B")
-    assert "1. 2% MLK GAL ₹120.00: Alex and Sam" in details
-    assert "Sam owes Alex" in run("say", "yes", "--as", "Alex", "--in", "Flat 4B")
-    assert "Alex: you owe" in run("balances", "--as", "Sam")
-
-
-def test_live_needs_a_key(environment: None) -> None:
-    result = CliRunner().invoke(app, ["--live", "tick"])
-    assert result.exit_code != 0
-    assert "--live needs ANTHROPIC_API_KEY" in result.output
+    assert runner.invoke(app, ["tick"]).exit_code == 0
+    said = runner.invoke(app, ["person", "add", "Alex", "+919876500001"])
+    assert said.exit_code != 0
+    assert "This needs ANTHROPIC_API_KEY" in said.output
 
 
 def test_the_api_factory(environment: None, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -61,7 +47,7 @@ def test_the_api_factory(environment: None, monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("SMARTSPLIT_API_TOKEN", "t0ken")
     with pytest.raises(SystemExit, match="ANTHROPIC_API_KEY"):
         from_environment()
-    monkeypatch.setenv("SMARTSPLIT_OFFLINE", "1")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "not-a-real-key")
     api = TestClient(from_environment())
     assert api.get("/healthz").json() == {"status": "ok"}
     assert api.post("/v1/tick", headers={"Authorization": "Bearer t0ken"}).json() == []

@@ -2,13 +2,23 @@
 
 from datetime import timedelta
 
-from smartsplit.adapters.fakes.agent import calls, say
-from smartsplit.ports.agent import AgentRequest, ModelStep
+from smartsplit.adapters.fakes.agent import call, calls, say
 from smartsplit.domain.enums import DraftState
 from smartsplit.domain.messages import ContactAttachment
 from smartsplit.domain.values import GroupContext
-from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, Someone, World, call, calling
-from tests.integration.world import flat, receipt
+from smartsplit.ports.agent import AgentRequest, ModelStep
+from tests.integration.world import (
+    FLAT,
+    PRIYA,
+    RAJ,
+    SAM,
+    YOU,
+    Someone,
+    World,
+    calling,
+    flat,
+    receipt,
+)
 
 SAVE = calling("confirm_draft", draft="@D")
 
@@ -149,6 +159,7 @@ def test_two_sams_the_answer_becomes_a_nickname_and_the_draft_goes_on() -> None:
         say("Which Sam: Flat 4B or Goa trip?"),
     )
     matches = world.agent.requests[-2].history[-1][1][0].data["matches"]
+    assert isinstance(matches, list)
     assert [m["known_from"] for m in matches] == [[FLAT], ["Goa trip"]]
     shown = world.say(YOU, None, "the Goa one", call("find_person", name="Sam"), _pick_goa_sam)
     assert "Sam: ₹300.00" in shown

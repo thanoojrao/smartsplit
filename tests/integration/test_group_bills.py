@@ -3,9 +3,9 @@
 from dataclasses import replace
 from datetime import timedelta
 
-from smartsplit.adapters.fakes.agent import say
+from smartsplit.adapters.fakes.agent import call, say
 from smartsplit.domain.enums import DraftState
-from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, World, call, calling, flat, receipt
+from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, World, calling, flat, receipt
 
 SAVE = calling("confirm_draft", draft="@D")
 
@@ -148,7 +148,7 @@ def test_review_edits_recompute_and_line_numbers_never_shift() -> None:
     shown = edit(world, {"type": "SetLineAmount", "line": "L2", "amount": "120"})
     after = world.drafts(FLAT)[0]
     assert first.id not in {x.id for x in after.lines}
-    assert [x.position for x in after.lines][0] == 2
+    assert after.lines[0].position == 2
     assert next(x for x in after.lines if x.id == second.id).amount_cents == 12000
     edit(world, {"type": "AddLine", "name": "water", "amount": "40"})
     added = world.drafts(FLAT)[0].lines[-1]

@@ -31,7 +31,9 @@ def test_defaults_and_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.database_url.get_secret_value().endswith("@x/y")
     assert settings.fuzzy_threshold == 85
     assert settings.anthropic_api_key is None
-    assert settings.invite_template.endswith("https://wa.me/<bot-number>?text=hi")
+    assert settings.bot_link == "https://wa.me/<bot-number>?text=hi"
+    assert (settings.llm_timeout_seconds, settings.message_seconds) == (30, 60)
+    assert (settings.llm_calls_per_person_per_day, settings.llm_calls_per_day) == (150, 3000)
 
 
 def test_an_empty_key_in_a_copied_env_file_counts_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:

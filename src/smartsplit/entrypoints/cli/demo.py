@@ -61,7 +61,7 @@ class Line:
 
 def _paid_alex(request: AgentRequest) -> ModelStep:
     return call(
-        "record_payment", from_person="me", to_person=handle_of(request, "Alex"), amount="300"
+        "record_payment", from_person="me", to_person=handle_of(request, "Alex"), amount="170"
     )
 
 
@@ -99,7 +99,7 @@ DEMO: tuple[Line, ...] = (
     Line(
         "Sam",
         "personal",
-        "I paid Alex 300",
+        "I paid Alex 170",
         (_paid_alex, say("Just confirm and I'll record it.")),
         note="Sam records a payment; it waits for his yes",
     ),

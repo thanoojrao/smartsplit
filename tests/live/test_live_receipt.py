@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from smartsplit.adapters.llm.receipts import AnthropicReceiptParser, anthropic_client
+from smartsplit.ports.llm import ParsedReceipt
 from tests.live.keys import live_key
 
 RECEIPT = Path(__file__).parents[1] / "fixtures" / "receipts" / "live_cafe_receipt.png"
@@ -26,8 +27,9 @@ def test_reads_the_cafe_receipt() -> None:
         max_lines=150,
     )
 
-    receipt = parser.parse(RECEIPT.read_bytes(), "image/png", "INR")
+    receipt = parser.parse(RECEIPT.read_bytes(), "image/png", "INR", 120)
 
+    assert isinstance(receipt, ParsedReceipt)
     assert [(line.quantity, line.amount_cents) for line in receipt.lines] == [
         (2, 36000),
         (1, 22000),

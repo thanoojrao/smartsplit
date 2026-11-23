@@ -6,8 +6,9 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from smartsplit.adapters.fakes.agent import call
 from smartsplit.entrypoints.api import create_app
-from tests.integration.world import FLAT, RAJ, SAM, YOU, World, flat, receipt
+from tests.integration.world import FLAT, RAJ, SAM, YOU, World, calling, flat, receipt
 
 TOKEN = "s3cret-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -66,8 +67,10 @@ def test_a_message_goes_through_the_orchestrator_and_retries_return_the_same() -
 
 
 def test_a_receipt_photo_inline() -> None:
-    api = client(World())
+    world = World()
+    api = client(world)
     api.post("/v1/messages", headers=AUTH, json=message("help", message_id="m0"))
+    world.agent.queue(call("start_receipt"))
     data = base64.b64encode(receipt("restaurant_tip").data).decode()
     photo = message(message_id="m1", image={"mime_type": "image/jpeg", "data_base64": data})
     replies = api.post("/v1/messages", headers=AUTH, json=photo).json()
@@ -96,9 +99,9 @@ def ids(world: World) -> tuple[str, str]:
 def test_operator_reads() -> None:
     world = World()
     flat(world, YOU, SAM, RAJ)
-    world.say(YOU, FLAT, "rent 3000, split all")
-    world.say(YOU, FLAT, "yes")
-    world.say(RAJ, FLAT, "I don't drink milk")
+    world.say(YOU, FLAT, "rent", call("add_manual_bill", description="rent", amount="3000"))
+    world.say(YOU, FLAT, "yes", calling("confirm_draft", draft="@D"))
+    world.say(RAJ, FLAT, "no milk", call("add_rule", subject="me", item="milk", kind="exclude"))
     group_id, you_id = ids(world)
     api = client(world)
     group = api.get(f"/v1/groups/{group_id}/balances", headers=AUTH).json()
@@ -165,8 +168,10 @@ def test_bodies_are_size_limited_before_they_are_read() -> None:
 def test_rules_in_someones_notes_name_the_owner() -> None:
     world = World()
     flat(world, YOU, SAM)
-    world.say(YOU, None, "Sam never shares dessert")
-    world.say(YOU, None, "yes")
+    world.say(
+        YOU, None, "Sam never", calling("add_rule", subject="@Sam", item="dessert", kind="exclude")
+    )
+    world.say(YOU, None, "yes", calling("confirm_pending", action="@A"))
     with world.repository.unit_of_work() as uow:
         sam = uow.people.by_phone(SAM.phone)
         assert sam is not None

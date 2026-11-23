@@ -171,22 +171,20 @@ def test_ending_a_membership_that_isnt_current_raises(repo: Repository) -> None:
 
 
 def test_conversations(repo: Repository) -> None:
-    chat = Conversation(CHAT, ConversationKind.GROUP, "Flat 4B", "g1", None, ())
+    chat = Conversation(CHAT, ConversationKind.GROUP, "Flat 4B", "g1", None)
     with repo.unit_of_work() as uow:
         uow.conversations.add(chat)
-        uow.conversations.update(replace(chat, last_listed_bill_ids=("b2", "b1")))
+        uow.conversations.update(replace(chat, name="Flat 4C"))
 
     with repo.unit_of_work() as uow:
-        assert uow.conversations.get(CHAT) == replace(chat, last_listed_bill_ids=("b2", "b1"))
+        assert uow.conversations.get(CHAT) == replace(chat, name="Flat 4C")
         assert uow.conversations.get(ConversationKey("cli", "x")) is None
 
 
 def test_a_persons_own_chat(repo: Repository) -> None:
-    mine = Conversation(
-        ConversationKey("cli", "sam"), ConversationKind.PERSONAL, None, None, "sam", ()
-    )
+    mine = Conversation(ConversationKey("cli", "sam"), ConversationKind.PERSONAL, None, None, "sam")
     with repo.unit_of_work() as uow:
-        uow.conversations.add(Conversation(CHAT, ConversationKind.GROUP, "Flat 4B", "g1", None, ()))
+        uow.conversations.add(Conversation(CHAT, ConversationKind.GROUP, "Flat 4B", "g1", None))
         uow.conversations.add(mine)
 
     with repo.unit_of_work() as uow:

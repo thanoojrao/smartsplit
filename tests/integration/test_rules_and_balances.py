@@ -1,9 +1,10 @@
 """Rules, balances, history, reminders and privacy (use cases F1-F16, I1-I4, J1-J5, L14)."""
 
+from smartsplit.adapters.fakes.agent import call
 from smartsplit.adapters.fakes.llm import FakeCanonicalizer
 from smartsplit.domain.values import Everywhere, GroupScope, NotesScope
 from smartsplit.ports.agent import ToolResult
-from tests.integration.world import FLAT, RAJ, SAM, YOU, World, call, calling, flat, receipt
+from tests.integration.world import FLAT, RAJ, SAM, YOU, World, calling, flat, receipt
 
 
 def result(world: World) -> ToolResult:

@@ -112,10 +112,11 @@ def test_the_partial_unique_indexes_exist(clean_pg: Engine) -> None:
         defs: dict[str, str] = {row.indexname: row.indexdef for row in rows}
     assert "UNIQUE" in defs["one_current_membership"]
     assert "WHERE (left_at IS NULL)" in defs["one_current_membership"]
-    assert "UNIQUE" in defs["one_active_draft"]
-    for state in ("awaiting_people", "parsing", "reviewing"):
-        assert state in defs["one_active_draft"]
-    assert "queued" not in defs["one_active_draft"]
+    active = defs["one_active_draft_per_adder"]
+    assert "UNIQUE" in active and "added_by" in active
+    for state in ("awaiting_people", "reviewing"):
+        assert state in active
+    assert "queued" not in active and "parsing" not in active
     assert "WHERE (sent_at IS NULL)" in defs["notifications_unsent"]
 
 
@@ -144,7 +145,7 @@ def test_times_come_back_in_utc_whatever_the_server_timezone(pg_url: str, clean_
 def test_a_conversation_belongs_to_a_group_or_a_person(
     repo: Repository, group_id: str | None, person_id: str | None
 ) -> None:
-    chat = Conversation(CHAT, ConversationKind.GROUP, "Flat 4B", group_id, person_id, ())
+    chat = Conversation(CHAT, ConversationKind.GROUP, "Flat 4B", group_id, person_id)
     with pytest.raises(InvalidRecordError), repo.unit_of_work() as uow:
         uow.conversations.add(chat)
 

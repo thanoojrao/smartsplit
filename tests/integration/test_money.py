@@ -3,10 +3,10 @@ H1-H5, I5-I11, L2, L7, L12; SPEC 8.4)."""
 
 from datetime import timedelta
 
-from smartsplit.adapters.fakes.agent import say
+from smartsplit.adapters.fakes.agent import call, say
 from smartsplit.domain.enums import PromptStatus
 from smartsplit.ports.agent import ToolResult
-from tests.integration.world import FLAT, RAJ, SAM, YOU, Someone, World, call, calling, flat
+from tests.integration.world import FLAT, RAJ, SAM, YOU, Someone, World, calling, flat
 
 YES = calling("confirm_pending", action="@A")
 
@@ -53,7 +53,7 @@ def test_the_same_turn_cannot_confirm_its_own_proposal() -> None:
         calling("confirm_pending", action="@A"),
     )
     refused = result(world)
-    assert getattr(refused, "error") == (
+    assert refused.error == (
         "That was only just proposed: the person asked has to say yes in a later message."
     )
     person_id = world.person(SAM).id

@@ -3,7 +3,7 @@ K5, K7)."""
 
 from datetime import timedelta
 
-from smartsplit.adapters.fakes.agent import ScriptedAgent, say
+from smartsplit.adapters.fakes.agent import ScriptedAgent, call, say
 from smartsplit.adapters.fakes.system import FixedClock
 from smartsplit.domain.enums import DraftState, PromptStatus
 from smartsplit.domain.model import INSTALL_COUNTER
@@ -11,7 +11,7 @@ from smartsplit.ports.agent import AgentRequest, ModelStep, ToolResult
 from smartsplit.ports.llm import LlmUnavailableError
 from smartsplit.services.text import OVER_LIMIT, TRY_AGAIN
 from smartsplit.services.turn import OrchestratorSettings
-from tests.integration.world import FLAT, SAM, T0, YOU, World, call, calling, flat, receipt
+from tests.integration.world import FLAT, SAM, T0, YOU, World, calling, flat, receipt
 
 
 def results(world: World) -> list[ToolResult]:

@@ -2,10 +2,10 @@
 
 from dataclasses import replace
 
-from smartsplit.adapters.fakes.agent import say
+from smartsplit.adapters.fakes.agent import call, say
 from smartsplit.domain.enums import DraftState
 from smartsplit.domain.messages import ChatEvent, ContactAttachment
-from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, World, call, calling, flat, receipt
+from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, World, calling, flat, receipt
 
 
 def test_first_personal_message_creates_the_person_and_welcomes_them() -> None:

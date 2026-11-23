@@ -1,5 +1,6 @@
 """Composition root shared by the CLI and the API: settings in, an Orchestrator out."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from smartsplit.adapters.db.migrate import upgrade_to_head
@@ -10,9 +11,9 @@ from smartsplit.adapters.llm.canonicalizer import AnthropicCanonicalizer
 from smartsplit.adapters.llm.receipts import AnthropicReceiptParser, anthropic_client
 from smartsplit.adapters.system import SystemClock, UuidIds
 from smartsplit.config import Settings
-from smartsplit.ports.agent import AgentModel
+from smartsplit.ports.agent import AgentModel, AgentRequest, ModelStep
 from smartsplit.ports.images import ImageStore
-from smartsplit.ports.llm import Canonicalizer, ReceiptParser
+from smartsplit.ports.llm import Canonicalizer, ParsedReceipt, ReceiptParser
 from smartsplit.ports.repository import Repository
 from smartsplit.ports.system import Clock
 from smartsplit.services import Orchestrator, OrchestratorSettings
@@ -60,10 +61,31 @@ def orchestrator_settings(settings: Settings) -> OrchestratorSettings:
     )
 
 
+NEEDS_KEY = "This needs ANTHROPIC_API_KEY (or SMARTSPLIT_ANTHROPIC_API_KEY)."
+
+
+class _NoKey:
+    """Stands in for every model port when no key is set: operator commands (balances, rules,
+    tick) still work, and the first model call stops with a clear message."""
+
+    def parse(
+        self, image: bytes, mime_type: str, currency: str, timeout_seconds: float
+    ) -> ParsedReceipt:
+        raise SystemExit(NEEDS_KEY)
+
+    def canonicalize(self, name: str, known_keys: Sequence[str]) -> str:
+        raise SystemExit(NEEDS_KEY)
+
+    def step(self, request: AgentRequest) -> ModelStep:
+        raise SystemExit(NEEDS_KEY)
+
+
 def real_models(settings: Settings) -> Models:
-    """One client for every model call, with the configured model and limits."""
+    """One client for every model call, with the configured model and limits; without a key,
+    a stand-in that refuses to call the model."""
     if settings.anthropic_api_key is None:
-        raise SystemExit("This needs ANTHROPIC_API_KEY (or SMARTSPLIT_ANTHROPIC_API_KEY).")
+        missing = _NoKey()
+        return Models(missing, missing, missing)
     client = anthropic_client(
         settings.anthropic_api_key.get_secret_value(), settings.llm_timeout_seconds
     )

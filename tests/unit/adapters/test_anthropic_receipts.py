@@ -18,7 +18,12 @@ from smartsplit.adapters.llm.receipts import (
     AnthropicReceiptParser,
     anthropic_client,
 )
-from smartsplit.ports.llm import LlmUnavailableError, ReceiptUnreadableError
+from smartsplit.ports.llm import (
+    LlmUnavailableError,
+    NotAReceipt,
+    ParsedReceipt,
+    ReceiptUnreadableError,
+)
 from tests.unit.adapters.scripted import Answer, ScriptedApi, error, message
 
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "receipts"
@@ -50,7 +55,7 @@ def test_the_client_does_no_retries_of_its_own_and_uses_the_configured_timeout()
 def test_one_vision_call_with_structured_output() -> None:
     api = ScriptedApi(message(recorded("restaurant_tip")))
 
-    receipt = parser_for(api).parse(IMAGE, "image/png", "INR")
+    receipt = read(parser_for(api).parse(IMAGE, "image/png", "INR", 30))
 
     assert receipt.merchant == "Toit"
     (request,) = api.requests
@@ -79,7 +84,7 @@ def test_receipt_text_is_treated_as_data_not_instructions() -> None:
 def test_invalid_output_is_retried_once() -> None:
     api = ScriptedApi(message("not json"), message(recorded("grocery_taxed_mix")))
 
-    receipt = parser_for(api).parse(IMAGE, "image/jpeg", "INR")
+    receipt = read(parser_for(api).parse(IMAGE, "image/jpeg", "INR", 30))
 
     assert receipt.total_cents == 122100
     assert len(api.requests) == 2
@@ -96,14 +101,14 @@ def test_invalid_output_twice_is_unreadable(answers: tuple[httpx2.Response, ...]
     api = ScriptedApi(*answers)
 
     with pytest.raises(ReceiptUnreadableError):
-        parser_for(api).parse(IMAGE, "image/jpeg", "INR")
+        parser_for(api).parse(IMAGE, "image/jpeg", "INR", 30)
     assert len(api.requests) == 2
 
 
 def test_an_api_error_is_retried_once() -> None:
     api = ScriptedApi(error(529), message(recorded("restaurant_tip")))
 
-    assert parser_for(api).parse(IMAGE, "image/jpeg", "INR").merchant == "Toit"
+    assert read(parser_for(api).parse(IMAGE, "image/jpeg", "INR", 30)).merchant == "Toit"
 
 
 @pytest.mark.parametrize(
@@ -118,7 +123,7 @@ def test_outages_after_the_retry_are_unavailable(answers: tuple[Answer, ...]) ->
     api = ScriptedApi(*answers)
 
     with pytest.raises(LlmUnavailableError):
-        parser_for(api).parse(IMAGE, "image/jpeg", "INR")
+        parser_for(api).parse(IMAGE, "image/jpeg", "INR", 30)
     assert len(api.requests) == 2
 
 
@@ -132,7 +137,7 @@ def test_a_refused_image_is_unreadable_without_retrying() -> None:
     api = ScriptedApi(bad_request("Could not process image"))
 
     with pytest.raises(ReceiptUnreadableError):
-        parser_for(api).parse(IMAGE, "image/jpeg", "INR")
+        parser_for(api).parse(IMAGE, "image/jpeg", "INR", 30)
     assert len(api.requests) == 1
 
 
@@ -141,7 +146,7 @@ def test_any_other_bad_request_is_a_setup_problem_not_a_bad_photo() -> None:
     api = ScriptedApi(bad_request("output_config: not supported"), bad_request("same"))
 
     with pytest.raises(LlmUnavailableError):
-        parser_for(api).parse(IMAGE, "image/jpeg", "INR")
+        parser_for(api).parse(IMAGE, "image/jpeg", "INR", 30)
 
 
 @pytest.mark.parametrize(
@@ -150,7 +155,7 @@ def test_any_other_bad_request_is_a_setup_problem_not_a_bad_photo() -> None:
 def test_common_spellings_of_an_image_type_are_accepted(given: str, sent: str) -> None:
     api = ScriptedApi(message(recorded("restaurant_tip")))
 
-    parser_for(api).parse(IMAGE, given, "INR")
+    parser_for(api).parse(IMAGE, given, "INR", 30)
 
     assert api.requests[0]["messages"][0]["content"][0]["source"]["media_type"] == sent
 
@@ -159,7 +164,7 @@ def test_an_unsupported_image_type_is_unreadable_without_a_call() -> None:
     api = ScriptedApi()
 
     with pytest.raises(ReceiptUnreadableError):
-        parser_for(api).parse(IMAGE, "image/tiff", "INR")
+        parser_for(api).parse(IMAGE, "image/tiff", "INR", 30)
     assert api.requests == []
 
 
@@ -170,4 +175,9 @@ def test_an_answer_without_text_is_unreadable() -> None:
     api = ScriptedApi(httpx2.Response(200, json=payload), httpx2.Response(200, json=payload))
 
     with pytest.raises(ReceiptUnreadableError):
-        parser_for(api).parse(IMAGE, "image/jpeg", "INR")
+        parser_for(api).parse(IMAGE, "image/jpeg", "INR", 30)
+
+
+def read(answer: ParsedReceipt | NotAReceipt) -> ParsedReceipt:
+    assert isinstance(answer, ParsedReceipt)
+    return answer
