@@ -227,3 +227,20 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
   - (c) Settle only the amount shown in each group (one round), accepting that a group may still show
     a small A–B amount afterwards.
   Reversible; (a) is implemented and tested (everyone's total across contexts is unchanged).
+
+- **Import contracts block the composition root (M9).** SPEC §2 says "only `adapters/llm` imports
+  `anthropic`, only `adapters/db` imports `sqlalchemy`/`alembic`/`psycopg`" and "wiring happens in one
+  composition root per entrypoint". But the import-linter contracts "Only the LLM adapter talks to
+  Anthropic" and "Only the DB adapter talks to the database" list `smartsplit.entrypoints` as a source
+  and also forbid *indirect* imports (import-linter's default). A composition root has to import the
+  adapters, which import those libraries, so any CLI or API wiring breaks both contracts. Changing
+  `pyproject.toml` gates needs the user. Options:
+  - **(a, recommended)** Add `allow_indirect_imports = true` to those two contracts. Entrypoints still may
+    not import `anthropic`/`sqlalchemy` themselves (the SPEC rule); the layers contract and the other
+    forbidden contracts are unchanged.
+  - (b) Drop `smartsplit.entrypoints` from those two contracts' source modules (the layers contract still
+    keeps entrypoints on top), which also allows direct imports.
+  - (c) Keep the contracts as they are and have no runnable CLI/API: only the injectable pieces, wired
+    in tests. The `smartsplit` console script then can't start.
+  Not blocked meanwhile: the CLI and API are built on an injected orchestrator and tested with the
+  fakes; only `entrypoints/wiring.py` (Postgres + file images + real or fake model) waits on this.

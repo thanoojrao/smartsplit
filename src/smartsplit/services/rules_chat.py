@@ -8,7 +8,8 @@ from smartsplit.domain.commands import AddRule, Command, DeleteRule
 from smartsplit.domain.enums import ConversationKind, PromptKind, RuleKind, RuleSource
 from smartsplit.domain.model import Rule
 from smartsplit.domain.prompts import ConfirmActionPayload, RuleChangeEffect
-from smartsplit.domain.values import Everywhere, GroupScope, NotesScope
+from smartsplit.domain.values import Everywhere, GroupScope, NotesScope, RuleScope
+from smartsplit.ports.repository import UnitOfWork
 from smartsplit.services.names import Directory
 from smartsplit.services.prompting import open_prompt
 from smartsplit.services.rules import find_stated_rule, propose_stated_rule, put_rule
@@ -127,6 +128,18 @@ def _scope_name(turn: Turn, rule: Rule) -> str:
             return "your notes"
         case NotesScope(owner_id):
             return f"{name_for(turn.uow, _viewer(turn), owner_id)}'s notes"
+
+
+def scope_label(uow: UnitOfWork, scope: RuleScope) -> str:
+    """Where a rule applies, for the operator (no viewer: notes are named by their owner)."""
+    match scope:
+        case Everywhere():
+            return "everywhere"
+        case GroupScope(group_id):
+            group = uow.groups.get(group_id)
+            return group.name if group else "a group"
+        case NotesScope(owner_id):
+            return f"{name_for(uow, None, owner_id)}'s notes"
 
 
 def _visible(turn: Turn, rule: Rule) -> bool:

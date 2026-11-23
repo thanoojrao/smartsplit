@@ -4,7 +4,7 @@ import hashlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import Connection, Engine, func, select, text
+from sqlalchemy import Connection, Engine, create_engine, func, select, text
 from sqlalchemy.exc import IntegrityError
 
 from smartsplit.adapters.db import draft_stores, ledger_stores, people_stores, rule_stores
@@ -63,3 +63,8 @@ class SqlRepository:
             if translated is None:
                 raise
             raise translated from error
+
+
+def connect(database_url: str) -> SqlRepository:
+    """A repository on a pooled engine; stale pooled connections are replaced transparently."""
+    return SqlRepository(create_engine(database_url, pool_pre_ping=True))
