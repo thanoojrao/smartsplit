@@ -4,14 +4,15 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 ## Next up
 
-**At CHECKPOINT A — waiting for the user.** M1–M3 are done, reviewed and pushed. Do not start M4
-until the user replies to the checkpoint summary.
+**Checkpoint A reviewed by the user.** Before M4: apply every item under "Fix now" in
+`docs/CHECKPOINT_A_REVIEW.md` (two user decisions, two must-fix, 14 should-fix), tests first; gate and
+CI green; review gate (docs/REVIEW.md) on the fix commits (range `93abd81..HEAD`); move that file's
+"Follow-ups" into the Follow-ups list below; log the result here with the final commit hash.
 
-After the user's go-ahead: **M4 — Ledger** (SPEC §9, CONTRACTS §3) in `src/smartsplit/ledger/`
-(pure; imports only domain): `ContextLedger`, `balances`, `simplify_debts` (greedy, ties by member
-order), `pair_debts`, `overall_between`/`overall_for`, `allocate_payment`, `square_up`, plus the
-property tests CONTRACTS §3 requires. Review range for M4: `16f21a7..HEAD` (or the commit that
-records the checkpoint, if later). Check the Follow-ups below first; some belong to M7.
+Then **M4 — Ledger** (SPEC §9, CONTRACTS §3) in `src/smartsplit/ledger/` (pure; imports only domain):
+`ContextLedger`, `balances`, `simplify_debts` (greedy, ties by member order), `pair_debts`,
+`overall_between`/`overall_for`, `allocate_payment`, `square_up`, plus the property tests CONTRACTS §3
+requires. M4 review range starts at the commit that finishes the Checkpoint A fixes.
 
 ## Milestones
 

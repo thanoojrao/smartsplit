@@ -137,6 +137,13 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 
 - (User) CONTRACTS.md v2 agreed; build runs in a fresh session, M1 → M3 straight through, stopping at CHECKPOINT A.
 
+## Checkpoint A review (2026-11-23)
+
+- (User) Unlinked negative lines (refunds) are matched by name and follow that item's rules; generic coupons that match nothing stay shared by everyone; discount-link treatment needs `discount_for` and a negative amount.
+- (User) Exact amounts ("Sam's part was ₹100") are before tax and tip; that person also pays their share of the line's tax and the tip.
+- Someone removed from a weighted line counts as `excluded` for learning; people on it count as `included`.
+- Full findings and fix list: docs/CHECKPOINT_A_REVIEW.md.
+
 ## Open (waiting for the user)
 
 (none)
