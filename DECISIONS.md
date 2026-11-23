@@ -12,7 +12,7 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (Vision review) Two ways to add bills: in a group chat (scoped to that group, like a Splitwise group) and in a personal 1:1 chat with the bot (split with people the user picks). Why: matches how people actually split.
 - (Vision review) Overall balance per person across all groups and personal splits, with a per-group breakdown ("you owe Sam 50: Trip owes 80, Flat 4B owed 20, personal 10"). Why: one answer to "what do I owe X?".
 - (Vision review) One currency per install (set in config), no conversion. Why: lets cross-group totals be a single number. Supersedes "one currency per group" in SPEC §3.
-- (Vision review) Personal-chat splits: people added are notified and the bill counts immediately; they can reply ok / details / dispute (disputed bills are flagged until the adder fixes them). People who never used the bot are not cold-messaged; the adder gets a forwardable wa.me invite, and the newcomer sees pending splits on first contact. Repeated bills to the same person are batched into one message. Why: Splitwise-like, nothing stuck in limbo, avoids WhatsApp ban risk.
+- ~~(Vision review) Personal-chat splits: people added are notified and the bill counts immediately; they can reply ok / details / dispute (disputed bills are flagged until the adder fixes them). People who never used the bot are not cold-messaged; the adder gets a forwardable wa.me invite, and the newcomer sees pending splits on first contact. Repeated bills to the same person are batched into one message. Why: Splitwise-like, nothing stuck in limbo, avoids WhatsApp ban risk.~~ *(superseded — P8: no disputes; see Design review below)*
 - (Vision review) Picking people in a personal chat: caption ("split with Sam and Raj"), else the bot offers a numbered list of recent/frequent people and groups; unknown names → share a contact card or number; ambiguous names → bot asks. Shortcuts: "Sam paid", "Sam owes all of it", "add to <group>". Why: one-message happy path, no menus.
 - (Vision review) Identity: every person must have a phone number (normalized to E.164, default country code from config); it is their unique key. Internal immutable id; chat identities (e.g. WhatsApp number, WhatsApp LID, CLI handle) stored separately, each unique and mapped to one person. Nicknames are per user ("Sam" for X, "Samuel" for Raj); own display name from their profile. No name-only people, so no merge flow. Why: simplest reliable identity; sharing a contact is two taps.
 - (Vision review) Bill context is exactly one of: a group, or a personal split (added by one person in their 1:1 chat with chosen people). Personal splits have no group. Why: needed for personal chats and cross-group balances.
@@ -23,14 +23,38 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (Vision review) Moving out: membership gets an end date; excluded from new bills; balance stays until settled and they can still see it; that group's rules about them stop applying (their own everywhere rules are untouched). Moving in: membership starts today; only included in bills from then on.
 - (Vision review) Reminders: manual only ("remind Raj" sends a nudge with the balance). No automatic reminders in the first build. Why: avoid spam and WhatsApp ban risk.
 - (Vision review) History: read-only "what did I spend this month?" / "show last 5 bills".
-- (Vision review) Group bills: anyone in the group can answer questions; conflicting answers make the bot re-ask showing both; the adder gives the final confirm. Unanswered questions: one reminder to the adder after 24 hours; nothing is saved until confirmed. "Cancel" drops a bill still in review.
+- ~~(Vision review) Group bills: anyone in the group can answer questions; conflicting answers make the bot re-ask showing both; the adder gives the final confirm. Unanswered questions: one reminder to the adder after 24 hours; nothing is saved until confirmed. "Cancel" drops a bill still in review.~~ *(superseded — P9: latest answer wins; adder can confirm with open questions; see Design review below)*
 - (Spec review) Per-item tax: the parser marks taxed lines; a pure `fold_item_tax` spreads tax over taxed lines only; if no lines are marked, tax is split like other adjustments. Why: untaxed groceries shouldn't carry someone else's alcohol tax.
-- (Spec review) Bot in an unknown group chat: auto-creates the group; anyone who writes becomes a member; "add Priya" adds quiet members.
+- ~~(Spec review) Bot in an unknown group chat: auto-creates the group; anyone who writes becomes a member; "add Priya" adds quiet members.~~ *(superseded — P2: explicit join; see Design review below)*
 - (Spec review) One bill draft per conversation; later receipts are queued.
-- (Spec review) Low-confidence receipt lines are flagged in the summary and must be confirmed or fixed before saving.
-- (Spec review) Rule deletion: everywhere rules only by the subject; group rules by any active member (subject told); notes only by their owner.
+- ~~(Spec review) Low-confidence receipt lines are flagged in the summary and must be confirmed or fixed before saving.~~ *(superseded — review: flagged, adder settles differences (P15); see Design review below)*
+- ~~(Spec review) Rule deletion: everywhere rules only by the subject; group rules by any active member (subject told); notes only by their owner.~~ *(superseded — group-rule deletions are announced; see Design review below)*
 - (Spec review) Timed work (24h reminders, batched notifications) runs via a `tick` entrypoint (CLI + `POST /v1/tick`) using the Clock port.
 - (Vision review) Settling up against an overall balance is allocated across the groups automatically, largest debt first (oldest on ties); the user can still target one group. Why: every group's balance stays correct.
+- (Design review, P1) Group bills may name a subset of current members ("me and Priya", "everyone except Raj"). Only current members; no purchase-date exception (older receipts of leavers go through personal splits).
+- (Design review, P2) In group chats the bot reacts only when addressed (photos, mentions/command words, replies to it, clear answers to its prompts); silent on Unknown. Membership is explicit ("join" or being added); a non-member talking to the bot is asked to join; leavers never re-join by posting.
+- (Design review, P3) Any current member can cancel a group draft at any time (bot says who); drafts get one reminder after 24h and expire after 3 days. No take-over.
+- (Design review, P4) Either side can record a payment; restated + confirmed; the other side is told and can reply "not received" to reverse it; overpaying asks first; "undo last payment"; a payment said in a group chat counts for that group.
+- (Design review, P5) In personal splits the payer is always the adder. "Not mine" removes you and re-splits (shown and confirmed, others told).
+- (Design review, P6, P8) No disputes. Any participant can edit or delete a saved bill, with an optional reason; the bot shows the effect and asks them to confirm; everyone in the bill is told (group bills: posted in the group).
+- (Design review, P7) In a group chat, balances/rules/history answers cover only that group; overall and cross-context answers go to the asker's personal chat.
+- (Design review, P9) Conflicting answers: latest answer wins. The adder can confirm with questions still open.
+- (Design review, P10) Membership changes take effect immediately and are announced in the group.
+- (Design review, P11) "stop"/"start" for notifications and reminders; "remind" at most once per 24h per pair; daily per-person message cap.
+- (Design review, P12) Likely duplicates (same group or pair, same total, within 3 days) get a warning before confirming.
+- (Design review, P13) "Square up with Sam" writes offsetting entries so every context between two people clears.
+- (Design review, P14) Exact amounts allowed: manual bills per person (must add up), and "Sam's part was ₹100" on a line (remainder split equally among the others).
+- (Design review, P15) Review edits: change/remove/add lines, fix the total; any remaining difference is shown and the adder fixes a line or accepts it as an adjustment.
+- (Design review, P16) Short summary by default; "details" shows the numbered full list.
+- (Design review, P17) Item matches (raw name → key) are remembered per group, and per adder for personal splits; item keys stay install-wide so rules apply everywhere. First-time matches are shown; "that's not milk" fixes it in that scope.
+- (Design review, P18) The adder can correct a number they gave for someone, only while that person has never used the bot. Leaving the group chat ends membership.
+- (Design review, P19) Three rule kinds only; "Raj drinks milk now" deletes the rule in that scope.
+- (Design review, P20) Discount lines the parser links to an item share that item's key; unlinked discounts are shared by everyone.
+- (Design review, P21) History and "this month" use the purchase date; timezone from config; "what did I spend" = my shares.
+- (Design review, P22) "Forget me" is specified (SPEC §13) but built later.
+- (Design review, P23) The invite text for a non-user is given only on the adder's first bill with them.
+- (Design review, P24) Adjustments are weighted by member subtotals clamped at 0; split equally only when every clamped subtotal is 0.
+
 
 ## Made by Claude during the build
 
@@ -39,15 +63,22 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (Spec review) Summaries show the reason for group rules and the adder's notes, but only "skipped" for someone's Everywhere rule. Why: personal facts shouldn't leak into other groups.
 - (Spec review) Settle-up overpayment beyond what A owes B is recorded in the personal-splits context. Why: never lose money, no error for the user.
 - (M0) Layering enforced by import-linter in `scripts/check.sh`. Why: stops long autonomous runs from eroding the architecture.
-- (M1 prep, user-approved) Adjustments are weighted by item subtotals clamped at 0; if the raw subtotals sum to ≤ 0, or all clamped weights are 0, split equally. Why: nobody gets paid via tip because a discount was assigned to them, and SPEC's "discount cancels everything → equal" still holds.
+- ~~(M1 prep, user-approved) Adjustments are weighted by item subtotals clamped at 0; if the raw subtotals sum to ≤ 0, or all clamped weights are 0, split equally. Why: nobody gets paid via tip because a discount was assigned to them, and SPEC's "discount cancels everything → equal" still holds.~~ *(superseded — P24: only "all clamped 0 → equal"; see Design review below)*
 - (M1 prep, user-approved) Rules about members not in the split are ignored. Why: someone who left must not strip an item from everyone.
 - (M1 prep, user-approved) Override for an unknown item id, or an empty override, raises ValueError; a member repeated in a list override counts once. Why: these are caller bugs, fail loudly.
 - (M1 prep, user-approved) Duplicate item ids raise ValueError. Why: assignments and questions are keyed by item id.
 - (M1 prep, user-approved) Conflicting rules for one member/key follow §5 order: `only` beats `exclude`/`soft_exclude`; no soft-rule question when `only` applies. Why: already implied by the spec's step order.
 - (M1 prep, user-approved) Negative shares round with the same floor + largest-remainder rule. Why: one rounding rule, always sums exactly.
 
+## Made by Claude (design review, technical)
+
+- Group balance (incl. settlements) is the source of truth inside a group; who-owes-whom there = `simplify_debts`; personal splits use raw pairs; overall = sum. Why: one consistent model; following the bot's advice can't corrupt the overall view.
+- `BillLine` stores each saved line's assignees and weights; `AnswerObservation` feeds learning; `Prompt` (with kinds) replaces `PendingQuestion`; `ProcessedMessage` gives idempotency. Why: details/edits, learning and restart-resume need persisted data.
+- `fold_item_tax` takes `TaxedLine(item, taxed)` and weights by taxed amounts clamped at 0; `amounts_to_weights` turns exact amounts into weights. Both pure, in engine, built in M1. Why: no blow-ups with negative taxed lines; keeps the frozen engine contract.
+- `simplify_debts` is described as greedy (few transfers), not minimal. Why: greedy isn't minimal (+6,+4,−4,−3,−3).
+- `phonenumbers` for E.164 normalization (pure, allowed in domain). Why: country trunk prefixes are not safe to hand-roll.
+- Safety: shared API token on `/v1/*`; idempotent `message_id`; per-conversation advisory lock + unit of work; LLM calls outside the lock with timeouts; `tick` claims with SKIP LOCKED, at-most-once delivery; model output is only a proposal and money-moving/destructive commands need a deterministic restatement + "yes"; no message bodies/phones in logs. Why: proportionate protection for a self-hosted bot.
+
 ## Open (waiting for the user)
 
-Vision review in progress. Agreed plan: finish the walkthrough → full spec read-through for conflicts → rewrite docs/USE_CASES.md → agree data shapes/contracts → build (M1 onward).
-
-(none yet)
+- Engineering setup items that touch protected files or cost something (see docs/DESIGN_REVIEW.md E1, E9, E13): GitHub Actions CI, a compaction reminder hook in `.claude/settings.json`, naming the working branch in CLAUDE.md.

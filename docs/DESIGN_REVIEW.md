@@ -35,7 +35,7 @@ and the outcome goes into SPEC/USE_CASES/DECISIONS.
 | P23 | Adding 5 bills with someone who hasn't used the bot gives 5 invite texts. | Invite text only on the first bill with each non-user. | **agreed** |
 | P24 | Tip rule jumps: a: +1000, b: −1000 → raw sum 0 → equal 50/50; change b to −999 → a pays all 100. | Drop the "raw sum ≤ 0" condition: weight by clamped totals; split equally only if all clamped totals are 0. (Changes a rule you approved.) | **agreed** |
 
-## Part 2 — Spec fixes (technical; recommendation applied unless the user objects)
+## Part 2 — Spec fixes (technical) — applied to SPEC 2026-11-23
 
 | # | Problem | Fix |
 |---|---|---|
@@ -60,7 +60,7 @@ and the outcome goes into SPEC/USE_CASES/DECISIONS.
 | S19 | Milestone order: M1 needs the taxed flag; M3 needs answer history (M2); M7 "notify" needs M8's outbox; config only in M9; AddMember in two milestones. | Define the tax input type in engine (M1); `AnswerObservation` in M2; M7 doesn't notify; `config.py` from M2; AddMember in M7. |
 | S20 | E.164 needs country rules ("098765 43210"). | Use the `phonenumbers` library (pure, allowed in domain). |
 
-## Part 3 — Security & reliability additions to the spec
+## Part 3 — Security & reliability additions to the spec — applied to SPEC 2026-11-23
 
 | # | Problem | Fix |
 |---|---|---|
