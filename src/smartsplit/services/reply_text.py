@@ -20,7 +20,7 @@ MIN_LOCAL_DIGITS = 10
 
 def clean_reply(text: str, handles: Handles) -> str:
     """The model's text, safe and plain for a group chat."""
-    cleaned = HANDLE.sub(lambda m: handles.label(m.group(0)) or m.group(0), text)
+    cleaned = HANDLE.sub(lambda m: _named(m, handles), text)
     cleaned = _BOLD.sub(lambda m: f"*{m.group(1) or m.group(2)}*", cleaned)
     cleaned = _HEADING.sub("", cleaned)
     cleaned = _BULLET.sub(r"\1• ", cleaned)
@@ -28,6 +28,13 @@ def clean_reply(text: str, handles: Handles) -> str:
     cleaned = _CODE.sub("", cleaned)
     cleaned = _PHONE.sub(_mask, cleaned)
     return cleaned.strip()
+
+
+def _named(match: re.Match[str], handles: Handles) -> str:
+    """A handle as the person would say it: a name, or "line 4" for a line handle."""
+    if match.group(1) == "L":
+        return f"line {int(match.group(2))}"
+    return handles.label(match.group(0)) or match.group(0)
 
 
 def _mask(match: re.Match[str]) -> str:

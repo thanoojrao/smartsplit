@@ -15,7 +15,8 @@ def send(uow: UnitOfWork, said: Sequence[Said], now: datetime, keep: int) -> lis
     out: list[OutboundMessage] = []
     for message in said:
         key = message.conversation.key
-        transcript.append(uow, key, sender_id=None, text=message.text, refs=message.refs, now=now)
+        stored = message.stored if message.stored is not None else transcript.compact(message.text)
+        transcript.append(uow, key, sender_id=None, text=stored, refs=message.refs, now=now)
         uow.chat.prune(key, keep)
         out.append(OutboundMessage(key, message.conversation.person_id, message.text))
     return out

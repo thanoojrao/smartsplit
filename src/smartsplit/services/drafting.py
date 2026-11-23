@@ -88,6 +88,7 @@ def new_draft(
         description=description,
         purchased_at=purchased_at,
         lines=lines,
+        next_position=max((line.position for line in lines), default=0) + 1,
         tax_cents=totals.tax_cents,
         other_adjustments_cents=totals.other_adjustments_cents,
         total_cents=totals.total_cents,

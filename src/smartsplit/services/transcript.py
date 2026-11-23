@@ -1,8 +1,9 @@
 """The chat transcript: what was said, with what each bot message showed (SPEC 8.6).
 
-Every message the bot sends is stored in the chat it goes to, whatever produced it. Shown
-blocks are stored compactly (their first lines plus their references), each chat keeps at
-most `chat_history_keep` messages, and `tick` deletes messages older than the age limit.
+Every message the bot sends is stored in the chat it goes to, whatever produced it. What
+people and the model wrote is kept whole; shown blocks are stored compactly (their first
+lines plus their references). Each chat keeps at most `chat_history_keep` messages, and
+`tick` deletes messages older than the age limit.
 """
 
 from collections.abc import Sequence
@@ -32,7 +33,7 @@ def append(
     refs: Sequence[ChatRef],
     now: datetime,
 ) -> None:
-    uow.chat.append(ChatMessage(key, 0, sender_id, compact(text), tuple(refs), now))
+    uow.chat.append(ChatMessage(key, 0, sender_id, text, tuple(refs), now))
 
 
 def last_shown_version(
@@ -42,7 +43,7 @@ def last_shown_version(
     for message in reversed(uow.chat.recent(key, keep)):
         if message.sender_id is not None:
             continue
-        for ref in message.refs:
+        for ref in reversed(message.refs):
             if ref.kind == "draft" and ref.id == draft_id:
                 return ref.version
     return None

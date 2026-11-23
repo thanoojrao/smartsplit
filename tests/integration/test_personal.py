@@ -287,6 +287,4 @@ def test_raj_is_known_through_a_group_without_being_added() -> None:
     flat(world, YOU, RAJ)
     world.say(YOU, None, "who is Raj", call("find_person", name="Raj"))
     match = world.agent.requests[-1].history[-1][1][0].data["matches"]
-    assert match == [
-        {"person": "P2", "name": "Raj", "number": "+91•••••00003", "known_from": [FLAT]}
-    ]
+    assert match == [{"person": "P2", "name": "Raj", "known_from": [FLAT]}]

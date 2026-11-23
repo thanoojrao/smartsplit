@@ -127,6 +127,7 @@ def as_draft(turn: Turn, bill: Bill) -> BillDraft:
         description=bill.description,
         purchased_at=bill.purchased_at,
         lines=lines,
+        next_position=max((line.position for line in lines), default=0) + 1,
         tax_cents=bill.tax_cents,
         other_adjustments_cents=bill.other_adjustments_cents,
         total_cents=bill.total_cents,

@@ -112,7 +112,8 @@ class PhotoRead:  conversation: ConversationKey, message_id: str, sender_id: str
 class BillDraft:  # mutable working copy, updated through the repository
                   id, conversation: ConversationKey, context: Context, added_by, payer_id,
                   receipt_id: str | None, description: str, purchased_at: date | None,
-                  lines: tuple[LineItem, ...], tax_cents: Cents, other_adjustments_cents: Cents,
+                  lines: tuple[LineItem, ...], next_position: int,   # never reused
+                  tax_cents: Cents, other_adjustments_cents: Cents,
                   total_cents: Cents, participants: tuple[str, ...],
                   overrides: tuple[tuple[str, Override], ...], owes_all_id: str | None,
                   possible_duplicate_of: DuplicateRef | None, waiting_for: tuple[str, ...],

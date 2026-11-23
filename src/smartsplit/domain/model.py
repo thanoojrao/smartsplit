@@ -215,6 +215,8 @@ class BillDraft:
     description: str
     purchased_at: date | None
     lines: tuple[LineItem, ...]
+    next_position: int
+    """The number an added line gets: a removed line's number is never reused."""
     tax_cents: Cents
     other_adjustments_cents: Cents
     total_cents: Cents

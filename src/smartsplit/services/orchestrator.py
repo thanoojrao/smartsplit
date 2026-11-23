@@ -95,7 +95,8 @@ class Orchestrator:
             over_limit = speaker is not None and self._over_limit(uow, speaker.id, now)
         if not _reacts(message):
             return HandleOutcome(())
-        meter = Meter(self._repository, self._day(now), speaker.id if speaker else None)
+        charged = speaker.id if speaker and _addressed(message) else None
+        meter = Meter(self._repository, self._day(now), charged)
         photo = None
         if message.image is not None and speaker is not None and not over_limit:
             try:
@@ -142,9 +143,8 @@ class Orchestrator:
                 )
                 welcomed = arrival.first_personal_message
                 text = self._respond(turn, incoming, welcomed=welcomed)
-                if arrival.new_group:
-                    turn.shown.insert(0, Said(turn.conversation, _intro(turn)))
-                replies = self._record(turn, message, text, welcomed)
+                opening = _opening(turn, welcomed=welcomed, new_group=arrival.new_group)
+                replies = self._record(turn, message, text, opening)
             uow.processed.add(
                 ProcessedMessage(message.conversation, message.message_id, replies, now)
             )
@@ -172,19 +172,18 @@ class Orchestrator:
         return clean_reply(result.text, turn.handles)
 
     def _record(
-        self, turn: Turn, message: InboundMessage, text: str, welcomed: bool
+        self, turn: Turn, message: InboundMessage, text: str, opening: list[Said]
     ) -> tuple[OutboundMessage, ...]:
         """The replies, with the inbound message and every outbound one in the transcripts.
 
         In a group chat, a message the bot neither answered nor acted on isn't stored."""
-        said: list[Said] = []
-        if welcomed:
-            said.append(Said(turn.conversation, WELCOME.format(name=turn.speaker.display_name)))
+        said = list(opening)
         blocks = [s.text for s in turn.shown]
         main = "\n\n".join(part for part in (text, *blocks) if part)
         if main:
             refs = tuple(ref for s in turn.shown for ref in s.refs)
-            said.append(Said(turn.conversation, main, refs))
+            kept = "\n\n".join(p for p in (text, *map(transcript.compact, blocks)) if p)
+            said.append(Said(turn.conversation, main, refs, kept))
         said += turn.elsewhere
         personal = turn.conversation.kind is ConversationKind.PERSONAL
         if personal or said or turn.acted:
@@ -196,6 +195,7 @@ class Orchestrator:
                 refs=(),
                 now=turn.now,
             )
+            turn.uow.chat.prune(turn.conversation.key, self._settings.chat_history_keep)
         return tuple(send(turn.uow, said, turn.now, self._settings.chat_history_keep))
 
     def _over_limit(self, uow: UnitOfWork, person_id: str, now: datetime) -> bool:
@@ -210,11 +210,28 @@ class Orchestrator:
         return max(0.0, min(self._settings.llm_timeout_seconds, left))
 
 
-def _intro(turn: Turn) -> str:
-    """A new group chat: the first person is in, everyone else joins explicitly (SPEC 10.3)."""
+def _opening(turn: Turn, *, welcomed: bool, new_group: bool) -> list[Said]:
+    """Fixed first words: the welcome on someone's first personal message (SPEC 10.3), and a
+    new group chat's intro (the first person is in, everyone else joins explicitly)."""
+    opening: list[Said] = []
+    if welcomed:
+        opening.append(Said(turn.conversation, WELCOME.format(name=turn.speaker.display_name)))
+    if new_group:
+        intro = (
+            f"Hi {turn.conversation.name}! {turn.speaker.display_name} is in. Everyone else "
+            'who wants to split bills here, say "join".'
+        )
+        opening.append(Said(turn.conversation, intro))
+    return opening
+
+
+def _addressed(message: InboundMessage) -> bool:
+    """Personal messages, and group messages that mention or reply to the bot: only these
+    count against the speaker's own daily limit (SPEC 12.5)."""
     return (
-        f"Hi {turn.conversation.name}! {turn.speaker.display_name} is in. Everyone else who "
-        'wants to split bills here, say "join".'
+        message.conversation_kind is ConversationKind.PERSONAL
+        or message.addressed_to_bot
+        or message.reply_to_bot
     )
 
 

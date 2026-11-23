@@ -58,7 +58,7 @@ def test_anything_else_is_refused_never_rounded(bad: object) -> None:
 def test_negative_amounts_only_where_allowed_and_a_ceiling() -> None:
     assert parse_money("-40", 10**8, allow_negative=True) == -4000
     with pytest.raises(NotAllowedError, match="too large"):
-        parse_money("1000000", 10**8)
+        parse_money("1000000.01", 10**8)
 
 
 def test_reply_cleanup() -> None:
@@ -67,7 +67,7 @@ def test_reply_cleanup() -> None:
     handles.issue("bill", "b-1", "Toit")
     text = "# Hi\n**P1** owes for B1 and L4.\n- one\n`code` [link](https://x.y) P7"
     assert clean_reply(text, handles) == (
-        "Hi\n*Sam* owes for Toit and L4.\n• one\ncode link (https://x.y) P7"
+        "Hi\n*Sam* owes for Toit and line 4.\n• one\ncode link (https://x.y) P7"
     )
 
 

@@ -128,9 +128,9 @@ def open_actions(turn: Turn) -> list[Prompt]:
     return still
 
 
-def confirm(turn: Turn, prompt_id: str) -> bool:
-    """Apply the effect if this yes counts (SPEC 8.4). False: the data changed since, so the
-    effect was worked out again and is shown for a new yes."""
+def confirm(turn: Turn, prompt_id: str) -> Prompt | None:
+    """Apply the effect if this yes counts (SPEC 8.4). If the data changed since, the effect is
+    worked out again and shown for a new yes: that new proposal is returned."""
     prompt, payload = _open(turn, prompt_id)
     if payload.proposed_in_message_id == turn.message_id:
         raise NotAllowedError(
@@ -141,8 +141,7 @@ def confirm(turn: Turn, prompt_id: str) -> bool:
         raise NotAllowedError(f"Only {who} can confirm that.")
     if current_version(turn, payload) != payload.based_on_version:
         turn.uow.prompts.update(replace(prompt, status=PromptStatus.DROPPED))
-        propose(turn, payload.arguments)
-        return False
+        return propose(turn, payload.arguments)
     turn.uow.prompts.update(replace(prompt, status=PromptStatus.ANSWERED))
     turn.acted = True
     effect = payload.effect
@@ -153,7 +152,7 @@ def confirm(turn: Turn, prompt_id: str) -> bool:
             apply_payment(turn, payload.tool, effect)
         case RuleChangeEffect():
             apply_rule_change(turn, effect)
-    return True
+    return None
 
 
 def decline(turn: Turn, prompt_id: str) -> None:

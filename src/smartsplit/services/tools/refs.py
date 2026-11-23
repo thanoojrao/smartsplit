@@ -3,6 +3,7 @@
 
 from collections.abc import Sequence
 
+from smartsplit.domain.enums import DraftState
 from smartsplit.domain.model import Bill, BillDraft
 from smartsplit.domain.prompts import Prompt
 from smartsplit.ports.repository import OPEN_DRAFT_STATES
@@ -72,3 +73,16 @@ def action(turn: Turn, handle: str) -> str:
 
 def payment(turn: Turn, handle: str | None) -> str | None:
     return turn.handles.resolve(handle, "payment") if handle else None
+
+
+def reviewable(turn: Turn, handle: str) -> BillDraft:
+    """An open draft of this chat that may be edited now: not queued, and in a personal chat
+    the speaker's own."""
+    found = draft(turn, handle)
+    if found.state is DraftState.QUEUED:
+        raise NotAllowedError(
+            f"The {found.description} bill waits until the one before it is done."
+        )
+    if not turn.in_group and found.added_by != turn.speaker.id:
+        raise NotAllowedError("That's someone else's bill.")
+    return found

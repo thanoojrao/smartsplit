@@ -419,3 +419,41 @@ def test_a_member_moving_in_later_is_not_in_older_drafts() -> None:
     world.say(PRIYA, None, "hi")
     world.say(PRIYA, FLAT, "join", call("join_group"))
     assert PRIYA.name not in world.say(YOU, FLAT, "show it", calling("get_bill", bill="@D"))
+
+
+def test_a_removed_last_line_number_is_never_reused() -> None:
+    # SPEC 4.4: a removed line leaves a gap; an added line takes the next number
+    world = World()
+    flat(world, YOU, SAM)
+    world.say(YOU, FLAT, "cab", call("add_manual_bill", description="cab", amount="400"))
+    edit(world, {"type": "AddLine", "name": "tip", "amount": "40"})
+    edit(world, {"type": "RemoveLine", "line": "L2"})
+    edit(world, {"type": "AddLine", "name": "water", "amount": "20"})
+    assert [(x.name, x.position) for x in world.drafts(FLAT)[0].lines] == [
+        ("cab", 1),
+        ("water", 3),
+    ]
+    edit(world, {"type": "RemoveLine", "line": "L1"})
+    edit(world, {"type": "RemoveLine", "line": "L3"})
+    assert world.agent.requests[-1].history[-1][1][0].error == (
+        "That's the only line: cancel the bill instead."
+    )
+
+
+def test_two_edits_in_one_turn_then_yes_saves() -> None:
+    # SPEC 8.4: the version in the bot's last summary is the newest one it showed
+    world = World()
+    flat(world, YOU, SAM, RAJ)
+    world.say(YOU, FLAT, "wine", call("add_manual_bill", description="wine", amount="300"))
+    world.say(
+        YOU,
+        FLAT,
+        "Raj had none, and Sam paid",
+        calling(
+            "edit_draft",
+            draft="@D",
+            change={"type": "UnassignLine", "line": "L1", "people": ["@Raj"]},
+        ),
+        calling("edit_draft", draft="@D", change={"type": "SetPayer", "person": "@Sam"}),
+    )
+    assert "Saved: wine" in world.say(YOU, FLAT, "yes", SAVE)

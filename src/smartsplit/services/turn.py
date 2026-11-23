@@ -58,6 +58,9 @@ class Said:
     conversation: Conversation
     text: str
     refs: tuple[ChatRef, ...] = ()
+    stored: str | None = None
+    """What the transcript keeps, if not the compacted text (the model's own words are kept
+    whole; only code-rendered blocks are shortened)."""
 
 
 @dataclass(slots=True)

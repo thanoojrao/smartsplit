@@ -67,6 +67,8 @@ def _line_edit(
             return _replace_line(draft, replace(target, amount_cents=cents, confidence=1.0))
         case RemoveLine(line):
             target = line_at(draft, line_number(line))
+            if len(draft.lines) == 1:
+                raise NotAllowedError("That's the only line: cancel the bill instead.")
             return replace(
                 draft,
                 lines=tuple(x for x in draft.lines if x.id != target.id),
@@ -74,8 +76,10 @@ def _line_edit(
             )
         case AddLine(name, amount):
             cents = parse_money(amount, limit, allow_negative=True)
-            position = max((x.position for x in draft.lines), default=0) + 1
-            return replace(draft, lines=(*draft.lines, manual_line(turn, name, cents, position)))
+            added = manual_line(turn, name, cents, draft.next_position)
+            return replace(
+                draft, lines=(*draft.lines, added), next_position=draft.next_position + 1
+            )
         case SetTotal(amount):
             return replace(draft, total_cents=parse_money(amount, limit))
 

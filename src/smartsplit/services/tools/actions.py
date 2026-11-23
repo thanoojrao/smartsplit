@@ -93,10 +93,14 @@ def _undo_payment(turn: Turn, args: UndoPayment) -> Data:
 
 
 def _confirm_pending(turn: Turn, args: ConfirmPending) -> Data:
-    applied = pending.confirm(turn, refs.action(turn, args.action))
-    if applied:
+    again = pending.confirm(turn, refs.action(turn, args.action))
+    if again is None:
         return {"done": True}
-    return {"done": False, "why": "something changed meanwhile; it was worked out again and shown"}
+    return {
+        "done": False,
+        "why": "something changed meanwhile; it was worked out again and shown",
+        "action": turn.handles.issue("action", again.id, "that"),
+    }
 
 
 def _decline_pending(turn: Turn, args: DeclinePending) -> Data:

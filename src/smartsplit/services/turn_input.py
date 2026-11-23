@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from html import escape
 from zoneinfo import ZoneInfo
 
-from smartsplit.domain.enums import DraftState, PhotoOutcome, PromptStatus
+from smartsplit.domain.enums import DraftState, PhotoOutcome
 from smartsplit.domain.messages import InboundMessage
 from smartsplit.domain.model import BillDraft, PhotoRead
 from smartsplit.domain.prompts import ChatMessage, ChatRef, PendingActionPayload
@@ -170,7 +170,7 @@ def _actions(turn: Turn) -> list[str]:
     rows = []
     for prompt in open_actions(turn):
         payload = prompt.payload
-        if not isinstance(payload, PendingActionPayload) or prompt.status is not PromptStatus.OPEN:
+        if not isinstance(payload, PendingActionPayload):
             continue
         handle = turn.handles.issue("action", prompt.id, "that")
         until = prompt.expires_at.astimezone(zone).strftime("%H:%M") if prompt.expires_at else ""

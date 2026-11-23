@@ -10,7 +10,7 @@ _MONEY = re.compile(r"(-?)(\d+)(?:\.(\d{1,2}))?")
 
 
 def parse_money(text: object, max_cents: int, *, allow_negative: bool = False) -> Cents:
-    """ "800" → 80000, "12.5" → 1250; within ±`max_cents`, never 0."""
+    """ "800" → 80000, "12.5" → 1250; at most ±`max_cents`, never 0."""
     if not isinstance(text, str):
         raise NotAllowedError('Amounts must be written as text, like "12.50".')
     match = _MONEY.fullmatch(text.strip())
@@ -22,6 +22,6 @@ def parse_money(text: object, max_cents: int, *, allow_negative: bool = False) -
         cents = -cents
     if cents == 0 or (cents < 0 and not allow_negative):
         raise NotAllowedError("The amount has to be more than 0.")
-    if abs(cents) >= max_cents:
+    if abs(cents) > max_cents:
         raise NotAllowedError("That amount is too large.")
     return cents

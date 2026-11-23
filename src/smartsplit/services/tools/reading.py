@@ -6,7 +6,6 @@ answer covers only that group, and anything wider goes privately (SPEC 10.7).
 
 from typing import Any
 
-from smartsplit.domain.phone import mask_phone
 from smartsplit.domain.prompts import ChatRef
 from smartsplit.domain.tools import FindPerson, GetBalances, GetBill, ListBills, ListRules
 from smartsplit.domain.values import GroupContext
@@ -17,6 +16,7 @@ from smartsplit.services.names import candidates
 from smartsplit.services.personal import list_bills
 from smartsplit.services.queries import get_balances
 from smartsplit.services.rules_chat import list_rules
+from smartsplit.services.text import name_for
 from smartsplit.services.tools import refs
 from smartsplit.services.tools.registry import Data, Tool
 from smartsplit.services.turn import Turn
@@ -76,8 +76,7 @@ def _find_person(turn: Turn, args: FindPerson) -> Data:
         people.append(
             {
                 "person": refs.person_handle(turn, person_id),
-                "name": person.display_name,
-                "number": mask_phone(person.phone),
+                "name": name_for(turn.uow, turn.viewer, person_id),
                 "known_from": _known_from(turn, person_id),
             }
         )

@@ -191,6 +191,7 @@ drafts = Table(
     Column("description", Text, nullable=False),
     Column("purchased_at", Date),
     Column("lines", JSONB, nullable=False),
+    Column("next_position", Integer, nullable=False),
     _cents("tax_cents"),
     _cents("other_adjustments_cents"),
     _cents("total_cents"),

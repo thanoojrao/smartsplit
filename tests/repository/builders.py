@@ -95,6 +95,7 @@ def draft(
             line("l1", 600, taxed=True, canonical="milk"),
             line("l2", -100, 2, discount_for="l1"),
         ),
+        next_position=3,
         tax_cents=30,
         other_adjustments_cents=-5,
         total_cents=525,

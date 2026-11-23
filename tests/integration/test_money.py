@@ -134,6 +134,7 @@ def test_a_change_in_between_means_it_is_worked_out_again() -> None:
     assert result(world).data == {
         "done": False,
         "why": "something changed meanwhile; it was worked out again and shown",
+        "action": "A2",
     }
     assert "Waiting for Sam to say yes." in asked_again
     assert world.say(SAM, None, "yes", YES).startswith("Recorded.")
@@ -330,4 +331,3 @@ def test_injected_instructions_can_only_produce_a_proposal() -> None:
     person_id = world.person(RAJ).id
     with world.repository.unit_of_work() as uow:
         assert uow.settlements.for_person(person_id) == ()
-    assert "&lt;" not in world.turn_input

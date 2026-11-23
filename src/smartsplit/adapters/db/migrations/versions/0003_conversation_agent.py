@@ -52,7 +52,14 @@ def upgrade() -> None:
         ),
     )
     op.add_column("drafts", sa.Column("version", sa.Integer(), nullable=False, server_default="1"))
-    for column in ("possible_duplicate_of", "waiting_for", "version"):
+    op.add_column(
+        "drafts", sa.Column("next_position", sa.Integer(), nullable=False, server_default="1")
+    )
+    op.execute(
+        "UPDATE drafts SET next_position = 1 + COALESCE((SELECT max((line->>'position')::int) "
+        "FROM jsonb_array_elements(lines) AS line), 0)"
+    )
+    for column in ("possible_duplicate_of", "waiting_for", "version", "next_position"):
         op.alter_column("drafts", column, server_default=None)
     op.create_index(
         "one_active_draft_per_adder",
@@ -120,6 +127,7 @@ def downgrade() -> None:
         "AND EXISTS (SELECT 1 FROM drafts o WHERE o.channel = d.channel AND o.ref = d.ref "
         "AND o.state IN ('awaiting_people', 'reviewing') AND o.seq < d.seq)"
     )
+    op.drop_column("drafts", "next_position")
     op.drop_column("drafts", "version")
     op.drop_column("drafts", "waiting_for")
     op.drop_column("drafts", "possible_duplicate_of")
