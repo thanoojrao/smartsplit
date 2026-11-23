@@ -60,12 +60,12 @@ PRIYA = Someone("Priya", "+919876500004")
 FLAT = "Flat 4B"
 
 
-def calling(name: str, **arguments: object) -> Step:
+def calling(tool: str, /, **arguments: object) -> Step:
     """A tool call whose arguments may name people as `"@Sam"` (→ Sam's handle this turn),
     drafts as `"@D"` (→ the first draft handle), actions as `"@A"`, bills as `"@B"`."""
 
     def step(request: AgentRequest) -> ModelStep:
-        return call(name, **{k: _resolve(request, v) for k, v in arguments.items()})
+        return call(tool, **{k: _resolve(request, v) for k, v in arguments.items()})
 
     return step
 
