@@ -5,7 +5,7 @@ import json
 from hypothesis import given
 from hypothesis import strategies as st
 
-from smartsplit.adapters.db.codec import decode, encode
+from smartsplit.domain.codec import decode, encode
 from smartsplit.domain.model import LineItem
 from tests.strategies import RECEIPT_LINES, STORED_SHAPES, of_shape
 

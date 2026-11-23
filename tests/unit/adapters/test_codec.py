@@ -6,7 +6,7 @@ from typing import Literal
 
 import pytest
 
-from smartsplit.adapters.db.codec import Json, decode, encode
+from smartsplit.domain.codec import Json, decode, encode
 from smartsplit.domain.commands import (
     AddManualBill,
     AnswerPrompt,

@@ -8,7 +8,7 @@ from hypothesis import strategies as st
 from sqlalchemy import Engine, Text, bindparam, cast, select
 from sqlalchemy.dialects.postgresql import JSONB
 
-from smartsplit.adapters.db.codec import decode, encode
+from smartsplit.domain.codec import decode, encode
 from smartsplit.domain.model import LineItem
 from tests.strategies import RECEIPT_LINES, STORED_SHAPES, of_shape
 

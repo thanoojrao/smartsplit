@@ -7,8 +7,8 @@ from sqlalchemy import ColumnElement, Row, and_, func, insert, or_, select, upda
 
 from smartsplit.adapters.db import tables as t
 from smartsplit.adapters.db.base import Store
-from smartsplit.adapters.db.codec import decode, encode
 from smartsplit.adapters.db.mapping import context_from, context_group_id, key_from
+from smartsplit.domain.codec import decode, encode
 from smartsplit.domain.enums import (
     NotificationKind,
     SettlementKind,

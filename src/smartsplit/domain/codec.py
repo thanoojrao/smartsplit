@@ -1,4 +1,4 @@
-"""Tagged JSON for nested domain values stored in JSONB columns (CONTRACTS conventions).
+"""Tagged JSON for nested domain values: JSONB columns and model tool calls (CONTRACTS conventions).
 
 Dataclasses become `{"type": "<ClassName>", ...fields}`, so unions round-trip; decoding is
 driven by the declared field types, so enums, dates and tuples come back as themselves.

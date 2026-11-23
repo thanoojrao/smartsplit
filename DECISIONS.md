@@ -149,6 +149,14 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (M5 review) Defaults: `SMARTSPLIT_LLM_MAX_TOKENS` 16000 (a 150-line receipt needs about 6,000 tokens plus thinking) and `SMARTSPLIT_MAX_IMAGE_BYTES` 5 MB (the API's image limit). Why: the old defaults made long receipts and normal phone photos fail.
 - (M5 review) Receipt validation also refuses amounts above 10^12 cents and quantities above 10^6, keeps a currency only if it is a 3-letter code, drops a discount link from a non-negative line, and shows amounts in warnings as money (`domain/money.format_cents`). The request schema lives with the Anthropic adapter. Why: model output reaches the database and chat text.
 
+## M6 — command interpreter
+
+- (M6) One strict tool per command (29), schemas generated from the command dataclasses (`adapters/llm/tool_schemas.py`): every field required, optional ones nullable, union variants tagged with `type`, so a tool call decodes with the domain codec (moved from `adapters/db` to `domain/codec.py`, as both adapters need it and it is pure). Fixed tool order and a cached system prompt keep the prefix cacheable. Why: SPEC 8; one decoder for DB rows and model output.
+- (M6) `tool_choice` stays `auto` (forced `any`/`tool` returns 400 on current models); no tool call, a refusal, or a call that doesn't decode is `Unknown`. API errors get one retry, then `LlmUnavailableError`. Effort `low` for interpretation and canonicalization. Why: documented current API; these are short, latency-sensitive classifications.
+- (M6) `canonicalize` uses structured output `{"item_key": ...}`; unusable output falls back to the normalized name (a new item), never an error. Why: matching must not fail a whole receipt over one line.
+- (M6) `services/command_checks.check_amounts` refuses any amount (incl. inside edits and exact amounts) that isn't > 0 and < `SMARTSPLIT_MAX_AMOUNT_CENTS`; the orchestrator calls it on every interpreted command. Why: SPEC 8 / 12.3, model output is a proposal.
+- (M6) `KeywordInterpreter` (fakes) covers the USE_CASES phrases with ordered regexes; "Sam paid" while a draft is under review is a payer edit, otherwise a new split. Why: tests and the CLI demo need deterministic commands.
+
 ## Checkpoint A review (2026-11-23)
 
 - (User) Unlinked negative lines (refunds) are matched by name and follow that item's rules; generic coupons that match nothing stay shared by everyone; discount-link treatment needs `discount_for` and a negative amount.
