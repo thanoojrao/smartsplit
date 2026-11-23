@@ -170,6 +170,15 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - **Small rules:** a typed personal bill with nobody named asks "who's this with?" like a photo; an edited line amount is no longer flagged as unclear; the speaker can be named by their own name; if the payer leaves, the adder pays; at most `max_queued_drafts` receipts wait; overall balances list the largest first.
 - **Tests:** `tests/integration/` drives the whole bot through `Orchestrator.handle` on the in-memory fakes, by use case; `test_on_postgres.py` runs a tour of every prompt and two simultaneous confirms on real Postgres.
 
+## M7 review fixes
+
+- **Group chats only know the group:** names said in a group resolve among the people who were ever in it; anyone else gets "X isn't in Flat 4B" (no "which Sam?" across groups, and the model's context in a group lists only them). Why: SPEC 10.7 privacy, 10.4 "only current members".
+- **Answer routing:** a numbered or named answer goes to the line questions unless the newest direct prompt takes numbers or names (who-with, which-person, need-contact); a bare answer goes to the first question still unanswered; "yes" to a soft-rule question puts the person back on the line. A new command drops the speaker's ignored which-person, need-contact and confirm-action prompts.
+- **Quiet asides:** group chatter is only read while a prompt the speaker may answer is open, and any non-answer or refusal to it gets no reply (the daily-limit message included).
+- **Clarifications keep the photo:** `WhichPersonPayload` and `NeedContactPayload` gained an optional `StoredImage` (additive to CONTRACTS 1.5), so "split with Meera" + photo resumes with the receipt.
+- **Ports:** `DraftStore.open_in_context` (a group's drafts can live in personal chats: leavers and duplicates use it) and `ProcessedStore.add_replies` (a retried photo message returns the summary read after the first commit). `personal_for` picks the first chat by (channel, ref) on both backends. `find_likely_duplicate` takes `window_days` keyword-only.
+- **Other rules:** only whoever gave a number can correct it; past members can still ask for balances in the group; a wider answer for someone with no personal chat says "message me 1:1"; "what rules are about me?" lists every rule about you, including others' notes (SPEC 6.2); a typed bill while another is under review is refused (only receipts queue); naming a payer doesn't add them to the bill.
+
 ## Checkpoint A review (2026-11-23)
 
 - (User) Unlinked negative lines (refunds) are matched by name and follow that item's rules; generic coupons that match nothing stay shared by everyone; discount-link treatment needs `discount_for` and a negative amount.
