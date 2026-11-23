@@ -304,29 +304,40 @@ context's A–B pair is 0 and the test asserts that).
 
 ```python
 class Clock(Protocol):
-    def now(self) -> datetime: ...                                 # tz-aware UTC
+    def now(self) -> datetime: ...  # tz-aware UTC
+
 
 class IdGenerator(Protocol):
     def new_id(self) -> str: ...
 
+
 class ImageStore(Protocol):
-    def save(self, data: bytes, mime_type: str) -> str: ...        # returns image_ref
+    def save(self, data: bytes, mime_type: str) -> str: ...  # returns image_ref
     def load(self, image_ref: str) -> bytes: ...
     def prune(self, older_than: datetime) -> int: ...
 
+
 class ReceiptParser(Protocol):
     def parse(self, image: bytes, mime_type: str, currency: str) -> ParsedReceipt: ...
+
 
 class CommandInterpreter(Protocol):
     def interpret(self, text: str, context: InterpretContext) -> Command: ...
     def canonicalize(self, name: str, known_keys: Sequence[str]) -> str: ...
 
+
 class Repository(Protocol):
-    def unit_of_work(self, lock: ConversationKey | None = None) -> AbstractContextManager[UnitOfWork]: ...
+    def unit_of_work(
+        self, lock: ConversationKey | None = None
+    ) -> AbstractContextManager[UnitOfWork]: ...
+
     # one transaction; commits on success, rolls back on exception; optional per-conversation lock
 
-class ReceiptUnreadable(Exception): ...     # bad image / invalid output after the retry
-class LlmUnavailable(Exception): ...        # timeout / API error after the retry
+
+class ReceiptUnreadable(Exception): ...  # bad image / invalid output after the retry
+
+
+class LlmUnavailable(Exception): ...  # timeout / API error after the retry
 ```
 
 `UnitOfWork` exposes one store per aggregate (each a Protocol with get/add/update and the queries the
@@ -364,7 +375,7 @@ class InterpretContext:
 ```python
 class Orchestrator:
     def handle(self, message: InboundMessage) -> list[OutboundMessage]: ...
-    def tick(self) -> list[OutboundMessage]: ...                   # uses Clock.now()
+    def tick(self) -> list[OutboundMessage]: ...  # uses Clock.now()
 ```
 
 - Both return messages for **any** conversation: replies to the current chat, posts to a group chat
