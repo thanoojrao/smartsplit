@@ -52,11 +52,11 @@ def _bill(row: Row[tuple[object, ...]]) -> Bill:
 
 class BillStore(Store):
     def get(self, bill_id: str) -> Bill | None:
-        row = self._db.execute(select(t.bills).where(t.bills.c.id == bill_id)).first()
+        row = self._execute(select(t.bills).where(t.bills.c.id == bill_id)).first()
         return _bill(row) if row else None
 
     def add(self, bill: Bill) -> None:
-        self._db.execute(
+        self._execute(
             insert(t.bills).values(
                 id=bill.id,
                 context_group_id=context_group_id(bill.context),
@@ -82,7 +82,7 @@ class BillStore(Store):
 
     def for_context(self, context: Context) -> tuple[Bill, ...]:
         c = t.bills.c
-        rows = self._db.execute(
+        rows = self._execute(
             select(t.bills)
             .where(_context_is(c.context_group_id, context))
             .order_by(c.created_at, c.seq)
@@ -91,7 +91,7 @@ class BillStore(Store):
 
     def for_participant(self, person_id: str) -> tuple[Bill, ...]:
         c = t.bills.c
-        rows = self._db.execute(
+        rows = self._execute(
             select(t.bills)
             .where(c.participants.contains([person_id]))
             .order_by(c.created_at, c.seq)
@@ -117,7 +117,7 @@ def _settlement(row: Row[tuple[object, ...]]) -> Settlement:
 
 class SettlementStore(Store):
     def add(self, settlement: Settlement) -> None:
-        self._db.execute(
+        self._execute(
             insert(t.settlements).values(
                 id=settlement.id,
                 payment_id=settlement.payment_id,
@@ -134,7 +134,7 @@ class SettlementStore(Store):
 
     def for_context(self, context: Context) -> tuple[Settlement, ...]:
         c = t.settlements.c
-        rows = self._db.execute(
+        rows = self._execute(
             select(t.settlements)
             .where(_context_is(c.context_group_id, context))
             .order_by(c.created_at, c.seq)
@@ -143,7 +143,7 @@ class SettlementStore(Store):
 
     def for_payment(self, payment_id: str) -> tuple[Settlement, ...]:
         c = t.settlements.c
-        rows = self._db.execute(
+        rows = self._execute(
             select(t.settlements).where(c.payment_id == payment_id).order_by(c.seq)
         )
         return tuple(_settlement(r) for r in rows)
@@ -170,7 +170,7 @@ CLAIM_LOCK_ID = 0x534D53_434C41494D
 
 class NotificationStore(Store):
     def add(self, notification: Notification) -> None:
-        self._db.execute(
+        self._execute(
             insert(t.notifications).values(
                 id=notification.id,
                 recipient_id=notification.recipient_id,
@@ -190,22 +190,21 @@ class NotificationStore(Store):
         """Claims run one at a time (a transaction-level advisory lock), so two ticks can't both
         count the same "sent today" and push a person past the cap. Held and capped recipients
         are filtered in SQL, so a backlog of held rows is never locked or scanned in Python."""
-        self._db.execute(select(func.pg_advisory_xact_lock(CLAIM_LOCK_ID)))
+        self._execute(select(func.pg_advisory_xact_lock(CLAIM_LOCK_ID)))
         n, p = t.notifications.c, t.people.c
         reply = NotificationKind.REQUESTED_REPLY.value
-        sent_today: dict[str, int] = dict(
-            self._db.execute(
-                select(n.recipient_id, func.count())
-                .where(n.sent_at >= day_start, n.kind != reply)
-                .group_by(n.recipient_id)
-            ).all()
+        counts = self._execute(
+            select(n.recipient_id, func.count().label("sent"))
+            .where(n.sent_at >= day_start, n.kind != reply)
+            .group_by(n.recipient_id)
         )
+        sent_today: dict[str, int] = {row.recipient_id: row.sent for row in counts}
         capped = [person for person, count in sent_today.items() if count >= per_person_daily_cap]
         deliverable = or_(
             n.kind == reply,
             and_(p.has_used_bot, p.notifications_enabled, n.recipient_id.not_in(capped)),
         )
-        rows = self._db.execute(
+        rows = self._execute(
             select(t.notifications)
             .join(t.people, p.id == n.recipient_id)
             .where(n.sent_at.is_(None), deliverable)
@@ -223,7 +222,7 @@ class NotificationStore(Store):
                 sent_today[notification.recipient_id] = count + 1
             claimed.append(notification)
         if claimed:
-            self._db.execute(
+            self._execute(
                 update(t.notifications).where(n.id.in_([c.id for c in claimed])).values(sent_at=now)
             )
         return tuple(replace(c, sent_at=now) for c in claimed)

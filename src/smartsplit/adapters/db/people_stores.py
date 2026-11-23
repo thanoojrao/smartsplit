@@ -47,19 +47,19 @@ def _person_values(person: Person) -> dict[str, object]:
 
 class PeopleStore(Store):
     def get(self, person_id: str) -> Person | None:
-        row = self._db.execute(select(t.people).where(t.people.c.id == person_id)).first()
+        row = self._execute(select(t.people).where(t.people.c.id == person_id)).first()
         return _person(row) if row else None
 
     def by_phone(self, phone: str) -> Person | None:
-        row = self._db.execute(select(t.people).where(t.people.c.phone == phone)).first()
+        row = self._execute(select(t.people).where(t.people.c.phone == phone)).first()
         return _person(row) if row else None
 
     def add(self, person: Person) -> None:
-        self._db.execute(insert(t.people).values(_person_values(person)))
+        self._execute(insert(t.people).values(_person_values(person)))
 
     def update(self, person: Person) -> None:
         require_one(
-            self._db.execute(
+            self._execute(
                 update(t.people).where(t.people.c.id == person.id).values(_person_values(person))
             ).rowcount
         )
@@ -68,13 +68,13 @@ class PeopleStore(Store):
 class IdentityStore(Store):
     def get(self, channel: str, external_ref: str) -> ChatIdentity | None:
         c = t.chat_identities.c
-        row = self._db.execute(
+        row = self._execute(
             select(c.person_id).where(c.channel == channel, c.external_ref == external_ref)
         ).first()
         return ChatIdentity(channel, external_ref, row.person_id) if row else None
 
     def add(self, identity: ChatIdentity) -> None:
-        self._db.execute(
+        self._execute(
             insert(t.chat_identities).values(
                 channel=identity.channel,
                 external_ref=identity.external_ref,
@@ -84,7 +84,7 @@ class IdentityStore(Store):
 
     def for_person(self, person_id: str) -> tuple[ChatIdentity, ...]:
         c = t.chat_identities.c
-        rows = self._db.execute(
+        rows = self._execute(
             select(c.channel, c.external_ref)
             .where(c.person_id == person_id)
             .order_by(c.channel, c.external_ref)
@@ -97,7 +97,7 @@ class NicknameStore(Store):
         statement = pg_insert(t.nicknames).values(
             owner_id=nickname.owner_id, name=nickname.name, subject_id=nickname.subject_id
         )
-        self._db.execute(
+        self._execute(
             statement.on_conflict_do_update(
                 index_elements=["owner_id", "name"],
                 set_={"subject_id": statement.excluded.subject_id},
@@ -106,7 +106,7 @@ class NicknameStore(Store):
 
     def for_owner(self, owner_id: str) -> tuple[Nickname, ...]:
         c = t.nicknames.c
-        rows = self._db.execute(
+        rows = self._execute(
             select(c.name, c.subject_id).where(c.owner_id == owner_id).order_by(c.name)
         )
         return tuple(Nickname(owner_id, r.subject_id, r.name) for r in rows)
@@ -131,22 +131,22 @@ def _group_values(group: Group) -> dict[str, object]:
 
 class GroupStore(Store):
     def get(self, group_id: str) -> Group | None:
-        row = self._db.execute(select(t.groups).where(t.groups.c.id == group_id)).first()
+        row = self._execute(select(t.groups).where(t.groups.c.id == group_id)).first()
         return _group(row) if row else None
 
     def by_channel_ref(self, key: ConversationKey) -> Group | None:
         c = t.groups.c
-        row = self._db.execute(
+        row = self._execute(
             select(t.groups).where(c.channel == key.channel, c.channel_ref == key.ref)
         ).first()
         return _group(row) if row else None
 
     def add(self, group: Group) -> None:
-        self._db.execute(insert(t.groups).values(_group_values(group)))
+        self._execute(insert(t.groups).values(_group_values(group)))
 
     def update(self, group: Group) -> None:
         require_one(
-            self._db.execute(
+            self._execute(
                 update(t.groups).where(t.groups.c.id == group.id).values(_group_values(group))
             ).rowcount
         )
@@ -159,7 +159,7 @@ def _membership(row: Row[tuple[object, ...]]) -> Membership:
 
 class MembershipStore(Store):
     def add(self, membership: Membership) -> None:
-        self._db.execute(
+        self._execute(
             insert(t.memberships).values(
                 group_id=membership.group_id,
                 person_id=membership.person_id,
@@ -172,7 +172,7 @@ class MembershipStore(Store):
     def end(self, group_id: str, person_id: str, left_at: datetime) -> None:
         c = t.memberships.c
         require_one(
-            self._db.execute(
+            self._execute(
                 update(t.memberships)
                 .where(c.group_id == group_id, c.person_id == person_id, c.left_at.is_(None))
                 .values(left_at=left_at)
@@ -181,14 +181,14 @@ class MembershipStore(Store):
 
     def for_group(self, group_id: str) -> tuple[Membership, ...]:
         c = t.memberships.c
-        rows = self._db.execute(
+        rows = self._execute(
             select(t.memberships).where(c.group_id == group_id).order_by(c.position, c.seq)
         )
         return tuple(_membership(r) for r in rows)
 
     def for_person(self, person_id: str) -> tuple[Membership, ...]:
         c = t.memberships.c
-        rows = self._db.execute(
+        rows = self._execute(
             select(t.memberships).where(c.person_id == person_id).order_by(c.joined_at, c.seq)
         )
         return tuple(_membership(r) for r in rows)
@@ -209,7 +209,7 @@ def _conversation_values(conversation: Conversation) -> dict[str, object]:
 class ConversationStore(Store):
     def get(self, key: ConversationKey) -> Conversation | None:
         c = t.conversations.c
-        row = self._db.execute(
+        row = self._execute(
             select(t.conversations).where(c.channel == key.channel, c.ref == key.ref)
         ).first()
         if row is None:
@@ -225,13 +225,13 @@ class ConversationStore(Store):
         )
 
     def add(self, conversation: Conversation) -> None:
-        self._db.execute(insert(t.conversations).values(_conversation_values(conversation)))
+        self._execute(insert(t.conversations).values(_conversation_values(conversation)))
 
     def update(self, conversation: Conversation) -> None:
         c = t.conversations.c
         key = conversation.key
         require_one(
-            self._db.execute(
+            self._execute(
                 update(t.conversations)
                 .where(c.channel == key.channel, c.ref == key.ref)
                 .values(_conversation_values(conversation))

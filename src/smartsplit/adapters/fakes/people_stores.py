@@ -13,7 +13,7 @@ from smartsplit.domain.model import (
     Person,
 )
 from smartsplit.domain.values import ConversationKey
-from smartsplit.ports.repository import DuplicateKeyError, InvalidRecordError
+from smartsplit.ports.errors import DuplicateKeyError, InvalidRecordError
 
 
 class PeopleStore:

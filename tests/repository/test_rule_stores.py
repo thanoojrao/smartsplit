@@ -137,6 +137,7 @@ def test_two_people_changing_the_same_rule_at_once_both_succeed(clean_pg: Engine
         worker = threading.Thread(target=second)
         worker.start()
         worker.join(timeout=0.3)
+        assert worker.is_alive()  # really waiting on the first, uncommitted write
     worker.join()
 
     assert errors == []

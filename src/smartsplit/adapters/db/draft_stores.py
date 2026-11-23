@@ -23,12 +23,13 @@ from smartsplit.domain.prompts import (
     PromptPayload,
 )
 from smartsplit.domain.values import ConversationKey, Override
-from smartsplit.ports.repository import IDLE_DRAFT_STATES, StaleDraftError
+from smartsplit.ports.errors import StaleDraftError
+from smartsplit.ports.repository import IDLE_DRAFT_STATES
 
 
 class ReceiptStore(Store):
     def get(self, receipt_id: str) -> Receipt | None:
-        row = self._db.execute(select(t.receipts).where(t.receipts.c.id == receipt_id)).first()
+        row = self._execute(select(t.receipts).where(t.receipts.c.id == receipt_id)).first()
         if row is None:
             return None
         m = row._mapping
@@ -46,7 +47,7 @@ class ReceiptStore(Store):
         )
 
     def add(self, receipt: Receipt) -> None:
-        self._db.execute(
+        self._execute(
             insert(t.receipts).values(
                 id=receipt.id,
                 image_ref=receipt.image_ref,
@@ -120,15 +121,15 @@ def _draft_values(draft: BillDraft) -> dict[str, object]:
 
 class DraftStore(Store):
     def get(self, draft_id: str) -> BillDraft | None:
-        row = self._db.execute(select(t.drafts).where(t.drafts.c.id == draft_id)).first()
+        row = self._execute(select(t.drafts).where(t.drafts.c.id == draft_id)).first()
         return _draft(row) if row else None
 
     def add(self, draft: BillDraft) -> None:
-        self._db.execute(insert(t.drafts).values(_draft_values(draft)))
+        self._execute(insert(t.drafts).values(_draft_values(draft)))
 
     def update(self, draft: BillDraft, expected_state: DraftState) -> None:
         c = t.drafts.c
-        changed = self._db.execute(
+        changed = self._execute(
             update(t.drafts)
             .where(c.id == draft.id, c.state == expected_state.value)
             .values(_draft_values(draft))
@@ -143,7 +144,7 @@ class DraftStore(Store):
         self, key: ConversationKey, states: Collection[DraftState]
     ) -> tuple[BillDraft, ...]:
         c = t.drafts.c
-        rows = self._db.execute(
+        rows = self._execute(
             select(t.drafts)
             .where(
                 c.channel == key.channel,
@@ -156,7 +157,7 @@ class DraftStore(Store):
 
     def due_for_reminder_or_expiry(self, idle_since: datetime) -> tuple[BillDraft, ...]:
         c = t.drafts.c
-        rows = self._db.execute(
+        rows = self._execute(
             select(t.drafts)
             .where(
                 c.state.in_([state.value for state in IDLE_DRAFT_STATES]),
@@ -201,15 +202,15 @@ def _prompt_values(prompt: Prompt) -> dict[str, object]:
 
 class PromptStore(Store):
     def get(self, prompt_id: str) -> Prompt | None:
-        row = self._db.execute(select(t.prompts).where(t.prompts.c.id == prompt_id)).first()
+        row = self._execute(select(t.prompts).where(t.prompts.c.id == prompt_id)).first()
         return _prompt(row) if row else None
 
     def add(self, prompt: Prompt) -> None:
-        self._db.execute(insert(t.prompts).values(_prompt_values(prompt)))
+        self._execute(insert(t.prompts).values(_prompt_values(prompt)))
 
     def update(self, prompt: Prompt) -> None:
         require_one(
-            self._db.execute(
+            self._execute(
                 update(t.prompts).where(t.prompts.c.id == prompt.id).values(_prompt_values(prompt))
             ).rowcount
         )
@@ -218,7 +219,7 @@ class PromptStore(Store):
         self, key: ConversationKey, statuses: Collection[PromptStatus]
     ) -> tuple[Prompt, ...]:
         c = t.prompts.c
-        rows = self._db.execute(
+        rows = self._execute(
             select(t.prompts)
             .where(
                 c.channel == key.channel,
@@ -231,7 +232,7 @@ class PromptStore(Store):
 
     def for_draft(self, draft_id: str) -> tuple[Prompt, ...]:
         c = t.prompts.c
-        rows = self._db.execute(
+        rows = self._execute(
             select(t.prompts).where(c.draft_id == draft_id).order_by(c.created_at, c.seq)
         )
         return tuple(_prompt(r) for r in rows)
@@ -240,7 +241,7 @@ class PromptStore(Store):
 class ProcessedStore(Store):
     def get(self, key: ConversationKey, message_id: str) -> ProcessedMessage | None:
         c = t.processed_messages.c
-        row = self._db.execute(
+        row = self._execute(
             select(c.replies, c.processed_at).where(
                 c.channel == key.channel, c.ref == key.ref, c.message_id == message_id
             )
@@ -252,7 +253,7 @@ class ProcessedStore(Store):
         )
 
     def add(self, processed: ProcessedMessage) -> None:
-        self._db.execute(
+        self._execute(
             insert(t.processed_messages).values(
                 channel=processed.key.channel,
                 ref=processed.key.ref,

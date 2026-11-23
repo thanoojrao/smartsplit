@@ -149,6 +149,7 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (Fix) `add_stated_rule`/`delete_rule` derive the scope from (chat kind, group, speaker, subject); the only permission left to check is current group membership at `now` (joined, not yet left). Why: a group chat can never write someone's Everywhere rule, and nobody can write another's notes.
 - (Fix) Keys the model creates count as known for the rest of the receipt. Why: near-duplicate lines cost one model call.
 - (Fix) Empty `ANTHROPIC_API_KEY`/`SMARTSPLIT_API_TOKEN` load as unset; `fuzzy_threshold` must be ≥ 1; the invite default matches `.env.example`. Why: a copied `.env` behaves as expected; threshold 0 matched empty names to anything.
+- (Fix review) Postgres constraint errors are translated to port errors at each store call (and again at commit), so both backends raise `DuplicateKeyError` etc. at the same moment; storage errors live in `ports/errors.py`. On Postgres the error also aborts the transaction, so callers catch it outside the unit of work. Why: parity between fake and Postgres.
 - A learned rule is only undone by stating or deleting a rule; later `included` answers just stop a new streak. Why: simple and predictable; the summary shows learned rules.
 
 ## Open (waiting for the user)

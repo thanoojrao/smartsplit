@@ -101,8 +101,9 @@ def test_fixed_people_always_get_exactly_their_amount(
 
 
 def test_exact_amounts_are_before_tax_and_tip() -> None:
-    # Checkpoint A decision: "Sam's part was 100" of a taxed 200 line, 10% tax and a 40 tip.
-    weights = amounts_to_weights(200, [("sam", 100)], ["raj"])
+    # Checkpoint A decision: "Sam's part was 50" of a taxed 200 line, 10% tax and a 40 tip:
+    # Sam pays 50 + 5 tax + 10 tip; asymmetric, so losing the override would show.
+    weights = amounts_to_weights(200, [("sam", 50)], ["raj"])
     items, left = fold_item_tax([TaxedLine(ItemInput("l1", "Wine", 200), True)], 20)
     override = {w.person_id: w.weight for w in weights}
 
@@ -110,7 +111,7 @@ def test_exact_amounts_are_before_tax_and_tip() -> None:
         items, ["sam", "raj"], adjustments_cents=left + 40, overrides={"l1": override}
     )
 
-    assert result.shares == {"sam": 130, "raj": 130}
+    assert result.shares == {"sam": 65, "raj": 195}
 
 
 def test_leftover_cents_go_by_member_order_not_by_the_order_of_others() -> None:

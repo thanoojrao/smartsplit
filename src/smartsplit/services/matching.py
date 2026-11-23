@@ -12,7 +12,7 @@ from smartsplit.domain import normalize_item_name
 from smartsplit.domain.enums import MatchHow
 from smartsplit.domain.model import ItemAlias, LineItem
 from smartsplit.domain.values import LocalScope
-from smartsplit.engine import Match, discount_links, match_item
+from smartsplit.engine import discount_links, match_item
 from smartsplit.ports.llm import Canonicalizer
 from smartsplit.ports.repository import UnitOfWork
 
@@ -60,7 +60,7 @@ def match_lines(
     links = discount_links(lines)
     by_id = {line.id: line for line in lines}
     known = set(inputs.known_keys)
-    by_name: dict[str, tuple[Match, bool]] = {}
+    by_name: dict[str, tuple[str, MatchHow, bool]] = {}
     matched: dict[str, LineItem] = {}
     calls = 0
     for line in lines:
@@ -68,15 +68,13 @@ def match_lines(
             continue
         name = normalize_item_name(line.name)
         if name not in by_name:
-            match, is_new, asked = _match_name(line.name, inputs, known, canonicalizer, threshold)
-            by_name[name] = (match, is_new)
-            calls += asked
-            if match.item_key is not None:
-                known.add(match.item_key)
-        match, is_new = by_name[name]
-        matched[line.id] = replace(
-            line, canonical=match.item_key, match_how=match.how, match_is_new=is_new
-        )
+            key, how, is_new = _match_name(line.name, inputs, known, canonicalizer, threshold)
+            by_name[name] = (key, how, is_new)
+            if how is MatchHow.LLM:
+                calls += 1
+            known.add(key)
+        key, how, is_new = by_name[name]
+        matched[line.id] = replace(line, canonical=key, match_how=how, match_is_new=is_new)
     for line_id, parent_id in links.items():
         parent = matched[parent_id]
         matched[line_id] = replace(
@@ -86,9 +84,7 @@ def match_lines(
             match_is_new=False,
         )
     new_aliases = tuple(
-        ItemAlias(inputs.scope, name, match.item_key)
-        for name, (match, is_new) in by_name.items()
-        if is_new and match.item_key is not None
+        ItemAlias(inputs.scope, name, key) for name, (key, _, is_new) in by_name.items() if is_new
     )
     return MatchedLines(tuple(matched[line.id] for line in lines), new_aliases, calls)
 
@@ -99,24 +95,25 @@ def _match_name(
     known: set[str],
     canonicalizer: Canonicalizer,
     threshold: int,
-) -> tuple[Match, bool, int]:
-    """The match, whether it is new here (remembered and shown once), and model calls made."""
+) -> tuple[str, MatchHow, bool]:
+    """The key, how it was found, and whether it is new here (remembered and shown once).
+
+    Every name gets a key: when nothing matches, the model gives one (a known key, or a new
+    item, which is the normalized name itself and not an alias).
+    """
     match = match_item(raw_name, inputs.aliases, known, threshold)
-    if match.how is MatchHow.FUZZY:
-        return match, True, 0
-    if match.how is not MatchHow.NONE:
-        return match, False, 0
+    if match.item_key is not None:
+        return match.item_key, match.how, match.how is MatchHow.FUZZY
     name = normalize_item_name(raw_name)
     key = normalize_item_name(canonicalizer.canonicalize(raw_name, sorted(known)))
     if not key or key == name:
-        return Match(name, MatchHow.LLM), False, 1
-    return Match(key, MatchHow.LLM), True, 1
+        return name, MatchHow.LLM, False
+    return key, MatchHow.LLM, True
 
 
 def remember_matches(uow: UnitOfWork, matched: MatchedLines) -> None:
     """Store the new aliases and make every line's key a known item, for later receipts."""
     for alias in matched.new_aliases:
         uow.aliases.put(alias)
-    for line in matched.lines:
-        if line.canonical is not None:
-            uow.items.ensure(line.canonical)
+    for key in {line.canonical for line in matched.lines if line.canonical is not None}:
+        uow.items.ensure(key)

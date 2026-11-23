@@ -20,7 +20,8 @@ from smartsplit.domain.prompts import (
     WhichPersonPayload,
 )
 from smartsplit.domain.values import ConversationKey, ExactAmount, GroupScope, PersonalContext
-from smartsplit.ports.repository import DuplicateKeyError, Repository, StaleDraftError
+from smartsplit.ports.errors import DuplicateKeyError, StaleDraftError
+from smartsplit.ports.repository import Repository
 from tests.repository.builders import CHAT, T0, at, draft, line, prompt, rule
 
 OTHER = ConversationKey("cli", "other")

@@ -4,15 +4,12 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 ## Next up
 
-**Checkpoint A reviewed by the user.** Before M4: apply every item under "Fix now" in
-`docs/CHECKPOINT_A_REVIEW.md` (two user decisions, two must-fix, 14 should-fix), tests first; gate and
-CI green; review gate (docs/REVIEW.md) on the fix commits (range `93abd81..HEAD`); move that file's
-"Follow-ups" into the Follow-ups list below; log the result here with the final commit hash.
-
-Then **M4 — Ledger** (SPEC §9, CONTRACTS §3) in `src/smartsplit/ledger/` (pure; imports only domain):
-`ContextLedger`, `balances`, `simplify_debts` (greedy, ties by member order), `pair_debts`,
-`overall_between`/`overall_for`, `allocate_payment`, `square_up`, plus the property tests CONTRACTS §3
-requires. M4 review range starts at the commit that finishes the Checkpoint A fixes.
+Checkpoint A fixes are done (log below). **Next: close M4** — the ledger is committed (`7187342`);
+run CI and the review gate on range `b949279..HEAD` (M4 plus the fix-review commit that followed
+it), fix must-fix, tick M4. Then **M5 → M9 without stopping** (user-confirmed), same process per
+milestone, and stop at CHECKPOINT B: push, open the PR, notify, summarize. For M5 there is no
+Anthropic API key: the opt-in live test is skipped unless SMARTSPLIT_LIVE_LLM=1; use recorded
+fixtures. Ask (DECISIONS "Open") only for what CLAUDE.md says needs the user.
 
 ## Milestones
 
@@ -38,6 +35,7 @@ requires. M4 review range starts at the commit that finishes the Checkpoint A fi
 - M1: `split_receipt` (weighted overrides, clamped adjustments, one floor + largest-remainder helper), `fold_item_tax`, `amounts_to_weights`; frozen types moved to `engine/split.py` and re-exported; CI actions on Node 24; 74 tests, 100% coverage; review: no must-fix. Commit `42c46b6`.
 - M2: CONTRACTS §1 domain, ports (Repository + UoW, ImageStore, parser/interpreter, clock, ids), `config.py`, Postgres adapter (Core tables, tagged-JSONB codec, advisory lock, Alembic), file ImageStore, in-memory fakes; repository contract tests run on fake and Postgres; 233 tests, 97% coverage; review must-fix (SKIP LOCKED test) fixed. Commit `0f64ca5`. (M3's pure engine commit `1be7666` landed just before it, so `0f64ca5` also contains it.)
 - M3: `resolve_rules`, `match_item`, discount links/overrides (linked follow the parent, unlinked are split among everyone), learning (`observe`, `learned_kind`); services for matching (model outside any transaction, aliases per place, model-call count), stated rules with §6.2 permissions and "drinks milk now" deletes, `learn_from_bill`; `Canonicalizer` port + fake; 264 tests, 99% coverage; review must-fix (unlinked discounts) fixed. Range `c993395..16f21a7`. Commit `16f21a7`.
+- Checkpoint A fixes (docs/CHECKPOINT_A_REVIEW.md items 1–18): refunds matched by name, exact amounts before tax, weighted learning, serialized claims, rule upsert, one active draft, port constraint errors on both backends, scope derived by the rules service, codec property + JSONB tests, config/README. Review must-fix (asymmetric exact-amount test) fixed. Range `93abd81..b949279` plus the fix-review commit after M4.
 
 ## Follow-ups
 
@@ -53,4 +51,6 @@ requires. M4 review range starts at the commit that finishes the Checkpoint A fi
 - (Checkpoint A, M7) A group rule can name a subject who isn't a member; resolve names against members in M7.
 - (Checkpoint A, M8) `claim_due`: rows dropped by the cap still use `limit` slots within one batch.
 - (Checkpoint A) `split_receipt` accepts `bool` amounts (`True` = 1 cent); optionally reject non-int amounts.
+- (Fix review, M7) Run the "model never called inside a unit of work" check against the orchestrator, not only the matching helpers.
+- (Fix review, M8) Call `claim_due` only in its own unit of work with no conversation lock (lock order).
 - (M3 review) Stated rules only normalize the item ("I don't drink MLK" → `mlk`); decide in M6/M7 whether stated items go through `match_item`/the model.

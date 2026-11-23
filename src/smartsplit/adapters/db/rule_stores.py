@@ -25,10 +25,10 @@ from smartsplit.domain.values import LocalScope, RuleScope
 
 class ItemStore(Store):
     def ensure(self, key: str) -> None:
-        self._db.execute(pg_insert(t.items).values(key=key).on_conflict_do_nothing())
+        self._execute(pg_insert(t.items).values(key=key).on_conflict_do_nothing())
 
     def keys(self) -> frozenset[str]:
-        return frozenset(self._db.execute(select(t.items.c.key)).scalars())
+        return frozenset(self._execute(select(t.items.c.key)).scalars())
 
 
 class AliasStore(Store):
@@ -37,7 +37,7 @@ class AliasStore(Store):
         statement = pg_insert(t.item_aliases).values(
             scope_kind=kind, scope_ref=ref, raw_name=alias.raw_name, item_key=alias.item_key
         )
-        self._db.execute(
+        self._execute(
             statement.on_conflict_do_update(
                 index_elements=["scope_kind", "scope_ref", "raw_name"],
                 set_={"item_key": statement.excluded.item_key},
@@ -47,7 +47,7 @@ class AliasStore(Store):
     def delete(self, scope: LocalScope, raw_name: str) -> None:
         kind, ref = scope_columns(scope)
         c = t.item_aliases.c
-        self._db.execute(
+        self._execute(
             delete(t.item_aliases).where(
                 c.scope_kind == kind, c.scope_ref == ref, c.raw_name == raw_name
             )
@@ -56,7 +56,7 @@ class AliasStore(Store):
     def for_scope(self, scope: LocalScope) -> tuple[ItemAlias, ...]:
         kind, ref = scope_columns(scope)
         c = t.item_aliases.c
-        rows = self._db.execute(
+        rows = self._execute(
             select(c.raw_name, c.item_key)
             .where(c.scope_kind == kind, c.scope_ref == ref)
             .order_by(c.raw_name)
@@ -80,13 +80,11 @@ def _rule(row: Row[tuple[object, ...]]) -> Rule:
 
 class RuleStore(Store):
     def get(self, rule_id: str) -> Rule | None:
-        row = self._db.execute(select(t.rules).where(t.rules.c.id == rule_id)).first()
+        row = self._execute(select(t.rules).where(t.rules.c.id == rule_id)).first()
         return _rule(row) if row else None
 
     def find(self, scope: RuleScope, subject_id: str, item_key: str) -> Rule | None:
-        row = self._db.execute(
-            select(t.rules).where(_rule_slot(scope, subject_id, item_key))
-        ).first()
+        row = self._execute(select(t.rules).where(_rule_slot(scope, subject_id, item_key))).first()
         return _rule(row) if row else None
 
     def put(self, rule: Rule) -> None:
@@ -104,7 +102,7 @@ class RuleStore(Store):
             created_at=rule.created_at,
         )
         replaced = ("id", "kind", "author_id", "source", "created_at")
-        self._db.execute(
+        self._execute(
             statement.on_conflict_do_update(
                 index_elements=["scope_kind", "scope_ref", "subject_id", "item_key"],
                 set_={column: statement.excluded[column] for column in replaced},
@@ -112,11 +110,11 @@ class RuleStore(Store):
         )
 
     def delete(self, rule_id: str) -> None:
-        self._db.execute(delete(t.rules).where(t.rules.c.id == rule_id))
+        self._execute(delete(t.rules).where(t.rules.c.id == rule_id))
 
     def for_subjects(self, subject_ids: Collection[str]) -> tuple[Rule, ...]:
         c = t.rules.c
-        rows = self._db.execute(
+        rows = self._execute(
             select(t.rules).where(c.subject_id.in_(list(subject_ids))).order_by(c.created_at, c.id)
         )
         return tuple(_rule(r) for r in rows)
@@ -133,7 +131,7 @@ def _rule_slot(scope: RuleScope, subject_id: str, item_key: str) -> ColumnElemen
 class ObservationStore(Store):
     def add(self, observation: AnswerObservation) -> None:
         kind, ref = scope_columns(observation.scope)
-        self._db.execute(
+        self._execute(
             insert(t.answer_observations).values(
                 scope_kind=kind,
                 scope_ref=ref,
@@ -150,7 +148,7 @@ class ObservationStore(Store):
     ) -> tuple[AnswerObservation, ...]:
         kind, ref = scope_columns(scope)
         c = t.answer_observations.c
-        rows = self._db.execute(
+        rows = self._execute(
             select(t.answer_observations)
             .where(
                 c.scope_kind == kind,
@@ -176,7 +174,7 @@ class ObservationStore(Store):
 class LlmUsageStore(Store):
     def get(self, person_id: str, day: date) -> LlmUsage | None:
         c = t.llm_usage.c
-        calls = self._db.execute(
+        calls = self._execute(
             select(c.calls).where(c.person_id == person_id, c.day == day)
         ).scalar()
         return LlmUsage(person_id, day, calls) if calls is not None else None
@@ -186,4 +184,4 @@ class LlmUsageStore(Store):
         upsert = statement.on_conflict_do_update(
             index_elements=["person_id", "day"], set_={"calls": t.llm_usage.c.calls + 1}
         ).returning(t.llm_usage.c.calls)
-        return int(self._db.execute(upsert).scalar_one())
+        return int(self._execute(upsert).scalar_one())

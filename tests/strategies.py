@@ -16,7 +16,8 @@ ZONES = st.sampled_from(
     [UTC, timezone(timedelta(hours=5, minutes=30)), timezone(-timedelta(hours=8))]
 )
 st.register_type_strategy(datetime, st.datetimes(timezones=ZONES))
-"""Stored times may come from any zone; they must keep their instant."""
+"""Global on purpose, for the whole test session: every datetime in the domain is timezone-
+aware, so `from_type` must never produce a naive one; mixed zones must keep their instant."""
 
 STORED_SHAPES: list[object] = [
     Command,

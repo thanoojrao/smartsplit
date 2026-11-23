@@ -15,12 +15,8 @@ from smartsplit.domain.model import (
 )
 from smartsplit.domain.prompts import Notification, ProcessedMessage, Prompt
 from smartsplit.domain.values import Context, ConversationKey
-from smartsplit.ports.repository import (
-    ACTIVE_DRAFT_STATES,
-    IDLE_DRAFT_STATES,
-    DuplicateKeyError,
-    StaleDraftError,
-)
+from smartsplit.ports.errors import DuplicateKeyError, StaleDraftError
+from smartsplit.ports.repository import ACTIVE_DRAFT_STATES, IDLE_DRAFT_STATES
 
 
 class ReceiptStore:

@@ -11,7 +11,8 @@ from smartsplit.adapters.db.repository import SqlRepository
 from smartsplit.domain.enums import NotificationKind
 from smartsplit.domain.prompts import Notification
 from smartsplit.domain.values import GroupContext, PersonalContext
-from smartsplit.ports.repository import MissingReferenceError, Repository
+from smartsplit.ports.errors import MissingReferenceError
+from smartsplit.ports.repository import Repository
 from tests.repository.builders import at, bill, notification, person, settlement
 
 FLAT, GOA = GroupContext("g1"), GroupContext("g2")
@@ -163,7 +164,7 @@ def test_overlapping_claims_respect_the_daily_cap(clean_pg: Engine) -> None:
             second.extend(n.id for n in uow.notifications.claim_due(at(10), 10, 2, at(0)))
 
     with repo.unit_of_work() as uow:
-        first = [n.id for n in uow.notifications.claim_due(at(10), 10, 2, at(0))]
+        first = [n.id for n in uow.notifications.claim_due(at(10), 2, 2, at(0))]
         worker = threading.Thread(target=claim_again)
         worker.start()
         worker.join(timeout=0.5)

@@ -2,7 +2,7 @@
 
 from collections.abc import Container
 
-from smartsplit.ports.repository import DuplicateKeyError, MissingReferenceError
+from smartsplit.ports.errors import DuplicateKeyError, MissingReferenceError
 
 
 def insert[K, V](records: dict[K, V], key: K, value: V) -> None:

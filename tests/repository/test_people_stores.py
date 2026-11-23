@@ -7,7 +7,8 @@ import pytest
 from smartsplit.domain.enums import ConversationKind
 from smartsplit.domain.model import ChatIdentity, Conversation, Group, Membership, Nickname
 from smartsplit.domain.values import ConversationKey
-from smartsplit.ports.repository import DuplicateKeyError, MissingReferenceError, Repository
+from smartsplit.ports.errors import DuplicateKeyError, MissingReferenceError
+from smartsplit.ports.repository import Repository
 from tests.repository.builders import CHAT, T0, at, person
 
 
@@ -28,6 +29,21 @@ def test_phone_is_unique(repo: Repository) -> None:
     with pytest.raises(DuplicateKeyError), repo.unit_of_work() as uow:
         uow.people.add(person("sam", "+919876543210"))
         uow.people.add(person("other", "+919876543210"))
+
+
+def test_a_constraint_error_comes_from_the_store_call_itself(repo: Repository) -> None:
+    # Same on both backends: the port error is raised where the write happens.
+    with repo.unit_of_work() as uow:
+        uow.people.add(person("sam", "+919876543210"))
+
+    raised_at_call = False
+    with pytest.raises(DuplicateKeyError), repo.unit_of_work() as uow:
+        try:
+            uow.people.add(person("other", "+919876543210"))
+        except DuplicateKeyError:
+            raised_at_call = True
+            raise
+    assert raised_at_call
 
 
 def test_changing_a_phone_to_one_already_taken_raises(repo: Repository) -> None:

@@ -19,7 +19,9 @@ agreed; changing them later is a decision to log in DECISIONS.md.
 `smartsplit.engine`; §3 in `smartsplit.ledger`; §4 in `smartsplit.ports` (incl. the port errors);
 §5's `Orchestrator` and the `NotAllowedError`/`NeedsClarification` errors in `smartsplit.services`.
 Error classes end in `Error` (ruff N818): `ReceiptUnreadableError`, `LlmUnavailableError`,
-`NotAllowedError`, plus `StaleDraftError` for conditional draft updates (see DECISIONS.md, M2/M3).
+`NotAllowedError`; storage errors live in `smartsplit.ports.errors`: `StaleDraftError` and the
+`ConstraintViolationError` family (`DuplicateKeyError`, `MissingReferenceError`,
+`InvalidRecordError`), raised by both backends (see DECISIONS.md).
 
 ---
 
@@ -355,7 +357,8 @@ services need; method lists finalized in M2): `people`, `identities`, `nicknames
 `prompts`, `bills`, `settlements`, `notifications`, `processed`, `llm_usage` (exposed as read-only
 properties; method lists in `ports/repository.py`). `drafts.update(draft, expected_state)` raises
 `StaleDraftError` if the state changed. Special queries:
-`notifications.claim_due(now, limit, per_person_daily_cap, day_start)` (SKIP LOCKED; the cap counts
+`notifications.claim_due(now, limit, per_person_daily_cap, day_start)` (claims serialized by an
+advisory lock, rows taken with SKIP LOCKED; the cap counts
 sent notifications except `requested_reply` since `day_start` in the install timezone) and
 `drafts.due_for_reminder_or_expiry(idle_since)`.
 

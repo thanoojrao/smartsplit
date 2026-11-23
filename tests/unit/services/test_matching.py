@@ -207,6 +207,9 @@ class InsistsOnNoOpenTransaction:
 
 
 def test_the_model_is_never_asked_while_a_unit_of_work_is_open() -> None:
+    """The guarantee is structural: `match_lines` takes no unit of work, so the documented
+    read → match → remember flow keeps the model call outside any transaction. M7 runs the
+    same check against the orchestrator."""
     repo = repo_with_items("milk")
     model = InsistsOnNoOpenTransaction(repo)
 

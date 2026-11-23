@@ -8,19 +8,8 @@ from sqlalchemy import Connection, Engine, func, select, text
 from sqlalchemy.exc import IntegrityError
 
 from smartsplit.adapters.db import draft_stores, ledger_stores, people_stores, rule_stores
+from smartsplit.adapters.db.base import port_error
 from smartsplit.domain.values import ConversationKey
-from smartsplit.ports.repository import (
-    ConstraintViolationError,
-    DuplicateKeyError,
-    InvalidRecordError,
-    MissingReferenceError,
-)
-
-_BY_SQLSTATE: dict[str, type[ConstraintViolationError]] = {
-    "23505": DuplicateKeyError,
-    "23503": MissingReferenceError,
-    "23514": InvalidRecordError,
-}
 
 
 class SqlUnitOfWork:
@@ -69,12 +58,8 @@ class SqlRepository:
                 if lock is not None:
                     connection.execute(select(func.pg_advisory_xact_lock(lock_id(lock))))
                 yield SqlUnitOfWork(connection)
-        except IntegrityError as error:
-            raise _port_error(error) from error
-
-
-def _port_error(error: IntegrityError) -> Exception:
-    """The port's constraint error for a Postgres integrity error (by SQLSTATE)."""
-    sqlstate = getattr(error.orig, "sqlstate", None) or ""
-    kind = _BY_SQLSTATE.get(sqlstate)
-    return kind(str(error.orig)) if kind else error
+        except IntegrityError as error:  # raised at commit; store calls translate their own
+            translated = port_error(error)
+            if translated is None:
+                raise
+            raise translated from error

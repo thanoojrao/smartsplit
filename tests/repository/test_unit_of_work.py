@@ -16,7 +16,8 @@ from smartsplit.adapters.fakes.repository import InMemoryRepository
 from smartsplit.domain.enums import ConversationKind
 from smartsplit.domain.model import Conversation
 from smartsplit.domain.values import ConversationKey
-from smartsplit.ports.repository import InvalidRecordError, Repository
+from smartsplit.ports.errors import InvalidRecordError
+from smartsplit.ports.repository import Repository
 from tests.repository.builders import CHAT, person
 
 
@@ -112,7 +113,9 @@ def test_the_partial_unique_indexes_exist(clean_pg: Engine) -> None:
     assert "UNIQUE" in defs["one_current_membership"]
     assert "WHERE (left_at IS NULL)" in defs["one_current_membership"]
     assert "UNIQUE" in defs["one_active_draft"]
-    assert "reviewing" in defs["one_active_draft"]
+    for state in ("awaiting_people", "parsing", "reviewing"):
+        assert state in defs["one_active_draft"]
+    assert "queued" not in defs["one_active_draft"]
     assert "WHERE (sent_at IS NULL)" in defs["notifications_unsent"]
 
 

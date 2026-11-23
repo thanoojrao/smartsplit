@@ -9,7 +9,8 @@ from sqlalchemy import Engine, Text, bindparam, cast, select
 from sqlalchemy.dialects.postgresql import JSONB
 
 from smartsplit.adapters.db.codec import decode, encode
-from tests.strategies import STORED_SHAPES, of_shape
+from smartsplit.domain.model import LineItem
+from tests.strategies import RECEIPT_LINES, STORED_SHAPES, of_shape
 
 
 @pytest.mark.db
@@ -27,3 +28,18 @@ def test_stored_shapes_round_trip_through_jsonb(
         stored = connection.execute(select(as_jsonb)).scalar_one()
 
     assert decode(stored, shape) == value
+
+
+@pytest.mark.db
+@given(lines=RECEIPT_LINES)
+def test_receipt_lines_round_trip_through_jsonb(
+    pg_engine: Engine, lines: tuple[LineItem, ...]
+) -> None:
+    encoded = encode(lines)
+    assume("\\u0000" not in json.dumps(encoded))
+
+    with pg_engine.connect() as connection:
+        as_jsonb = cast(bindparam("doc", json.dumps(encoded), type_=Text), JSONB)
+        stored = connection.execute(select(as_jsonb)).scalar_one()
+
+    assert decode(stored, tuple[LineItem, ...]) == lines
