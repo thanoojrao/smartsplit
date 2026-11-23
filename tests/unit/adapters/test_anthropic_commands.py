@@ -11,7 +11,11 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from smartsplit.adapters.llm.command_tools import COMMAND_CLASSES, command_tools
-from smartsplit.adapters.llm.commands import SYSTEM_PROMPT, AnthropicCommandInterpreter
+from smartsplit.adapters.llm.commands import (
+    CANONICALIZE_PROMPT,
+    SYSTEM_PROMPT,
+    AnthropicCommandInterpreter,
+)
 from smartsplit.adapters.llm.receipts import anthropic_client
 from smartsplit.domain.codec import encode
 from smartsplit.domain.commands import (
@@ -246,6 +250,13 @@ def test_canonicalize_returns_a_known_or_new_key() -> None:
     format_config = api.requests[0]["output_config"]["format"]
     assert format_config["schema"]["required"] == ["item_key"]
     assert '"2% MLK GAL"' in api.requests[0]["messages"][0]["content"]
+
+
+def test_prompts_carry_what_live_runs_showed_the_model_needs() -> None:
+    # A bare "yes" to a shown bill came back Unknown, and "Cappuccino" missed a coffee rule.
+    assert "ConfirmDraft" in SYSTEM_PROMPT and '"yes"' in SYSTEM_PROMPT
+    assert "a kind of one" in CANONICALIZE_PROMPT
+    assert "is not a match" in CANONICALIZE_PROMPT
 
 
 def test_each_call_logs_its_token_usage(caplog: pytest.LogCaptureFixture) -> None:

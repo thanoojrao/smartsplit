@@ -27,7 +27,7 @@ DESCRIPTIONS: dict[str, str] = {
     "(choice), names of people, names excluded, or free text.",
     "Edit": "Change the bill under review (target null) or a saved bill ('last bill', a number "
     "from the last list, or its name). op is exactly one change; reason if they gave one.",
-    "ConfirmDraft": "Save the bill under review ('looks good', 'save it', 'confirm').",
+    "ConfirmDraft": "Save the bill under review ('yes', 'looks good', 'save it', 'confirm').",
     "CancelDraft": "Drop the bill under review ('cancel', 'forget it').",
     "Acknowledge": "Just 'ok', 'thanks' or similar to a notification; nothing to do.",
     "FileIntoGroup": "Move the bill under review into a group: 'add to Flat 4B'.",
