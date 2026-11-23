@@ -70,11 +70,16 @@ class InterpretContext:
     draft_lines: tuple[str, ...]
 
 
-class CommandInterpreter(Protocol):
-    def interpret(self, text: str, context: InterpretContext) -> Command:
-        """Turn chat text into exactly one command; raises LlmUnavailableError."""
+class Canonicalizer(Protocol):
+    def canonicalize(self, name: str, known_keys: Sequence[str]) -> str:
+        """Map a messy receipt name to an item key: a known one, or a new key for a new item.
+
+        Raises LlmUnavailableError.
+        """
         ...
 
-    def canonicalize(self, name: str, known_keys: Sequence[str]) -> str:
-        """Map a messy receipt name to an item key (a known one, or a new normalized key)."""
+
+class CommandInterpreter(Canonicalizer, Protocol):
+    def interpret(self, text: str, context: InterpretContext) -> Command:
+        """Turn chat text into exactly one command; raises LlmUnavailableError."""
         ...

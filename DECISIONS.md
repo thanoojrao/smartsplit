@@ -95,6 +95,14 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (M2 review) `DATABASE_URL` is a `SecretStr`. Why: it usually contains the DB password.
 - (M2 review) The codec fills missing fields from their dataclass defaults. Why: adding a defaulted field to a command later must not break prompts already stored.
 
+- (M3) `match_item` checks this place's aliases before an exact key match. Why: an alias records what people here said ("that's not milk"), which must beat the raw name.
+- (M3) A model answer equal to the line's own normalized name means "new item": it becomes a known key, is not stored as an alias and is not shown as a new match. Fuzzy and other model matches are stored as aliases and marked `match_is_new`. The model is asked at most once per distinct name per receipt.
+- (M3) A discount linked to a plain line takes that line's key and match kind, is never sent to the model and never remembered on its own; a link to an unknown line or to another discount is ignored. Why: SPEC §6.4, without chains.
+- (M3) Services depend on a narrow `Canonicalizer` port for matching; `CommandInterpreter` extends it. The M3 fake is `FakeCanonicalizer` (a table, else the normalized name); M6 builds the full fake interpreter. Why: matching needs only canonicalize.
+- (M3) Learning records at most one observation per (person, item key) per bill (disagreeing lines count as `included`), attributes learned rules to the bill's adder, and leaves an identical learned rule untouched. Why: two milk lines on one receipt must not teach a rule alone; "who set it" needs an author.
+- (M3) Stated-rule and deletion permissions (SPEC §6.2) live in `services/rules.py`: Everywhere only by the subject, group rules by current members, notes by their owner; violations raise `NotAllowedError` (CONTRACTS' `NotAllowed`, renamed for ruff N818). Adding a group rule also needs current membership. Why: non-members are asked to join first.
+- (M3) `resolve_rules` breaks exact-timestamp ties by rule id. Why: deterministic.
+
 ## Made by Claude (design review, technical)
 
 - Group balance (incl. settlements) is the source of truth inside a group; who-owes-whom there = `simplify_debts`; personal splits use raw pairs; overall = sum. Why: one consistent model; following the bot's advice can't corrupt the overall view.
