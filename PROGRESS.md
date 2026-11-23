@@ -9,7 +9,7 @@ SPEC rewrite, USE_CASES rewrite, four independent design reviews (`docs/DESIGN_R
 P1–P24 product answers, and every review fix applied to SPEC/USE_CASES/DECISIONS.
 Remaining, in order:
 1. ~~Engineering setup fixes~~ (done, incl. CI, compaction hook, branch rule).
-2. Step 4 of the plan: agree data shapes and contracts with the user (domain model, ports, messages).
+2. Step 4 of the plan: agree data shapes and contracts with the user — draft in `docs/CONTRACTS.md`, under review.
 3. Then start M1.
 
 ## Milestones
