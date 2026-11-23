@@ -44,9 +44,17 @@ def notify(
     )
 
 
-def tell_participants(turn: Turn, bill: Bill, kind: NotificationKind, reason: str | None) -> None:
-    """Everyone in a personal split but the speaker hears about it (10.5)."""
-    for person_id in bill.participants:
+def tell_participants(
+    turn: Turn,
+    bill: Bill,
+    kind: NotificationKind,
+    reason: str | None,
+    *,
+    also: Sequence[str] = (),
+) -> None:
+    """Everyone in a personal split but the speaker hears about it (10.5); `also` adds the
+    people an edit took out of the bill."""
+    for person_id in dict.fromkeys([*bill.participants, *also]):
         if person_id != turn.speaker.id:
             notify(turn, person_id, kind, bill_ids=(bill.id,), args=NotificationArgs(reason))
 

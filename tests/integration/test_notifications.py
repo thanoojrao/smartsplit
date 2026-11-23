@@ -4,6 +4,7 @@
 from datetime import timedelta
 
 from smartsplit.domain.enums import DraftState
+from tests.integration.test_reliability import DownInterpreter
 from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, World, flat, receipt
 
 
@@ -147,3 +148,29 @@ def drafts(world: World) -> list[DraftState]:
     with world.repository.unit_of_work() as uow:
         key = world.message(YOU, FLAT).conversation
         return [d.state for d in uow.drafts.for_conversation(key, list(DraftState))]
+
+
+def test_a_receipt_left_unread_is_retried_by_tick() -> None:
+    # CONTRACTS 5: the model was down when the photo came in
+    working = World()
+    flat(working, YOU, SAM)
+    down = World(
+        clock=working.clock,
+        repository=working.repository,
+        images=working.images,
+        interpreter=DownInterpreter(),
+    )
+    down.say(YOU, FLAT, image=receipt("restaurant_tip"))
+    assert working.tick() == ""
+    working.clock.advance(timedelta(minutes=3))
+    assert "Toit, ₹2,047.00, paid by Thanoo." in working.tick()
+    assert drafts(working) == [DraftState.REVIEWING]
+
+
+def test_join_prompts_lapse_after_a_day() -> None:
+    world = World()
+    flat(world, YOU, RAJ)
+    world.say(SAM, FLAT, "balances")
+    world.clock.advance(timedelta(days=1, minutes=1))
+    assert world.say(SAM, FLAT, "yes", addressed=False) == ""
+    assert world.say(SAM, FLAT, "balances") == 'Sam, join splits here? Say "join".'

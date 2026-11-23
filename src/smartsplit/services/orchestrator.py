@@ -26,9 +26,17 @@ from smartsplit.services.command_checks import InvalidAmountError, check_amounts
 from smartsplit.services.context import interpret_context
 from smartsplit.services.dispatch import dispatch
 from smartsplit.services.errors import NeedsClarificationError, NotAllowedError
-from smartsplit.services.intents import Intent, fit_command, is_aside, local_date, without_model
+from smartsplit.services.intents import (
+    Intent,
+    cleaned,
+    fit_command,
+    is_aside,
+    local_date,
+    without_model,
+)
 from smartsplit.services.ledgers import overall_text
 from smartsplit.services.membership import member_left
+from smartsplit.services.prompting import still_asked
 from smartsplit.services.receipt_reading import ReceiptReader, Source
 from smartsplit.services.speaker import Arrival, arrive, find_speaker
 from smartsplit.services.text import HELP, NEEDS_NUMBER, OVER_LIMIT, TRY_AGAIN
@@ -90,6 +98,7 @@ class Orchestrator:
 
     def handle(self, message: InboundMessage) -> list[OutboundMessage]:
         """Replies for this message (and any chat it affects); a repeat returns the same."""
+        message = cleaned(message)
         now = self._clock.now()
         prepared = self._prepare(message, now)
         if prepared.done is not None:
@@ -135,7 +144,7 @@ class Orchestrator:
                     if conversation
                     else ()
                 )
-                if p.asked_of in (None, speaker_id)
+                if p.asked_of in (None, speaker_id) and still_asked(p, now, self._settings)
             ]
             if message.event is not None:
                 react = conversation is not None

@@ -1,11 +1,12 @@
 """Opening and answering prompts: what the bot waits for, persisted (SPEC 4.5)."""
 
 from dataclasses import replace
+from datetime import datetime
 
 from smartsplit.domain.commands import AnswerPrompt
 from smartsplit.domain.enums import PromptKind, PromptStatus
 from smartsplit.domain.prompts import Prompt, PromptAnswer, PromptPayload
-from smartsplit.services.turn import Turn
+from smartsplit.services.turn import OrchestratorSettings, Turn
 
 
 def open_prompt(
@@ -51,4 +52,12 @@ def record_answer(turn: Turn, prompt: Prompt, answer: AnswerPrompt) -> None:
     """A line question keeps its place in the batch after an answer (SPEC 10.4)."""
     turn.uow.prompts.update(
         replace(prompt, answers=(*prompt.answers, PromptAnswer(turn.speaker.id, answer, turn.now)))
+    )
+
+
+def still_asked(prompt: Prompt, now: datetime, settings: OrchestratorSettings) -> bool:
+    """A "join splits here?" lapses after a day, so it can't keep the bot reading chatter."""
+    return not (
+        prompt.kind is PromptKind.JOIN_GROUP
+        and now - prompt.created_at >= settings.draft_reminder_after
     )

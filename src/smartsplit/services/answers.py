@@ -29,7 +29,7 @@ from smartsplit.services.lifecycle import finish, start_next
 from smartsplit.services.membership import join, person_with_phone
 from smartsplit.services.names import Directory
 from smartsplit.services.payments import apply_payment
-from smartsplit.services.prompting import mark_answered, open_prompt
+from smartsplit.services.prompting import mark_answered, open_prompt, still_asked
 from smartsplit.services.receipt_flow import answer_who_with
 from smartsplit.services.review import answer_question, save
 from smartsplit.services.rules_chat import apply_rule_change
@@ -46,7 +46,7 @@ def answerable(turn: Turn) -> list[Prompt]:
     return [
         p
         for p in turn.uow.prompts.for_conversation(turn.conversation.key, [PromptStatus.OPEN])
-        if p.asked_of in (None, turn.speaker.id)
+        if p.asked_of in (None, turn.speaker.id) and still_asked(p, turn.now, turn.settings)
     ]
 
 

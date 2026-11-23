@@ -8,6 +8,7 @@ subject, MemberLeft, ListRules), "I"/"me" become None; everywhere else names are
 
 import re
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 
 from smartsplit.adapters.fakes.llm import FakeCanonicalizer
 from smartsplit.adapters.fakes.phrases import (
@@ -69,7 +70,7 @@ from smartsplit.domain.edits import (
     UnassignLine,
 )
 from smartsplit.domain.enums import RuleKind
-from smartsplit.domain.values import LastBill, NumberedBill
+from smartsplit.domain.values import BillRef, LastBill, NamedBill, NumberedBill
 from smartsplit.ports.llm import InterpretContext
 
 type Rule = tuple[re.Pattern[str], Callable[[re.Match[str], InterpretContext], Command]]
@@ -111,6 +112,21 @@ RULES: Sequence[Rule] = [
     (_rule(rf"square up with {NAME}"), lambda m, c: SquareUp(m[1])),
     (_rule(rf"remind {NAME}"), lambda m, c: Remind(m[1])),
     (_rule(r"not mine"), lambda m, c: NotMine()),
+    (_rule(r"not mine (\d+)"), lambda m, c: NotMine(NumberedBill(int(m[1])))),
+    (_rule(r"delete bill (\d+)"), lambda m, c: DeleteBill(NumberedBill(int(m[1])))),
+    (
+        _rule(r"(?:edit|change|fix) (?:the )?(.+?) bill:\s*(.+?)(?:,\s*(?:because\s+)?(.+))?"),
+        lambda m, c: _aimed(m[2], NamedBill(m[1].strip()), m[3], c),
+    ),
+    (
+        _rule(r"(?:in |on )?(?:the |my )?last bill[,:]\s*(.+)"),
+        lambda m, c: _aimed(m[1], LastBill(), None, c),
+    ),
+    (
+        _rule(r"bill (\d+)[,:]\s*(.+)"),
+        lambda m, c: _aimed(m[2], NumberedBill(int(m[1])), None, c),
+    ),
+    (_rule(rf"{NAME} wasn'?t there"), lambda m, c: Edit(RemoveParticipants((m[1],)))),
     (
         _rule(r"details(?: (\d+))?"),
         lambda m, c: ShowBillDetails(NumberedBill(int(m[1])) if m[1] else None),
@@ -229,6 +245,26 @@ RULES: Sequence[Rule] = [
 ]
 
 
+def _aimed(text: str, target: BillRef, reason: str | None, context: InterpretContext) -> Command:
+    """An edit said about a saved bill: the edit as usual, aimed at that bill."""
+    command = interpret_text(text, context)
+    if isinstance(command, Edit):
+        return replace(command, target=target, reason=reason)
+    return Unknown(text)
+
+
+def interpret_text(text: str, context: InterpretContext) -> Command:
+    plain = text.replace("\u2019", "'").replace("\u2018", "'")  # phone keyboards' quotes
+    for pattern, build in RULES:
+        match = pattern.match(plain)
+        if match:
+            try:
+                return build(match, context)
+            except ValueError:
+                return Unknown(text)
+    return Unknown(text)
+
+
 class KeywordInterpreter:
     """Regex stand-in for the model; canonicalize uses a fixed table like FakeCanonicalizer."""
 
@@ -236,15 +272,7 @@ class KeywordInterpreter:
         self._canonical = canonical or FakeCanonicalizer()
 
     def interpret(self, text: str, context: InterpretContext) -> Command:
-        plain = text.replace("\u2019", "'").replace("\u2018", "'")  # phone keyboards' quotes
-        for pattern, build in RULES:
-            match = pattern.match(plain)
-            if match:
-                try:
-                    return build(match, context)
-                except ValueError:
-                    return Unknown(text)
-        return Unknown(text)
+        return interpret_text(text, context)
 
     def canonicalize(self, name: str, known_keys: Sequence[str]) -> str:
         return self._canonical.canonicalize(name, known_keys)

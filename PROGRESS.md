@@ -52,7 +52,6 @@ tests in `tests/integration/` (`World` harness). One question is open for the us
 - (M1 review) `amounts_to_weights` raises on no fixed amounts: the orchestrator (M7) must use a plain list override for an equal split, never route "no exact amounts" here.
 - (M2 review) The fake `claim_due` returns a `requested_reply` for a recipient who doesn't exist, while Postgres (inner join, FK) can't store one; the fake skips FK checks generally. Harmless today.
 - (M3 review) A linked discount shares its parent's key, so a `soft_exclude` would make the engine ask twice; the orchestrator should ask about linked discounts only through the parent line (M7).
-- (Checkpoint A, M5/M7) Strip or reject NUL (`\x00`) in inbound text and parser output before it reaches the DB (Postgres rejects it); test.
 - (Checkpoint A, M8) `claim_due`: rows dropped by the cap still use `limit` slots within one batch.
 - (Checkpoint A) `split_receipt` accepts `bool` amounts (`True` = 1 cent); optionally reject non-int amounts.
 - (Fix review, M7) Run the "model never called inside a unit of work" check against the orchestrator, not only the matching helpers.
@@ -61,8 +60,6 @@ tests in `tests/integration/` (`World` harness). One question is open for the us
 - (M5 review) Adapter tests import `httpx2`, which comes with `anthropic`; declare it if a future SDK drops it.
 - (M6 review) Literal/enum casing is handled in the codec; apostrophe variants in the keyword fake. "remove Raj" in the fake reads as removing a line named Raj (acceptable for a fake).
 - (M3 review) Stated rules only normalize the item ("I don't drink MLK" → `mlk`); decide in M6/M7 whether stated items go through `match_item`/the model.
-- (M7) `StaleDraftError` (a draft changed by another connection between read and write) isn't caught by the orchestrator: with the conversation lock it can only come from `tick` (M8), which must handle it.
 - (M7 review) A photo refused after its image was stored (e.g. not a member) leaves an orphaned image until the image store prunes it.
-- (M7 review) "join splits here?" prompts never expire; expire them with idle drafts in `tick` (M8).
 - (M7 review) A model-supplied id is echoed back in "X isn't in Flat 4B": harmless (it resolves to nobody), but a generic refusal would read better.
 - (M7) Each group answer re-reads memberships and the directory per message; fine at chat scale, revisit if profiling says otherwise.

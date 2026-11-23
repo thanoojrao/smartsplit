@@ -137,3 +137,9 @@ def test_over_the_daily_limit() -> None:
     world.say(SAM, FLAT, "I usually don't drink beer pitcher")
     world.say(SAM, FLAT, "taxi 100, split all")
     assert world.say(YOU, FLAT, "lol", addressed=False) == ""
+
+
+def test_nul_characters_never_reach_the_database() -> None:
+    world = World()
+    flat(world, YOU, SAM)
+    assert "taxi, ₹600.00" in world.say(YOU, FLAT, "taxi\x00 600, split all")

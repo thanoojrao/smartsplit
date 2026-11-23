@@ -1,5 +1,6 @@
 """Turning an inbound message into what to do, before any transaction (SPEC 10.1-10.2)."""
 
+from dataclasses import replace
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -15,6 +16,20 @@ type Intent = Command | ChatEvent
 def is_aside(message: InboundMessage) -> bool:
     """Group chatter not addressed to the bot: read only because a question is open there."""
     return message.conversation_kind is ConversationKind.GROUP and not addressed(message)
+
+
+def cleaned(message: InboundMessage) -> InboundMessage:
+    """Postgres can't store NUL, and no chat text needs it."""
+
+    def strip(text: str | None) -> str | None:
+        return text.replace("\x00", "") if text is not None else None
+
+    return replace(
+        message,
+        text=strip(message.text),
+        sender_name=strip(message.sender_name) or "",
+        conversation_name=strip(message.conversation_name),
+    )
 
 
 def without_model(message: InboundMessage, waiting_for_contact: bool) -> Intent | None:

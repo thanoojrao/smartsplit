@@ -179,6 +179,16 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - **Ports:** `DraftStore.open_in_context` (a group's drafts can live in personal chats: leavers and duplicates use it) and `ProcessedStore.add_replies` (a retried photo message returns the summary read after the first commit). `personal_for` picks the first chat by (channel, ref) on both backends. `find_likely_duplicate` takes `window_days` keyword-only.
 - **Other rules:** only whoever gave a number can correct it; past members can still ask for balances in the group; a wider answer for someone with no personal chat says "message me 1:1"; "what rules are about me?" lists every rule about you, including others' notes (SPEC 6.2); a typed bill while another is under review is refused (only receipts queue); naming a payer doesn't add them to the bill.
 
+## M8 — orchestrator II
+
+- **Outbox:** personal-split saves and changes, payments, square-ups and reminders write `Notification`s; `tick` claims them, renders one message per person with current balances (several new bills become a numbered list, and the chat remembers it for "details 2" / "not mine 2"), and marks them sent in the same transaction. Group bills and group edits are posted in the group instead (C15, H4).
+- **Invites:** the adder gets the forwardable `SMARTSPLIT_INVITE_TEMPLATE` text once per person who has never used the bot (on their first bill together); that person's messages wait until their first message, which shows their overall balance.
+- **Saved bills:** the bill becomes a working copy with every line pinned to who shared it (so changed rules don't re-split it), the edit is applied with the same review-edit code, and a total that no longer matches its lines is shared like a tip. A "yes" writes a reversal (+ new bill) only if the bill is still live; people taken out of the bill are told too. The payer can't say "not mine" (they delete instead).
+- **Payments:** recording and square-up are restated and pinned to a ledger version (bills + settlements of the two people); a change in between means "say it again". "Not received" (by the other side) and "undo last payment" (by the recorder) reverse at once with negated rows under a new payment id; both sides are told. In a group chat a payment goes to that group; "for <group>" or "for personal" names one.
+- **Tick:** idle drafts get one reminder after `draft_reminder_after` (24 h) without activity and expire after `draft_expires_after` (3 days), both in the draft's chat; a receipt still in `parsing` 2 minutes after its last activity is read again; "join splits here?" lapses after a day. Each draft is changed under its chat's lock and skipped if it changed meanwhile.
+- **Remind:** at most once per 24 h per (sender, person), only to someone who uses the bot, has messages on and owes the sender. **History:** "this/last month" sums your shares of live bills by purchase date; "last N bills" lists live bills newest first. In a group both go to your personal chat.
+- **Inbound text** has NUL characters removed before anything is stored (Postgres can't hold them).
+
 ## Checkpoint A review (2026-11-23)
 
 - (User) Unlinked negative lines (refunds) are matched by name and follow that item's rules; generic coupons that match nothing stay shared by everyone; discount-link treatment needs `discount_for` and a negative amount.

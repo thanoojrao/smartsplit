@@ -240,7 +240,7 @@ def apply_bill_change(turn: Turn, effect: BillChangeEffect) -> None:
         turn.reply(f"{done}\n{balances}")
         return
     reason = effect.new_bill.edit_reason if effect.new_bill else None
-    tell_participants(turn, shown, NotificationKind.BILL_CHANGED, reason)
+    tell_participants(turn, shown, NotificationKind.BILL_CHANGED, reason, also=bill.participants)
     turn.reply(f"{done}\n{overall_text(turn.uow, turn.speaker.id, currency)}")
 
 

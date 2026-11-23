@@ -52,3 +52,30 @@ def test_two_confirms_at_once_save_one_bill(clean_pg: Engine) -> None:
     assert replies[0].startswith("Saved: taxi")
     assert replies[1] == "There's nothing to save right now."
     assert world.say(SAM, FLAT, "balances") == "Sam owes Thanoo ₹300.00"
+
+
+def test_a_tour_of_m8_on_postgres(clean_pg: Engine) -> None:
+    # Payments, square-up, bill changes and the outbox through real storage
+    world = World(repository=SqlRepository(clean_pg))
+    flat(world, YOU, SAM)
+    world.say(SAM, None, "add Thanoo +919876500001")
+    world.say(SAM, None, "lunch 400 with Thanoo")
+    world.say(SAM, None, "yes")
+    world.say(SAM, None, "lunch 600 with Thanoo")
+    world.say(SAM, None, "yes")
+    assert world.tick().startswith("Sam added 2 bills:")
+    assert "Change lunch" in world.say(YOU, None, "not mine 2")
+    assert world.say(YOU, None, "yes").startswith("Changed lunch.")
+    world.say(YOU, FLAT, "rent 900, split all\x00")
+    world.say(YOU, FLAT, "yes")
+    assert "Record: you paid Sam ₹200.00" in world.say(YOU, None, "paid Sam 200")
+    assert world.say(YOU, None, "yes").startswith("Recorded.")
+    assert world.say(SAM, None, "not received").startswith("Undid the ₹200.00 payment")
+    assert world.say(YOU, None, "square up with Sam").endswith('Say "yes" to confirm.')
+    assert world.say(YOU, None, "yes").startswith("Squared up.")
+    assert world.say(YOU, FLAT, "remind Sam") == "OK, I'll remind Sam."
+    assert world.say(YOU, None, "delete last bill") == "I can't find that bill."
+    assert world.say(YOU, FLAT, "delete last bill").startswith("Delete rent")
+    assert world.say(YOU, FLAT, "yes").startswith("Deleted rent.")
+    world.tick()
+    assert "show last" not in world.say(YOU, None, "show last 5 bills")

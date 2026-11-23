@@ -15,7 +15,7 @@ from smartsplit.services.drafting import present
 from smartsplit.services.errors import NeedsClarificationError, NotAllowedError
 from smartsplit.services.lifecycle import finish, start_next
 from smartsplit.services.names import Directory
-from smartsplit.services.prompting import drop, open_prompt
+from smartsplit.services.prompting import drop, open_prompt, still_asked
 from smartsplit.services.review import save
 from smartsplit.services.speaker import current_member_ids, next_position
 from smartsplit.services.text import name_for
@@ -44,8 +44,11 @@ def join(turn: Turn) -> None:
 def ask_to_join(turn: Turn) -> None:
     """A non-member talked to the bot: offer, once, to join (A4)."""
     open_prompts = turn.uow.prompts.for_conversation(turn.conversation.key, [PromptStatus.OPEN])
-    if any(p.kind is PromptKind.JOIN_GROUP and p.asked_of == turn.speaker.id for p in open_prompts):
-        return
+    for prompt in open_prompts:
+        if prompt.kind is PromptKind.JOIN_GROUP and prompt.asked_of == turn.speaker.id:
+            if still_asked(prompt, turn.now, turn.settings):
+                return
+            drop(turn, prompt)
     payload = JoinGroupPayload(turn.speaker.id)
     open_prompt(turn, None, PromptKind.JOIN_GROUP, payload, turn.speaker.id)
     turn.reply(f'{turn.speaker.display_name}, join splits here? Say "join".')

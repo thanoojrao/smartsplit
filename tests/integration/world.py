@@ -59,6 +59,8 @@ class World:
     clock: FixedClock = field(default_factory=lambda: FixedClock(T0))
     repository: Repository = field(default_factory=InMemoryRepository)
     canonical: FakeCanonicalizer = field(default_factory=FakeCanonicalizer)
+    images: InMemoryImageStore | None = None
+    """Share one between Worlds on one database, as receipts are read back later."""
     interpreter: CommandInterpreter | None = None
     """None: the keyword fake, which canonicalizes with `canonical`."""
     settings: OrchestratorSettings = field(default_factory=OrchestratorSettings)
@@ -68,9 +70,10 @@ class World:
         ids = SequentialIds()
         self.parser = FakeReceiptParser(self.settings.max_receipt_lines)
         self.interpreter = self.interpreter or KeywordInterpreter(self.canonical)
+        self.images = self.images or InMemoryImageStore(self.clock, SequentialIds("img"))
         self.bot = Orchestrator(
             repository=self.repository,
-            images=InMemoryImageStore(self.clock, SequentialIds("img")),
+            images=self.images,
             parser=self.parser,
             interpreter=self.interpreter,
             clock=self.clock,
