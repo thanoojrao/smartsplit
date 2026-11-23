@@ -5,8 +5,8 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 ## Next up
 
 M1–M9 done: **CHECKPOINT B** reached (PR opened for review). Nothing is scheduled after it: wait
-for the user. Open with the user: DECISIONS "Open" (square-up edge case, option (a) built), and
-the user's own name still appears as the example person in `docs/USE_CASES.md`,
+for the user. The square-up question is decided (option a). Left as is for now, by the user's
+choice: the user's own name still appears as the example person in `docs/USE_CASES.md`,
 `docs/USE_CASE_TRACE.md` and `LICENSE` (the edit was refused by the permission check).
 
 ## Milestones

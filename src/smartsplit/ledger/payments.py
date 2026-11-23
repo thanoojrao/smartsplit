@@ -65,7 +65,7 @@ def square_up(
     rows: list[tuple[Context, Transfer]] = []
     # Rows net to zero, so each person's real money across contexts is unchanged. When a
     # group's greedy plan reshuffles, the settled amount can exceed the pair amount it showed,
-    # so the overall *view* between the two can move slightly (DECISIONS.md "Open").
+    # so the overall *view* between the two can move slightly (the user chose this, DECISIONS.md).
     total = 0
     for ledger in ledgers:
         if isinstance(ledger.context, GroupContext):

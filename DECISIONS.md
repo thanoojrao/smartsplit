@@ -9,6 +9,7 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - Stack: Python 3.12+, FastAPI, SQLAlchemy 2 + Alembic, Postgres, uv. Why: user's preference.
 - First build = the core engine with no WhatsApp (SPEC §1).
 - Open source, self-hosted by others.
+- (Checkpoint B, M4 question) Square-up clears each group fully and keeps the rows netting to zero (option a): nobody's real money changes, and when a group's greedy plan reshuffles, the personal-splits amount afterwards can differ slightly from the overall shown before; the confirm step restates the exact effect. Why: the books stay exact.
 - (Vision review) Two ways to add bills: in a group chat (scoped to that group, like a Splitwise group) and in a personal 1:1 chat with the bot (split with people the user picks). Why: matches how people actually split.
 - (Vision review) Overall balance per person across all groups and personal splits, with a per-group breakdown ("you owe Sam 50: Trip owes 80, Flat 4B owed 20, personal 10"). Why: one answer to "what do I owe X?".
 - (Vision review) One currency per install (set in config), no conversion. Why: lets cross-group totals be a single number. Supersedes "one currency per group" in SPEC §3.
@@ -223,16 +224,4 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 
 ## Open (waiting for the user)
 
-- **Square-up when a group's greedy plan reshuffles (M4 review).** SPEC §9 asks for two things: every
-  context's amount between A and B becomes 0, *and* the overall net moves into personal splits with
-  rows that net to zero. Usually both hold. But a group shows A–B through its greedy plan, and settling
-  the shown amount can reshuffle the plan, so clearing it fully can take slightly more than was shown
-  (about 1.5% of random groups; e.g. shown 15, settled 19). Then rows that net to zero leave an overall
-  view of 19, not 15. Options:
-  - **(a, recommended, built now)** Keep rows netting to zero: nobody's real money changes, and the
-    confirm step restates the exact effect ("afterwards you owe Sam ₹190 in personal splits").
-  - (b) Put the pre-square-up net (15) into personal splits; the rows then don't net to zero, so real
-    balances shift by the difference.
-  - (c) Settle only the amount shown in each group (one round), accepting that a group may still show
-    a small A–B amount afterwards.
-  Reversible; (a) is implemented and tested (everyone's total across contexts is unchanged).
+(nothing open)
