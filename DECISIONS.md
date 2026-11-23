@@ -17,6 +17,8 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (Vision review) Identity: every person must have a phone number (normalized to E.164, default country code from config); it is their unique key. Internal immutable id; chat identities (e.g. WhatsApp number, WhatsApp LID, CLI handle) stored separately, each unique and mapped to one person. Nicknames are per user ("Sam" for X, "Samuel" for Raj); own display name from their profile. No name-only people, so no merge flow. Why: simplest reliable identity; sharing a contact is two taps.
 - (Vision review) Bill context is exactly one of: a group, or a personal split (added by one person in their 1:1 chat with chosen people). Personal splits have no group. Why: needed for personal chats and cross-group balances.
 - (Vision review) Rules are owned, and a rule only shapes bills its owner controls. Owners/scopes: (1) the person themselves = "everywhere", created only when they state it about themselves in their personal chat; (2) a group, created by anyone stating it in that group chat or learned from answers there; (3) an adder's notes, created by stating it about someone in your personal chat or learned from your answers there, applying only to personal splits you add. Applicable rules = participants' own everywhere rules + the context owner's rules; more specific wins (group/adder notes > everywhere), then stated > learned, then newest. Transparency: summaries show who was skipped and why; anyone can list all rules about themselves and who set them. Why: one principle explains all scopes, learning follows where the answer was given, nobody's rules reach into bills they don't control.
+- (Vision review) Unequal shares allowed: an override for an item may be either a list of members (equal split, as before) or a mapping member → positive integer weight ("2 yogurts for Sam, 1 for Raj", "70/30", amounts as weights). Rules stay unweighted. Approved change to the frozen §5 contract; existing acceptance tests unchanged. Why: quantity and uneven-use lines are common on real receipts.
+- (Vision review) Item categories ("no alcohol" covers beer, wine): deferred, later list. Why: not needed for the first build.
 - (Vision review) Settling up against an overall balance is allocated across the groups automatically, largest debt first (oldest on ties); the user can still target one group. Why: every group's balance stays correct.
 
 ## Made by Claude during the build
@@ -28,5 +30,4 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 
 Vision review in progress; M1 paused until the use-case list (docs/USE_CASES.md, to be rewritten) is agreed.
 
-- Item-level weights/quantities in the split engine (changes the frozen §5 contract) (recommended).
-- Item categories ("no alcohol" covers beer, wine) as a later addition.
+(none yet)

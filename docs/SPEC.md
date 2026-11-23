@@ -99,18 +99,25 @@ Semantics, in order, for each line item:
 1. **Item key** = `item.canonical` if set, else `normalize(item.name)`.
    `normalize` = lowercase, trim, collapse internal whitespace.
 2. **Override** for this item id (from the user's answers) → those members, in group order. No questions.
+   An override is either a list of members (equal split) or a mapping member → weight
+   (positive integer; the item is split in proportion to the weights, e.g. `{"sam": 2, "raj": 1}`).
+   Rules never carry weights; every rule-based assignment is an equal split.
 3. Else, if any `only` rules match the key → exactly those members.
 4. Else, start with all members, remove members with an `exclude` rule for the key.
    A `soft_exclude` keeps the member and emits `Question(item_id, member_id, SOFT_RULE)`.
 5. If the result is empty → assign to all members and emit `Question(item_id, None, NO_ELIGIBLE_MEMBERS)`.
 
 Then compute amounts:
-- Each item is split equally among its assignees (exact `Fraction`s).
+- Each item is split among its assignees in proportion to their weights (1 each unless an override gives weights), using exact `Fraction`s.
 - `adjustments_cents` is allocated to members in proportion to their item subtotals. If the subtotals sum to 0 (for example no items, or a discount cancelling everything out), split it equally.
 - **Rounding:** floor each member's exact share, then hand the leftover cents one at a time to the members with the largest fractional remainders. Break ties by member order.
 - Result: `shares` has every member (0 allowed) and sums **exactly** to `sum(items) + adjustments_cents`.
 
-Validation: an empty or duplicate member list, or an override naming a non-member, raises `ValueError`.
+Validation: an empty or duplicate member list, an override naming a non-member, or an override weight that is not a positive integer raises `ValueError`.
+
+Contract change (approved by the user, see DECISIONS.md): `overrides` accepts
+`Mapping[str, Sequence[str] | Mapping[str, int]]`. A list keeps the original equal-split
+behaviour, so the original acceptance tests are unchanged.
 
 ---
 
