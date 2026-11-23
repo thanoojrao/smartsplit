@@ -79,6 +79,9 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - `phonenumbers` for E.164 normalization (pure, allowed in domain). Why: country trunk prefixes are not safe to hand-roll.
 - Safety: shared API token on `/v1/*`; idempotent `message_id`; per-conversation advisory lock + unit of work; LLM calls outside the lock with timeouts; `tick` claims with SKIP LOCKED, at-most-once delivery; model output is only a proposal and money-moving/destructive commands need a deterministic restatement + "yes"; no message bodies/phones in logs. Why: proportionate protection for a self-hosted bot.
 
+- Purity enforced with ruff banned-api (clock, uuid, random, secrets, logging, os.environ outside adapters/entrypoints/config/tests) plus DTZ and FIX rules; import-linter contracts added for DB libs, web/CLI frameworks, adapter independence and settings. mypy now checks tests. Why: the spec's layer and purity rules are only real if the build enforces them.
+- Milestone boundaries are recorded as commit hashes in the PROGRESS log, not git tags. Why: this environment can't push tags.
+
 ## Open (waiting for the user)
 
 - Engineering setup items that touch protected files or cost something (see docs/DESIGN_REVIEW.md E1, E9, E13): GitHub Actions CI, a compaction reminder hook in `.claude/settings.json`, naming the working branch in CLAUDE.md.

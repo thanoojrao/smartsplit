@@ -77,7 +77,7 @@ and the outcome goes into SPEC/USE_CASES/DECISIONS.
 | R11 | Adding by number reveals the stored name ("Added Priya Sharma"). | Show the adder only the name they gave. |
 | R12 | Forced `tool_choice` may not be supported on the configured model. | Verify against current API docs in M5/M6 before relying on it. |
 
-## Part 4 — Engineering setup
+## Part 4 — Engineering setup (E2–E8, E10, E11 .env.example, E14 done 2026-11-23; E1, E9, E13 await the user; E11 config/pytest-socket and E12 in their milestones)
 
 | # | Problem | Fix | When |
 |---|---|---|---|
@@ -88,9 +88,9 @@ and the outcome goes into SPEC/USE_CASES/DECISIONS.
 | E5 | `db` marker says DATABASE_URL (the dev DB) while CLAUDE.md says TEST_DATABASE_URL. | Fix marker text; fixture refuses DBs not ending in `_test`. | before M1 |
 | E6 | No hypothesis profiles; flaky deadlines on slow runners invite "fixing" tests. | `tests/conftest.py` with `ci` (no deadline, derandomized) and `dev` profiles. | before M1 |
 | E7 | `tests/` aren't type-checked. | mypy `files = ["src", "tests"]`. | before M1 |
-| E8 | Review gate doesn't look for gate-gaming (`noqa`, `type: ignore`, `pragma: no cover`, skip/xfail, config loosening); diff range is guesswork. | REVIEW.md step 0; git tag per milestone (`m0-done`, `m1-done`, …). | before M1 |
+| E8 | Review gate doesn't look for gate-gaming (`noqa`, `type: ignore`, `pragma: no cover`, skip/xfail, config loosening); diff range is guesswork. | REVIEW.md step 0; each milestone's final commit hash recorded in the PROGRESS log (tag pushes are blocked by this environment's git proxy). | before M1 |
 | E9 | No reminder to re-read docs after context compaction. | SessionStart `compact` matcher in `.claude/settings.json`. | before M1 (**needs user OK**) |
-| E10 | Small: no `.python-version` (runs on 3.13, targets 3.12); no ruff FIX/TD rule for TODOs; unnecessary rapidfuzz mypy ignore; session_start prints "ready" even if Postgres failed; one aggregate coverage number. | Fix each; stricter coverage for engine/ledger in CI. | before M1 |
+| E10 | Small: no `.python-version` (runs on 3.13, targets 3.12); no ruff FIX/TD rule for TODOs; unnecessary rapidfuzz mypy ignore; session_start prints "ready" even if Postgres failed; one aggregate coverage number. | Fix each; stricter coverage for engine/ledger in CI. (`.python-version` skipped: 3.12 isn't installed here and would need a download; ruff/mypy already target 3.12.) | before M1 |
 | E11 | `.env.example` lacks the §12 settings; no `config.py`; no network block in tests; live-test gate unimplemented. | `.env.example` now; `config.py` in M2; `pytest-socket` + live gate in M5. | M2 / M5 |
 | E12 | Test DB fixture (fail, not skip; schema per test) and Alembic not set up. | In M2, with a test that migrations match the models. | M2 |
 | E13 | Working branch not named in CLAUDE.md; `main` unprotected. | Name the branch in CLAUDE.md (**needs user OK**); branch protection on GitHub (user action). | before M1 |

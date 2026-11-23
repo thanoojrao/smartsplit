@@ -16,6 +16,7 @@ if ! pg_isready -q -h localhost; then
   $SUDO service postgresql start >/dev/null
   for _ in $(seq 1 20); do pg_isready -q -h localhost && break; sleep 0.5; done
 fi
+pg_isready -q -h localhost || { echo "session_start: Postgres did not start" >&2; exit 1; }
 
 as_pg() { $SUDO su postgres -c "$1"; }
 as_pg "psql -qtAc \"ALTER USER postgres PASSWORD 'postgres'\"" >/dev/null

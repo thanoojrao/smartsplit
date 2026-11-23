@@ -8,8 +8,8 @@ PAUSED before building, finishing pre-build setup with the user. Done so far: vi
 SPEC rewrite, USE_CASES rewrite, four independent design reviews (`docs/DESIGN_REVIEW.md`), all
 P1–P24 product answers, and every review fix applied to SPEC/USE_CASES/DECISIONS.
 Remaining, in order:
-1. Engineering setup fixes from DESIGN_REVIEW Part 4 (E3–E8, E10, E14 now; E1, E9, E13 need the
-   user's OK — see DECISIONS "Open").
+1. ~~Engineering setup fixes E3–E8, E10, E14~~ (done). E1, E9, E13 wait for the user's OK
+   (DECISIONS "Open").
 2. Step 4 of the plan: agree data shapes and contracts with the user (domain model, ports, messages).
 3. Then start M1.
 
@@ -33,7 +33,7 @@ Remaining, in order:
 
 ## Log
 
-- M0: scaffold created by hand. Engine contract frozen in `src/smartsplit/engine/__init__.py`.
+- M0: scaffold created by hand. Engine contract frozen in `src/smartsplit/engine/__init__.py`. Commit `fc41671`.
 
 ## Follow-ups
 

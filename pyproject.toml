@@ -47,27 +47,42 @@ target-version = "py312"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "RET", "PTH", "N", "ERA", "PL", "RUF", "T20", "S"]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "RET", "PTH", "N", "ERA", "PL", "RUF", "T20", "S", "TID", "DTZ", "FIX"]
 ignore = ["PLR0913"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "PLR2004", "S105", "S106"]
+"tests/**" = ["S101", "PLR2004", "S105", "S106", "TID251"]
+# Only the edges may touch the clock, randomness, ids, logging and the environment (SPEC §2-3).
+"src/smartsplit/adapters/**" = ["TID251"]
+"src/smartsplit/entrypoints/**" = ["TID251"]
+"src/smartsplit/config.py" = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"datetime.datetime.now".msg = "Use the Clock port (SPEC §3)."
+"datetime.datetime.utcnow".msg = "Use the Clock port (SPEC §3)."
+"datetime.datetime.today".msg = "Use the Clock port (SPEC §3)."
+"datetime.date.today".msg = "Use the Clock port (SPEC §3)."
+"time.time".msg = "Use the Clock port (SPEC §3)."
+"time.monotonic".msg = "Use the Clock port (SPEC §3)."
+"uuid.uuid4".msg = "Use the IdGenerator port (SPEC §3)."
+"uuid.uuid1".msg = "Use the IdGenerator port (SPEC §3)."
+"random".msg = "No randomness outside adapters (SPEC §2)."
+"secrets".msg = "No randomness outside adapters (SPEC §2)."
+"logging".msg = "No logging in the core; side effects belong in adapters (SPEC §2)."
+"os.environ".msg = "Read settings only in config.py and entrypoints (SPEC §2)."
+"os.getenv".msg = "Read settings only in config.py and entrypoints (SPEC §2)."
 
 [tool.mypy]
 strict = true
 python_version = "3.12"
 mypy_path = "src"
-packages = ["smartsplit"]
-
-[[tool.mypy.overrides]]
-module = ["rapidfuzz.*"]
-ignore_missing_imports = true
+files = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
 markers = [
-    "db: needs a real Postgres at DATABASE_URL",
+    "db: needs a real Postgres at TEST_DATABASE_URL (never DATABASE_URL); fails, never skips, if unreachable",
     "live: calls the real Anthropic API; runs only when SMARTSPLIT_LIVE_LLM=1",
 ]
 
@@ -113,3 +128,39 @@ name = "Only the LLM adapter talks to Anthropic"
 type = "forbidden"
 source_modules = ["smartsplit.adapters.db", "smartsplit.adapters.fakes", "smartsplit.entrypoints"]
 forbidden_modules = ["anthropic"]
+
+[[tool.importlinter.contracts]]
+name = "Only the DB adapter talks to the database"
+type = "forbidden"
+source_modules = ["smartsplit.adapters.llm", "smartsplit.adapters.fakes", "smartsplit.entrypoints"]
+forbidden_modules = ["sqlalchemy", "alembic", "psycopg"]
+
+[[tool.importlinter.contracts]]
+name = "Web and CLI frameworks stay in their entrypoints"
+type = "forbidden"
+source_modules = ["smartsplit.adapters", "smartsplit.entrypoints.cli"]
+forbidden_modules = ["fastapi", "uvicorn"]
+
+[[tool.importlinter.contracts]]
+name = "CLI framework stays in the CLI entrypoint"
+type = "forbidden"
+source_modules = ["smartsplit.adapters", "smartsplit.entrypoints.api"]
+forbidden_modules = ["typer"]
+
+[[tool.importlinter.contracts]]
+name = "Adapters are independent of each other"
+type = "independence"
+modules = ["smartsplit.adapters.db", "smartsplit.adapters.llm", "smartsplit.adapters.fakes"]
+
+[[tool.importlinter.contracts]]
+name = "Settings are read only at the edges and injected elsewhere"
+type = "forbidden"
+source_modules = [
+    "smartsplit.domain",
+    "smartsplit.engine",
+    "smartsplit.ledger",
+    "smartsplit.ports",
+    "smartsplit.services",
+    "smartsplit.adapters",
+]
+forbidden_modules = ["pydantic_settings"]

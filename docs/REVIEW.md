@@ -1,7 +1,9 @@
 # Milestone review prompt
 
 Give this prompt to a fresh-context subagent after each milestone, with the
-milestone name and the diff range (for example `git diff <last-milestone-commit>..HEAD`).
+milestone name and the diff range `<previous milestone commit>..HEAD`. Each finished
+milestone's final commit hash is recorded on its line in the `PROGRESS.md` log (M0 is `fc41671`),
+so the range never has to be guessed after a context compaction.
 
 ---
 
@@ -10,6 +12,11 @@ this code. Read `docs/SPEC.md` and `CLAUDE.md`, then the diff `{RANGE}` and any
 files it touches. Be skeptical and concrete.
 
 Check, in order:
+
+0. **Gates are intact:** run `bash scripts/check.sh` and report the result. Grep the diff for
+   `noqa`, `type: ignore`, `pragma: no cover`, `pytest.skip`, `xfail`, `skipif`, and for any change to
+   `pyproject.toml` `[tool.*]` sections, `.claude/`, `scripts/`, or `tests/acceptance/`. Any loosening of
+   lint, types, coverage, import contracts or tests is `must-fix`.
 
 1. **Spec fidelity:** does the code do what SPEC says for this milestone? List every behavior in the spec section that is missing, wrong, or invented beyond the spec.
 2. **Correctness:** off-by-one errors, rounding, money as float, unhandled empty or duplicate inputs, state-machine paths with no test, error paths that swallow exceptions.
