@@ -4,12 +4,12 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 ## Next up
 
-Checkpoint A fixes are done (log below). **Next: close M4** — the ledger is committed (`7187342`);
-run CI and the review gate on range `b949279..HEAD` (M4 plus the fix-review commit that followed
-it), fix must-fix, tick M4. Then **M5 → M9 without stopping** (user-confirmed), same process per
-milestone, and stop at CHECKPOINT B: push, open the PR, notify, summarize. For M5 there is no
-Anthropic API key: the opt-in live test is skipped unless SMARTSPLIT_LIVE_LLM=1; use recorded
-fixtures. Ask (DECISIONS "Open") only for what CLAUDE.md says needs the user.
+M1–M4 done. **Continue with M5** (receipt parsing, SPEC §7), then M6 → M9 without stopping
+(user-confirmed), same process per milestone; stop at CHECKPOINT B (push, open the PR, notify,
+summarize). M5 review range: `41f4cdb..HEAD`. No Anthropic API key here: the live test is skipped
+unless SMARTSPLIT_LIVE_LLM=1; tests use the recorded-shape fixtures in `tests/fixtures/receipts/`.
+One question is open for the user (DECISIONS "Open": square-up when a greedy plan reshuffles);
+option (a) is built, nothing is blocked by it.
 
 ## Milestones
 
@@ -20,7 +20,7 @@ fixtures. Ask (DECISIONS "Open") only for what CLAUDE.md says needs the user.
 
 **CHECKPOINT A** — stop, push, notify the user, and summarize. The core logic is reviewed by the human before anything is built on top of it.
 
-- [ ] M4 — Ledger (SPEC §9): context balances incl. settlements, group `simplify_debts`, personal pairs, overall view, payment allocation, square-up
+- [x] M4 — Ledger (SPEC §9): context balances incl. settlements, group `simplify_debts`, personal pairs, overall view, payment allocation, square-up
 - [ ] M5 — Receipt parsing (SPEC §7): port + Anthropic adapter + fixtures + opt-in live test; quantity, taxed, discount_for, confidence, validation
 - [ ] M6 — Command interpreter (SPEC §8): full command set, Anthropic adapter (tool use) + keyword fake
 - [ ] M7 — Orchestrator I (SPEC §10.1–10.4, 10.7, §12.2–12.3): reacting rules, identity + onboarding + membership, group and personal bill flows, prompts, review edits, confirm, cancel, queue, duplicates, privacy routing, balances queries; idempotency + serialization; DB-backed state; integration tests with fakes (no notifications yet)
@@ -36,6 +36,7 @@ fixtures. Ask (DECISIONS "Open") only for what CLAUDE.md says needs the user.
 - M2: CONTRACTS §1 domain, ports (Repository + UoW, ImageStore, parser/interpreter, clock, ids), `config.py`, Postgres adapter (Core tables, tagged-JSONB codec, advisory lock, Alembic), file ImageStore, in-memory fakes; repository contract tests run on fake and Postgres; 233 tests, 97% coverage; review must-fix (SKIP LOCKED test) fixed. Commit `0f64ca5`. (M3's pure engine commit `1be7666` landed just before it, so `0f64ca5` also contains it.)
 - M3: `resolve_rules`, `match_item`, discount links/overrides (linked follow the parent, unlinked are split among everyone), learning (`observe`, `learned_kind`); services for matching (model outside any transaction, aliases per place, model-call count), stated rules with §6.2 permissions and "drinks milk now" deletes, `learn_from_bill`; `Canonicalizer` port + fake; 264 tests, 99% coverage; review must-fix (unlinked discounts) fixed. Range `c993395..16f21a7`. Commit `16f21a7`.
 - Checkpoint A fixes (docs/CHECKPOINT_A_REVIEW.md items 1–18): refunds matched by name, exact amounts before tax, weighted learning, serialized claims, rule upsert, one active draft, port constraint errors on both backends, scope derived by the rules service, codec property + JSONB tests, config/README. Review must-fix (asymmetric exact-amount test) fixed. Range `93abd81..b949279` plus the fix-review commit after M4.
+- M4: ledger (balances, greedy `simplify_debts`, group/personal pair views, overall with breakdown, payment allocation, iterative square-up) with property tests; review must-fixes (square-up net → Open question, option (a) built and tested; named-context overpayment logged). Range `b949279..41f4cdb`. Commit `41f4cdb`.
 
 ## Follow-ups
 
