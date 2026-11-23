@@ -250,17 +250,18 @@ class ResolvedRule: input: RuleInput, rule: Rule          # keeps scope/author f
 def resolve_rules(rules: Sequence[Rule], participants: Sequence[str], context: Context,
                   added_by: str) -> tuple[ResolvedRule, ...]
 
-def discount_links(lines: Sequence[LineItem]) -> dict[str, str | None]   # discount → plain parent or None
+def discount_links(lines: Sequence[LineItem]) -> dict[str, str]   # linked discount → its line
 def propagate_discount_overrides(lines: Sequence[LineItem],
-                                 overrides: Sequence[tuple[str, Override]],
-                                 participants: Sequence[str]) -> tuple[tuple[str, Override], ...]
-    # a linked discount follows its parent's override unless it has its own;
-    # an unlinked discount is split equally among all participants (M3 review)
+                                 overrides: Sequence[tuple[str, Override]]) -> tuple[tuple[str, Override], ...]
+    # a linked discount (negative, valid discount_for) follows its parent's override unless it has
+    # its own; every other line, refunds included, is matched by name (Checkpoint A decision)
 
 class Match: item_key: str | None, how: MatchHow
 def match_item(raw_name: str, aliases: Mapping[str, str], known_keys: Collection[str],
                threshold: int) -> Match                   # how="none" → services ask the LLM
 
+def observe(person_id: str, assignees: Sequence[str], *, weighted: bool) -> AnswerOutcome
+    # removed → excluded; sole assignee of an unweighted line → sole_assignee; else included
 def learned_kind(observations: Sequence[AnswerObservation], existing: Rule | None) -> RuleKind | None
     # last two observations both excluded → exclude, both sole_assignee → only;
     # returns None if existing is a stated exclude/only (a stated soft_exclude may be upgraded)

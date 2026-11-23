@@ -5,7 +5,13 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from smartsplit.domain import Weight
-from smartsplit.engine import ItemInput, amounts_to_weights, split_receipt
+from smartsplit.engine import (
+    ItemInput,
+    TaxedLine,
+    amounts_to_weights,
+    fold_item_tax,
+    split_receipt,
+)
 
 
 def shares_for(line_cents: int, weights: tuple[Weight, ...], members: list[str]) -> dict[str, int]:
@@ -92,3 +98,23 @@ def test_fixed_people_always_get_exactly_their_amount(
         assert shares[person] == cents
     assert sum(shares.values()) == line_cents
     assert all(w.weight > 0 for w in weights)
+
+
+def test_exact_amounts_are_before_tax_and_tip() -> None:
+    # Checkpoint A decision: "Sam's part was 100" of a taxed 200 line, 10% tax and a 40 tip.
+    weights = amounts_to_weights(200, [("sam", 100)], ["raj"])
+    items, left = fold_item_tax([TaxedLine(ItemInput("l1", "Wine", 200), True)], 20)
+    override = {w.person_id: w.weight for w in weights}
+
+    result = split_receipt(
+        items, ["sam", "raj"], adjustments_cents=left + 40, overrides={"l1": override}
+    )
+
+    assert result.shares == {"sam": 130, "raj": 130}
+
+
+def test_leftover_cents_go_by_member_order_not_by_the_order_of_others() -> None:
+    weights = amounts_to_weights(102, [("sam", 1)], ["raj", "priya"])
+
+    shares = shares_for(102, weights, ["priya", "sam", "raj"])
+    assert shares == {"priya": 51, "sam": 1, "raj": 50}

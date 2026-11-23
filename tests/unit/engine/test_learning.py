@@ -36,6 +36,12 @@ def test_observe_outcomes() -> None:
     assert observe("sam", ["sam"], weighted=True) is INCLUDED
 
 
+def test_on_a_weighted_line_the_people_on_it_are_included_and_the_rest_excluded() -> None:
+    # "2 for Sam, 1 for me": Sam and I are included, Raj (removed) is excluded.
+    assert observe("sam", ["sam", "me"], weighted=True) is INCLUDED
+    assert observe("raj", ["sam", "me"], weighted=True) is EXCLUDED
+
+
 @pytest.mark.parametrize(
     ("outcomes", "kind"),
     [

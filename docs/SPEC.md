@@ -195,9 +195,11 @@ The orchestrator then calls `split_receipt` with the folded items and
 
 ### 5.2 Exact amounts (pure, in `engine`)
 
-`amounts_to_weights(line_cents, fixed: Mapping[str, int], others: Sequence[str]) -> Mapping[str, int]`
+`amounts_to_weights(line_cents, fixed: Sequence[tuple[str, Cents]], others: Sequence[str]) -> tuple[Weight, ...]`
 turns "Sam's part was ₹100" into a weighted override: fixed people get exactly their amount, and
-the remainder is split equally among `others` (in order). Fixed amounts must be positive and sum to
+the remainder is split equally among `others` (leftover cents go by member order, like any split).
+Exact amounts are **before tax and tip**: "Sam's part was ₹100" on a taxed line means ₹100 of the line
+price, and Sam also pays his share of that line's tax and of the tip (e.g. ₹110). Fixed amounts must be positive and sum to
 at most `line_cents`; if they sum to less and `others` is empty, or to more, it raises `ValueError`
 and the orchestrator asks. A manual bill with exact amounts for everyone ("rent 30000: Sam 12000,
 me 9000, Raj 9000") is one line with every person fixed; the amounts must add up to the total.
@@ -259,9 +261,11 @@ matcher in `engine` and the `CommandInterpreter.canonicalize` port:
 A match from step 2 or 3 is stored as an `ItemAlias` in that match scope and shown in the summary the
 first time ("OAT MLK → milk?"). "That's not milk" removes the alias in that scope, and the line's key
 becomes its own normalized name (or the item the speaker names instead).
-A discount line linked by the parser (`discount_for`) gets the key of the line it reduces, so it is
-shared by the same people, and follows that line's answers and edits unless it has its own; unlinked
-discounts are shared by everyone.
+A discount line linked by the parser (a negative line with `discount_for`) gets the key of the line it
+reduces, so it is shared by the same people, and follows that line's answers and edits unless it has
+its own. Any other negative line (a refund, or a coupon the parser couldn't link) is matched by its own
+name like any item and follows that item's rules ("PROTEIN POWDER REFUND" → protein powder, so Sam's
+`only` rule applies); a generic coupon that matches no rule is shared by everyone.
 
 ### 6.5 Learning
 
@@ -274,7 +278,8 @@ line) is recorded as an `AnswerObservation` per person and item key, in the bill
 
 When the last two observations for a (scope, subject, item key) are both `excluded`, create or
 replace a learned `exclude` rule; both `sole_assignee` → learned `only`. An `included` observation
-breaks the streak. `Everywhere` rules are never learned. Weighted splits count as `included`.
+breaks the streak. `Everywhere` rules are never learned. People on a weighted line count as `included`
+(someone removed from it still counts as `excluded`).
 
 ---
 

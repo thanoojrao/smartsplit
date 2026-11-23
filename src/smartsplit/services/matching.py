@@ -52,12 +52,14 @@ def match_lines(
 ) -> MatchedLines:
     """Set `canonical`, `match_how` and `match_is_new` on every line.
 
-    A discount linked to a plain line takes that line's key, so it is shared like it. A
-    discount with no usable link is left unkeyed (it is shared by everyone, see
-    `propagate_discount_overrides`). Neither is sent to the model or remembered on its own.
-    The model is asked at most once per distinct name; LlmUnavailableError propagates.
+    A linked discount takes its line's key, so it is shared like it; it is never sent to the
+    model or remembered on its own. Every other line, refunds included, is matched by name.
+    Keys the model creates count as known for the rest of the receipt, so "Dragon Fruit" and
+    "Dragon Fruits" cost one model call. LlmUnavailableError propagates.
     """
     links = discount_links(lines)
+    by_id = {line.id: line for line in lines}
+    known = set(inputs.known_keys)
     by_name: dict[str, tuple[Match, bool]] = {}
     matched: dict[str, LineItem] = {}
     calls = 0
@@ -66,22 +68,23 @@ def match_lines(
             continue
         name = normalize_item_name(line.name)
         if name not in by_name:
-            match, is_new, asked = _match_name(line.name, inputs, canonicalizer, threshold)
+            match, is_new, asked = _match_name(line.name, inputs, known, canonicalizer, threshold)
             by_name[name] = (match, is_new)
             calls += asked
+            if match.item_key is not None:
+                known.add(match.item_key)
         match, is_new = by_name[name]
         matched[line.id] = replace(
             line, canonical=match.item_key, match_how=match.how, match_is_new=is_new
         )
-    for line in lines:
-        if line.id in links:
-            parent = matched.get(links[line.id] or "")
-            matched[line.id] = replace(
-                line,
-                canonical=parent.canonical if parent else None,
-                match_how=parent.match_how if parent else MatchHow.NONE,
-                match_is_new=False,
-            )
+    for line_id, parent_id in links.items():
+        parent = matched[parent_id]
+        matched[line_id] = replace(
+            by_id[line_id],
+            canonical=parent.canonical,
+            match_how=parent.match_how,
+            match_is_new=False,
+        )
     new_aliases = tuple(
         ItemAlias(inputs.scope, name, match.item_key)
         for name, (match, is_new) in by_name.items()
@@ -91,16 +94,20 @@ def match_lines(
 
 
 def _match_name(
-    raw_name: str, inputs: MatchInputs, canonicalizer: Canonicalizer, threshold: int
+    raw_name: str,
+    inputs: MatchInputs,
+    known: set[str],
+    canonicalizer: Canonicalizer,
+    threshold: int,
 ) -> tuple[Match, bool, int]:
     """The match, whether it is new here (remembered and shown once), and model calls made."""
-    match = match_item(raw_name, inputs.aliases, inputs.known_keys, threshold)
+    match = match_item(raw_name, inputs.aliases, known, threshold)
     if match.how is MatchHow.FUZZY:
         return match, True, 0
     if match.how is not MatchHow.NONE:
         return match, False, 0
     name = normalize_item_name(raw_name)
-    key = normalize_item_name(canonicalizer.canonicalize(raw_name, sorted(inputs.known_keys)))
+    key = normalize_item_name(canonicalizer.canonicalize(raw_name, sorted(known)))
     if not key or key == name:
         return Match(name, MatchHow.LLM), False, 1
     return Match(key, MatchHow.LLM), True, 1

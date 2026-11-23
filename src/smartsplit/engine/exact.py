@@ -17,7 +17,9 @@ def amounts_to_weights(
     If the fixed amounts use up the whole line, `others` get nothing and are left out (a weight
     must be positive). Raises ValueError when the amounts can't be honoured, so the caller asks,
     and when no fixed amounts are given (an equal split is a plain list override instead).
-    The weights come fixed people first, then others; `split_receipt` puts them in member order.
+    The weights come fixed people first, then others; `split_receipt` puts them in member order,
+    and when the rest doesn't divide evenly the leftover cents go by member order, not by the
+    order of `others`. Amounts are before tax and tip: fold the tax into the line afterwards.
     """
     if not fixed:
         raise ValueError("no fixed amounts given")

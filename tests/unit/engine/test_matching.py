@@ -42,61 +42,47 @@ def line(line_id: str, discount_for: str | None = None, cents: int = 100) -> Lin
     )
 
 
-PEOPLE = ("me", "sam", "raj")
-
-
 def test_a_linked_discount_follows_its_lines_override() -> None:
     # E11: "MILK 20% OFF" is shared by the same people as the milk.
     lines = [line("milk"), line("off", discount_for="milk", cents=-20), line("bread")]
     overrides: list[tuple[str, Override]] = [("milk", EqualSplit(("me", "sam")))]
 
-    assert propagate_discount_overrides(lines, overrides, PEOPLE) == (
+    assert propagate_discount_overrides(lines, overrides) == (
         ("milk", EqualSplit(("me", "sam"))),
         ("off", EqualSplit(("me", "sam"))),
     )
 
 
 def test_a_discount_with_its_own_override_keeps_it() -> None:
-    lines = [line("milk"), line("off", discount_for="milk")]
+    lines = [line("milk"), line("off", discount_for="milk", cents=-20)]
     overrides: list[tuple[str, Override]] = [
         ("milk", Weighted((Weight("sam", 2),))),
         ("off", EqualSplit(("raj",))),
     ]
 
-    assert propagate_discount_overrides(lines, overrides, PEOPLE) == tuple(overrides)
+    assert propagate_discount_overrides(lines, overrides) == tuple(overrides)
 
 
 def test_nothing_to_follow_leaves_overrides_alone() -> None:
     lines = [line("milk"), line("off", discount_for="milk", cents=-20)]
 
-    assert propagate_discount_overrides(lines, [], PEOPLE) == ()
+    assert propagate_discount_overrides(lines, []) == ()
 
 
-def test_unlinked_discounts_are_shared_by_everyone() -> None:
-    # E10 / SPEC 6.4: a coupon nobody linked, or a broken link, isn't moved by anyone's rules.
-    lines = [
-        line("milk"),
-        line("coupon", cents=-50),
-        line("odd", discount_for="gone", cents=-10),
-        line("chain", discount_for="coupon", cents=-5),
-        line("own", cents=-7),
-    ]
-    overrides: list[tuple[str, Override]] = [("own", EqualSplit(("raj",)))]
-
-    assert propagate_discount_overrides(lines, overrides, PEOPLE) == (
-        ("own", EqualSplit(("raj",))),
-        ("coupon", EqualSplit(PEOPLE)),
-        ("odd", EqualSplit(PEOPLE)),
-        ("chain", EqualSplit(PEOPLE)),
-    )
-
-
-def test_discount_links() -> None:
+def test_only_negative_lines_with_a_valid_link_are_linked_discounts() -> None:
     lines = [
         line("milk"),
         line("off", discount_for="milk", cents=-20),
-        line("coupon", cents=-50),
-        line("bread"),
+        line("refund", cents=-300),  # a refund with no link is an ordinary line
+        line("bogus", discount_for="milk", cents=50),  # positive: not a discount
+        line("broken", discount_for="gone", cents=-5),
+        line("chain", discount_for="off", cents=-5),
+        line("self", discount_for="self", cents=-5),
     ]
+    overrides: list[tuple[str, Override]] = [("milk", EqualSplit(("me",)))]
 
-    assert discount_links(lines) == {"off": "milk", "coupon": None}
+    assert discount_links(lines) == {"off": "milk"}
+    assert propagate_discount_overrides(lines, overrides) == (
+        ("milk", EqualSplit(("me",))),
+        ("off", EqualSplit(("me",))),
+    )

@@ -129,21 +129,50 @@ def test_a_linked_discount_takes_its_lines_key_without_asking() -> None:
     assert model.calls == ["2% MLK GAL"]
 
 
-def test_unlinked_discounts_stay_unkeyed_and_are_never_sent_to_the_model() -> None:
-    # SPEC 6.4: unlinked discounts are shared by everyone, so no item key (and no rule) applies.
-    model = FakeCanonicalizer({"milk coupon": "milk"})
+def test_a_refund_is_matched_by_name_and_follows_that_items_rules() -> None:
+    # Checkpoint A decision: "PROTEIN POWDER REFUND" is protein powder, so Sam's "only" applies.
+    model = FakeCanonicalizer({"protein powder refund": "protein powder"})
+    lines = [line("1", "Protein Powder"), line("2", "PROTEIN POWDER REFUND", cents=-500)]
+
+    matched = run(repo_with_items("protein powder"), FLAT, lines, model)
+
+    assert [m.canonical for m in matched.lines] == ["protein powder", "protein powder"]
+    assert model.calls == ["PROTEIN POWDER REFUND"]
+
+
+def test_a_generic_coupon_becomes_its_own_item_with_no_rules() -> None:
+    # It gets its own key, which no rule mentions, so everyone shares it (E10).
+    matched = run(
+        repo_with_items("milk"), FLAT, [line("1", "Milk"), line("2", "COUPON", cents=-50)]
+    )
+
+    assert how(matched)[1] == ("coupon", MatchHow.LLM, False)
+
+
+def test_positive_lines_and_broken_links_are_matched_on_their_own_names() -> None:
     lines = [
         line("1", "Milk"),
-        line("2", "Milk coupon", cents=-50),
-        line("3", "Chained", discount_for="2", cents=-5),
-        line("4", "Broken", discount_for="gone", cents=-5),
+        line("2", "Bread", discount_for="1"),
+        line("3", "Eggs", discount_for="gone", cents=-5),
     ]
 
-    matched = run(repo_with_items("milk"), FLAT, lines, model)
+    matched = run(repo_with_items("milk", "bread", "eggs"), FLAT, lines)
 
-    assert how(matched)[1:] == [(None, MatchHow.NONE, False)] * 3
-    assert model.calls == []
-    assert matched.new_aliases == ()
+    assert [m.canonical for m in matched.lines] == ["milk", "bread", "eggs"]
+
+
+def test_keys_the_model_creates_count_as_known_for_the_rest_of_the_receipt() -> None:
+    model = FakeCanonicalizer()
+    lines = [line("1", "Dragon Fruit"), line("2", "Dragon Fruits")]
+
+    matched = run(repo_with_items(), FLAT, lines, model)
+
+    assert model.calls == ["Dragon Fruit"]
+    assert how(matched) == [
+        ("dragon fruit", MatchHow.LLM, False),
+        ("dragon fruit", MatchHow.FUZZY, True),
+    ]
+    assert matched.model_calls == 1
 
 
 class Unavailable:

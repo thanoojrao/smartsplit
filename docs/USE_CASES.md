@@ -83,12 +83,13 @@ Groups: **Flat 4B** (you, Sam, Raj) and **Goa trip** (you, Raj, Priya).
 | E7 | "2 yogurts for Sam, 1 for Raj" / "70/30" | Weighted split | §5 | M1 |
 | E8 | "Sam's part was ₹100" on a ₹250 line | Sam ₹100; the other ₹150 split equally among the rest | §5.2 | M1 |
 | E9 | "rent 30000: Sam 12000, me 9000, Raj 9000" | Exact amounts; must add up to the total, else the bot asks | §5.2 | M1 |
-| E10 | Coupon line (negative) not linked to an item | Shared by everyone in the bill | §5, §6.4 | M1 |
+| E10 | Coupon line (negative) not linked to an item and matching no rule | Shared by everyone in the bill | §5, §6.4 | M1, M3 |
 | E11 | "MILK 20% OFF" linked to the milk line | Shared by the same people as the milk | §6.4 | M3 |
+| E11b | "PROTEIN POWDER REFUND" with no link | Matched by name; follows protein powder's rules (Sam's `only`) | §6.4 | M3 |
 | E12 | Tax, tip, service charge | Spread in proportion to each person's item total (negatives count as 0) | §5 | M1 |
 | E13 | Some lines marked taxed, some not | Tax only on the taxed lines | §5.1 | M1 |
 | E14 | Receipt doesn't mark taxed lines | Tax spread like tip | §5.1 | M1 |
-| E15 | Raj's only line is a refund (−₹300) on a shared shop | Raj gets the refund; he pays no tax or tip | §5 | M1 |
+| E15 | Raj's only line is a refund (−₹300) on a shared shop, assigned to him (by his rule or an answer) | Raj gets the refund; he pays no tax or tip | §5, §6.4 | M1 |
 | E16 | Any receipt | Shares always add up exactly to the total; every participant listed | §5 | M1 |
 
 ## F. Preferences (rules) and item matching

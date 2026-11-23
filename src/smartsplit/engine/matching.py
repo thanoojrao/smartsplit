@@ -14,6 +14,8 @@ from smartsplit.domain.enums import MatchHow
 
 @dataclass(frozen=True, slots=True)
 class Match:
+    """An item key and how it was found; `item_key` is None only with `MatchHow.NONE`."""
+
     item_key: str | None
     how: MatchHow
 

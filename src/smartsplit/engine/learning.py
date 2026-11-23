@@ -13,7 +13,11 @@ _PROTECTED = frozenset({RuleKind.EXCLUDE, RuleKind.ONLY})
 
 def observe(person_id: str, assignees: Sequence[str], *, weighted: bool) -> AnswerOutcome:
     """What one saved line shows about one person who was asked about it, or whose share was
-    edited: left out, the only one, or included. A weighted split always counts as included."""
+    edited: left out, the only one, or included.
+
+    On a weighted line, the people on it count as included (even a single person) and anyone
+    removed from it still counts as excluded.
+    """
     if person_id not in assignees:
         return AnswerOutcome.EXCLUDED
     if len(assignees) == 1 and not weighted:
