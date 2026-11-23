@@ -48,4 +48,9 @@ requires. M4 review range starts at the commit that finishes the Checkpoint A fi
 - (M2 review) Services must use `drafts.update(draft, expected_state=...)` and handle `StaleDraftError` (M7/M8).
 - (M3 review) The orchestrator must add `MatchedLines.model_calls` to `LlmUsage` and check the daily limit before matching (M7).
 - (M3 review) A linked discount shares its parent's key, so a `soft_exclude` would make the engine ask twice; the orchestrator should ask about linked discounts only through the parent line (M7).
+- (Checkpoint A, M5/M7) Strip or reject NUL (`\x00`) in inbound text and parser output before it reaches the DB (Postgres rejects it); test.
+- (Checkpoint A, M7) Build `find_likely_duplicate` / `DuplicateCandidate` in engine per CONTRACTS §2 (C11).
+- (Checkpoint A, M7) A group rule can name a subject who isn't a member; resolve names against members in M7.
+- (Checkpoint A, M8) `claim_due`: rows dropped by the cap still use `limit` slots within one batch.
+- (Checkpoint A) `split_receipt` accepts `bool` amounts (`True` = 1 cent); optionally reject non-int amounts.
 - (M3 review) Stated rules only normalize the item ("I don't drink MLK" → `mlk`); decide in M6/M7 whether stated items go through `match_item`/the model.

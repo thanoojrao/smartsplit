@@ -1,9 +1,19 @@
 """Settings from the environment (SPEC section 12.1)."""
 
+import os
+
 import pytest
 from pydantic import ValidationError
 
 from smartsplit.config import Settings
+
+
+@pytest.fixture(autouse=True)
+def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Settings in the developer's shell must not leak into these tests."""
+    for name in list(os.environ):
+        if name.startswith("SMARTSPLIT_") or name == "ANTHROPIC_API_KEY":
+            monkeypatch.delenv(name)
 
 
 def test_defaults_and_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -20,6 +30,19 @@ def test_defaults_and_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "dbpass" not in repr(settings)
     assert settings.database_url.get_secret_value().endswith("@x/y")
     assert settings.fuzzy_threshold == 85
+    assert settings.anthropic_api_key is None
+    assert settings.invite_template.endswith("https://wa.me/<bot-number>?text=hi")
+
+
+def test_an_empty_key_in_a_copied_env_file_counts_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://x/y")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.setenv("SMARTSPLIT_API_TOKEN", "")
+
+    settings = Settings()
+
+    assert settings.anthropic_api_key is None
+    assert settings.api_token is None
 
 
 @pytest.mark.parametrize(
@@ -28,6 +51,7 @@ def test_defaults_and_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
         ("SMARTSPLIT_TIMEZONE", "Mars/Olympus"),
         ("SMARTSPLIT_CURRENCY", "rupees"),
         ("SMARTSPLIT_FUZZY_THRESHOLD", "101"),
+        ("SMARTSPLIT_FUZZY_THRESHOLD", "0"),
         ("SMARTSPLIT_MAX_QUEUED_DRAFTS", "-1"),
     ],
 )

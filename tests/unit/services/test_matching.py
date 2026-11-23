@@ -9,7 +9,7 @@ from smartsplit.adapters.fakes.repository import InMemoryRepository
 from smartsplit.domain.enums import MatchHow
 from smartsplit.domain.model import ItemAlias, LineItem
 from smartsplit.domain.values import GroupScope, LocalScope, NotesScope
-from smartsplit.ports.llm import LlmUnavailableError
+from smartsplit.ports.llm import Canonicalizer, LlmUnavailableError
 from smartsplit.services.matching import (
     MatchedLines,
     load_match_inputs,
@@ -36,7 +36,7 @@ def run(
     repo: InMemoryRepository,
     scope: LocalScope,
     lines: list[LineItem],
-    model: FakeCanonicalizer | None = None,
+    model: Canonicalizer | None = None,
 ) -> MatchedLines:
     with repo.unit_of_work() as uow:
         inputs = load_match_inputs(uow, scope)
@@ -191,3 +191,25 @@ def test_a_model_outage_propagates_and_nothing_is_remembered() -> None:
     with repo.unit_of_work() as uow:
         assert uow.items.keys() == frozenset({"milk"})
         assert uow.aliases.for_scope(FLAT) == ()
+
+
+class InsistsOnNoOpenTransaction:
+    """A model stand-in that fails if any unit of work is open while it is asked (SPEC 12.2)."""
+
+    def __init__(self, repo: InMemoryRepository) -> None:
+        self._repo = repo
+        self.calls = 0
+
+    def canonicalize(self, name: str, known_keys: Sequence[str]) -> str:
+        with self._repo.unit_of_work():  # the fake refuses this while another is open
+            self.calls += 1
+        return name
+
+
+def test_the_model_is_never_asked_while_a_unit_of_work_is_open() -> None:
+    repo = repo_with_items("milk")
+    model = InsistsOnNoOpenTransaction(repo)
+
+    run(repo, FLAT, [line("1", "Dragon Fruit"), line("2", "Milk")], model)
+
+    assert model.calls == 1

@@ -143,6 +143,13 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (User) Exact amounts ("Sam's part was ₹100") are before tax and tip; that person also pays their share of the line's tax and the tip.
 - Someone removed from a weighted line counts as `excluded` for learning; people on it count as `included`.
 - Full findings and fix list: docs/CHECKPOINT_A_REVIEW.md.
+- (Fix) Port-level `DuplicateKeyError`, `MissingReferenceError` and `InvalidRecordError` (all `ConstraintViolationError`); Postgres integrity errors are translated by SQLSTATE at the unit-of-work boundary, and the fake checks the same keys, foreign keys and checks. Why: services and tests see one error type whichever backend runs.
+- (Fix) `claim_due` takes a constant transaction-level advisory lock, so claims run one at a time and the daily cap holds under concurrency (supersedes the "small cap race accepted" note). Why: Checkpoint A must-fix.
+- (Fix) `RuleStore.put` is one `INSERT … ON CONFLICT DO UPDATE`; at most one active draft per chat is a partial unique index (migration 0002) and a fake check. Why: concurrent writers can't collide or create two active drafts.
+- (Fix) `add_stated_rule`/`delete_rule` derive the scope from (chat kind, group, speaker, subject); the only permission left to check is current group membership at `now` (joined, not yet left). Why: a group chat can never write someone's Everywhere rule, and nobody can write another's notes.
+- (Fix) Keys the model creates count as known for the rest of the receipt. Why: near-duplicate lines cost one model call.
+- (Fix) Empty `ANTHROPIC_API_KEY`/`SMARTSPLIT_API_TOKEN` load as unset; `fuzzy_threshold` must be ≥ 1; the invite default matches `.env.example`. Why: a copied `.env` behaves as expected; threshold 0 matched empty names to anything.
+- A learned rule is only undone by stating or deleting a rule; later `included` answers just stop a new streak. Why: simple and predictable; the summary shows learned rules.
 
 ## Open (waiting for the user)
 

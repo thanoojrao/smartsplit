@@ -12,8 +12,14 @@ A WhatsApp bot front end is planned.
 ```bash
 uv sync
 docker compose up -d db        # Postgres 16 on localhost:5432
-cp .env.example .env
+cp .env.example .env           # then edit it
 bash scripts/check.sh          # lint, types, architecture, tests
+```
+
+Nothing reads `.env` by itself. Load it into the command you run, for example:
+
+```bash
+uv run --env-file .env pytest  # or: set -a; source .env; set +a
 ```
 
 ## How it's built
