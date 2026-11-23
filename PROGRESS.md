@@ -9,7 +9,8 @@ Now: **live model checks** before merging. `ANTHROPIC_API_KEY` is set as an envi
 on the cloud environment (only sessions started after it was added can see it; check with
 `[ -n "$ANTHROPIC_API_KEY" ]`, never print it). Run
 `SMARTSPLIT_LIVE_LLM=1 uv run pytest tests/live -v` (the receipt test plus four conversation
-scenarios in `tests/live/test_live_conversation.py`, about 30 calls on `claude-sonnet-5-5`).
+scenarios in `tests/live/test_live_conversation.py`, about 30 calls on `claude-sonnet-5-5`); the
+run ends with a "model usage" table (calls, tokens, cache reads/writes, estimated USD).
 Report to the user what passed and what the model got wrong; fix code or prompts for real
 failures (never loosen a check to make a live test pass), push to the PR branch, rerun.
 Left as is for now, by the user's choice: the user's own name still appears as the example

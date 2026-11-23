@@ -199,6 +199,10 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - **Migrations** run under a Postgres advisory lock, so several workers starting at once take turns.
 - **CLI extras:** `images prune --older-than-days N` (SPEC 12.4); `receipt add` refuses files over `SMARTSPLIT_MAX_IMAGE_BYTES`; `person add` checks the number. The offline stand-in knows the recorded receipts' item names (`DEMO_ITEMS`), so the README's "Raj doesn't drink milk" works on "2% MLK GAL".
 
+## After Checkpoint B
+
+- Every model call logs one INFO line on `smartsplit.llm` with its purpose, model and token counts (input, cache read, cache write, output), never prompt text (SPEC 12.4). The live tests print a per-purpose summary with an estimated cost at Sonnet 5.5 list prices. Why: the user wants real cost numbers and proof that caching works before merging.
+
 ## Checkpoint A review (2026-11-23)
 
 - (User) Unlinked negative lines (refunds) are matched by name and follow that item's rules; generic coupons that match nothing stay shared by everyone; discount-link treatment needs `discount_for` and a negative amount.

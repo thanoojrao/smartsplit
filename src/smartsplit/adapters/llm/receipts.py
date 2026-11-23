@@ -8,6 +8,7 @@ from typing import Literal
 import anthropic
 from anthropic.types import ImageBlockParam, Message, OutputConfigParam, TextBlockParam
 
+from smartsplit.adapters.llm.usage import log_usage
 from smartsplit.ports.llm import LlmUnavailableError, ParsedReceipt, ReceiptUnreadableError
 from smartsplit.services.receipt_output import receipt_from_model_output
 
@@ -127,6 +128,7 @@ class AnthropicReceiptParser:
             raise LlmUnavailableError("request rejected; check the model settings") from bad
         except (anthropic.APIConnectionError, anthropic.APIStatusError) as api_error:
             raise LlmUnavailableError(type(api_error).__name__) from api_error
+        log_usage("receipt", response)
         return receipt_from_model_output(_json(response), currency, self._max_lines)
 
     def _request(self, image: bytes, mime_type: str, currency: str) -> Message:

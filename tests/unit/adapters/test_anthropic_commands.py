@@ -246,3 +246,15 @@ def test_canonicalize_returns_a_known_or_new_key() -> None:
     format_config = api.requests[0]["output_config"]["format"]
     assert format_config["schema"]["required"] == ["item_key"]
     assert '"2% MLK GAL"' in api.requests[0]["messages"][0]["content"]
+
+
+def test_each_call_logs_its_token_usage(caplog: pytest.LogCaptureFixture) -> None:
+    api = ScriptedApi(tool_call("Help", {}))
+    with caplog.at_level("INFO", logger="smartsplit.llm"):
+        interpreter_for(api).interpret("help", CONTEXT)
+    (record,) = caplog.records
+    fields = record.__dict__
+    assert fields["purpose"] == "interpret"
+    assert fields["output_tokens"] > 0
+    assert (fields["cache_read_tokens"], fields["cache_write_tokens"]) == (0, 0)
+    assert "help" not in record.getMessage()  # counts only, never the message

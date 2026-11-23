@@ -9,6 +9,7 @@ import anthropic
 from anthropic.types import Message, OutputConfigParam, TextBlockParam, ToolParam
 
 from smartsplit.adapters.llm.command_tools import command_tools
+from smartsplit.adapters.llm.usage import log_usage
 from smartsplit.domain import normalize_item_name
 from smartsplit.domain.codec import decode
 from smartsplit.domain.commands import AnswerPrompt, Command, Unknown
@@ -59,6 +60,7 @@ class AnthropicCommandInterpreter:
         message = json.dumps(text, ensure_ascii=False)
         prompt = f"<context>{data}</context>\n<message>{message}</message>"
         response = self._call(
+            "interpret",
             lambda: self._client.messages.create(
                 model=self._model,
                 max_tokens=self._max_tokens,
@@ -66,7 +68,7 @@ class AnthropicCommandInterpreter:
                 tools=self._tools,
                 output_config={"effort": "low"},
                 messages=[{"role": "user", "content": prompt}],
-            )
+            ),
         )
         return _command(response, text)
 
@@ -81,13 +83,14 @@ class AnthropicCommandInterpreter:
             f"<line>{json.dumps(name, ensure_ascii=False)}</line>"
         )
         response = self._call(
+            "canonicalize",
             lambda: self._client.messages.create(
                 model=self._model,
                 max_tokens=self._max_tokens,
                 system=_cached(CANONICALIZE_PROMPT),
                 output_config=output,
                 messages=[{"role": "user", "content": prompt}],
-            )
+            ),
         )
         text = next((b.text for b in response.content if b.type == "text"), "")
         try:
@@ -97,18 +100,20 @@ class AnthropicCommandInterpreter:
         cleaned = normalize_item_name(key) if isinstance(key, str) else ""
         return cleaned or normalize_item_name(name)
 
-    def _call(self, request: Callable[[], Message]) -> Message:
+    def _call(self, purpose: str, request: Callable[[], Message]) -> Message:
         """One retry, but only for errors that can pass (network, 408/409/429, 5xx); a setup
-        problem (any other 4xx) fails at once."""
+        problem (any other 4xx) fails at once. Each answer's token usage is logged."""
         try:
-            return request()
+            response = request()
         except (anthropic.APIConnectionError, anthropic.APIStatusError) as error:
             if not _retryable(error):
                 raise LlmUnavailableError(type(error).__name__) from error
-        try:
-            return request()
-        except anthropic.APIError as error:
-            raise LlmUnavailableError(type(error).__name__) from error
+            try:
+                response = request()
+            except anthropic.APIError as retry_error:
+                raise LlmUnavailableError(type(retry_error).__name__) from retry_error
+        log_usage(purpose, response)
+        return response
 
 
 def _retryable(error: anthropic.APIError) -> bool:
