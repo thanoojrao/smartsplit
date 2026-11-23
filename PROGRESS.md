@@ -9,7 +9,7 @@ PAUSED for a product review with the user (no code yet). The decisions so far ar
 1. ~~Finish walking through the user's vision~~ (done).
 2. ~~Thorough read of `docs/SPEC.md` against `DECISIONS.md`; fix every conflict~~ (done: SPEC rewritten).
    New milestone list agreed (below).
-3. Rewrite `docs/USE_CASES.md` (current file is an outdated draft) to cover everything.
+3. ~~Rewrite `docs/USE_CASES.md`~~ (done, awaiting the user's review).
 4. Agree data shapes and contracts (domain model, ports, messages) with the user.
 5. Then build, starting with M1 (split engine incl. weighted overrides per SPEC §5).
 Don't start a step before the user agrees to the previous one.

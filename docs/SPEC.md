@@ -310,6 +310,9 @@ receipt or manual bill → (group: participants = active members;
 - **Summary:** each person's share, who was skipped and why, flagged low-confidence lines and total
   warnings. The reason is shown for group rules and the adder's own notes; for someone's `Everywhere`
   rule, the summary only says they were skipped, so personal facts don't leak into other groups.
+- **Filing into a group from a personal chat:** "add to Flat 4B" turns the draft into a bill in that
+  group (the speaker must be an active member); participants become the group's active members and the
+  saved summary is posted in the group chat.
 - **One draft per conversation.** A new receipt while a draft is open is queued: "I'll do this one after we finish the Toit bill."
 - **Answers:** anyone in the bill's context may answer. If two people answer the same question
   differently, the bot asks again and shows both answers. Only the adder confirms.
