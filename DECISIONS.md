@@ -189,6 +189,13 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - **Remind:** at most once per 24 h per (sender, person), only to someone who uses the bot, has messages on and owes the sender. **History:** "this/last month" sums your shares of live bills by purchase date; "last N bills" lists live bills newest first. In a group both go to your personal chat.
 - **Inbound text** has NUL characters removed before anything is stored (Postgres can't hold them).
 
+## M9 — entrypoints
+
+- **(User, M9)** The two "Only the X adapter talks to Y" import contracts allow indirect imports (`allow_indirect_imports = true`): entrypoints still may not import `anthropic`/`sqlalchemy`/`alembic`/`psycopg` themselves (SPEC 2), but the composition root may import the adapters that do. All other contracts unchanged.
+- **One composition root** (`entrypoints/wiring.py`) builds the orchestrator from `config.Settings` (the only place `OrchestratorSettings` is filled from config) and migrates the database to head on start, so the demo and the API never run on an old schema.
+- **CLI:** a person's chat identity is their name (`--as Sam`); `person add` is that person's first message to the bot, with their number. `group create` takes `--as` (SPEC lists no actor, but a group is created by someone's first message in its chat, and they join). `balances` and `rules` are operator reads like the REST ones. Each command also runs `tick`, so messages to other people show up at once, labelled `[to Sam]`.
+- **API:** built with `uvicorn --factory ...server:from_environment` (no work at import); refuses to start without `SMARTSPLIT_API_TOKEN`; uses the real model when `ANTHROPIC_API_KEY` is set and the offline stand-ins otherwise. Images arrive base64 and are refused over `SMARTSPLIT_MAX_IMAGE_BYTES` (413). Docs/OpenAPI routes are off: the API is for the gateway and the operator.
+
 ## Checkpoint A review (2026-11-23)
 
 - (User) Unlinked negative lines (refunds) are matched by name and follow that item's rules; generic coupons that match nothing stay shared by everyone; discount-link treatment needs `discount_for` and a negative amount.
@@ -227,20 +234,3 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
   - (c) Settle only the amount shown in each group (one round), accepting that a group may still show
     a small A–B amount afterwards.
   Reversible; (a) is implemented and tested (everyone's total across contexts is unchanged).
-
-- **Import contracts block the composition root (M9).** SPEC §2 says "only `adapters/llm` imports
-  `anthropic`, only `adapters/db` imports `sqlalchemy`/`alembic`/`psycopg`" and "wiring happens in one
-  composition root per entrypoint". But the import-linter contracts "Only the LLM adapter talks to
-  Anthropic" and "Only the DB adapter talks to the database" list `smartsplit.entrypoints` as a source
-  and also forbid *indirect* imports (import-linter's default). A composition root has to import the
-  adapters, which import those libraries, so any CLI or API wiring breaks both contracts. Changing
-  `pyproject.toml` gates needs the user. Options:
-  - **(a, recommended)** Add `allow_indirect_imports = true` to those two contracts. Entrypoints still may
-    not import `anthropic`/`sqlalchemy` themselves (the SPEC rule); the layers contract and the other
-    forbidden contracts are unchanged.
-  - (b) Drop `smartsplit.entrypoints` from those two contracts' source modules (the layers contract still
-    keeps entrypoints on top), which also allows direct imports.
-  - (c) Keep the contracts as they are and have no runnable CLI/API: only the injectable pieces, wired
-    in tests. The `smartsplit` console script then can't start.
-  Not blocked meanwhile: the CLI and API are built on an injected orchestrator and tested with the
-  fakes; only `entrypoints/wiring.py` (Postgres + file images + real or fake model) waits on this.
