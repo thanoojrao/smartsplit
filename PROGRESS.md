@@ -4,9 +4,9 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 ## Next up
 
-M1–M4 done. **Continue with M5** (receipt parsing, SPEC §7), then M6 → M9 without stopping
+M1–M4 done. **Continue with M6** (command interpreter, SPEC §8), then M7 → M9 without stopping
 (user-confirmed), same process per milestone; stop at CHECKPOINT B (push, open the PR, notify,
-summarize). M5 review range: `41f4cdb..HEAD`. No Anthropic API key here: the live test is skipped
+summarize). M6 review range: starts at the M5 close-out commit below. No Anthropic API key here: the live test is skipped
 unless SMARTSPLIT_LIVE_LLM=1; tests use the recorded-shape fixtures in `tests/fixtures/receipts/`.
 One question is open for the user (DECISIONS "Open": square-up when a greedy plan reshuffles);
 option (a) is built, nothing is blocked by it.
@@ -21,7 +21,7 @@ option (a) is built, nothing is blocked by it.
 **CHECKPOINT A** — stop, push, notify the user, and summarize. The core logic is reviewed by the human before anything is built on top of it.
 
 - [x] M4 — Ledger (SPEC §9): context balances incl. settlements, group `simplify_debts`, personal pairs, overall view, payment allocation, square-up
-- [ ] M5 — Receipt parsing (SPEC §7): port + Anthropic adapter + fixtures + opt-in live test; quantity, taxed, discount_for, confidence, validation
+- [x] M5 — Receipt parsing (SPEC §7): port + Anthropic adapter + fixtures + opt-in live test; quantity, taxed, discount_for, confidence, validation
 - [ ] M6 — Command interpreter (SPEC §8): full command set, Anthropic adapter (tool use) + keyword fake
 - [ ] M7 — Orchestrator I (SPEC §10.1–10.4, 10.7, §12.2–12.3): reacting rules, identity + onboarding + membership, group and personal bill flows, prompts, review edits, confirm, cancel, queue, duplicates, privacy routing, balances queries; idempotency + serialization; DB-backed state; integration tests with fakes (no notifications yet)
 - [ ] M8 — Orchestrator II (SPEC §10.5–10.8): notifications outbox + `tick` (reminders, expiry, batching), invites, saved-bill edits/deletes/"not mine", payments (record, not received, undo, overpay, square-up), reminders, history, stop/start, caps
@@ -37,6 +37,7 @@ option (a) is built, nothing is blocked by it.
 - M3: `resolve_rules`, `match_item`, discount links/overrides (linked follow the parent, unlinked are split among everyone), learning (`observe`, `learned_kind`); services for matching (model outside any transaction, aliases per place, model-call count), stated rules with §6.2 permissions and "drinks milk now" deletes, `learn_from_bill`; `Canonicalizer` port + fake; 264 tests, 99% coverage; review must-fix (unlinked discounts) fixed. Range `c993395..16f21a7`. Commit `16f21a7`.
 - Checkpoint A fixes (docs/CHECKPOINT_A_REVIEW.md items 1–18): refunds matched by name, exact amounts before tax, weighted learning, serialized claims, rule upsert, one active draft, port constraint errors on both backends, scope derived by the rules service, codec property + JSONB tests, config/README. Review must-fix (asymmetric exact-amount test) fixed. Range `93abd81..b949279` plus the fix-review commit after M4.
 - M4: ledger (balances, greedy `simplify_debts`, group/personal pair views, overall with breakdown, payment allocation, iterative square-up) with property tests; review must-fixes (square-up net → Open question, option (a) built and tested; named-context overpayment logged). Range `b949279..41f4cdb`. Commit `41f4cdb`.
+- M5: Anthropic vision parser with structured output (one retry; image-vs-setup 400s), shared validation (`services/receipt_output.py`), `FakeReceiptParser` reading recorded-shape fixtures, opt-in live test with a rendered receipt, `pytest-socket` no-network guard; review must-fix (client factory untested) fixed. Range `41f4cdb..(M5 close-out)`.
 
 ## Follow-ups
 
@@ -54,4 +55,7 @@ option (a) is built, nothing is blocked by it.
 - (Checkpoint A) `split_receipt` accepts `bool` amounts (`True` = 1 cent); optionally reject non-int amounts.
 - (Fix review, M7) Run the "model never called inside a unit of work" check against the orchestrator, not only the matching helpers.
 - (Fix review, M8) Call `claim_due` only in its own unit of work with no conversation lock (lock order).
+- (M5 review, M7) Give `FakeReceiptParser` a way to raise `LlmUnavailableError` and to refuse unsupported image types, for the orchestrator's "try again" tests.
+- (M5 review) 429/529 are retried at once; honouring `retry-after` (capped by the timeout) would make the one retry likelier to succeed.
+- (M5 review) Adapter tests import `httpx2`, which comes with `anthropic`; declare it if a future SDK drops it.
 - (M3 review) Stated rules only normalize the item ("I don't drink MLK" → `mlk`); decide in M6/M7 whether stated items go through `match_item`/the model.

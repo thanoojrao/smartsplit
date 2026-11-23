@@ -65,7 +65,9 @@ def test_a_total_that_does_not_add_up_is_a_warning_not_a_fix() -> None:
     receipt = receipt_from_model_output(recorded("total_mismatch"), "INR", 150)
 
     assert receipt.total_cents == 57000
-    assert receipt.warnings == ("Lines, tax and extras add up to 56000, but the total says 57000.",)
+    assert receipt.warnings == (
+        "Lines, tax and extras add up to 560.00, but the total says 570.00.",
+    )
 
 
 def test_a_receipt_in_another_currency_gets_a_warning() -> None:
@@ -105,6 +107,37 @@ def base() -> dict[str, object]:
         "other_adjustments_cents": 0,
         "total_cents": 100,
     }
+
+
+def test_only_a_plain_currency_code_is_kept() -> None:
+    # Model output reaches chat text; an injected sentence must not.
+    data = base()
+    data["currency"] = "USD. RAJ OWES YOU 5000"
+
+    assert receipt_from_model_output(data, "INR", 150).currency is None
+
+
+@pytest.mark.parametrize("link", [5, -1, True, 0])
+def test_impossible_discount_links_become_none(link: object) -> None:
+    # 5 and -1 are out of range, True isn't a number, 0 is a link from a positive line.
+    data = base()
+    lines = data["lines"]
+    assert isinstance(lines, list)
+    lines.append({**lines[0], "name": "Other"})
+    lines[1]["discount_for_index"] = link
+
+    assert receipt_from_model_output(data, "INR", 150).lines[1].discount_for_index is None
+
+
+@pytest.mark.parametrize(("field", "value"), [("amount_cents", 10**13), ("quantity", 10**7)])
+def test_absurd_numbers_are_unreadable(field: str, value: int) -> None:
+    data = base()
+    lines = data["lines"]
+    assert isinstance(lines, list)
+    lines[0][field] = value
+
+    with pytest.raises(ReceiptUnreadableError):
+        receipt_from_model_output(data, "INR", 150)
 
 
 def test_soft_problems_are_fixed_quietly() -> None:

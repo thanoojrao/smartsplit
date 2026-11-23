@@ -5,6 +5,7 @@ few cents per run. The model comes from SMARTSPLIT_LLM_MODEL, like the app.
 """
 
 import os
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,7 @@ def test_reads_the_cafe_receipt() -> None:
     parser = AnthropicReceiptParser(
         anthropic_client(None, timeout_seconds=120),
         model=os.environ.get("SMARTSPLIT_LLM_MODEL", "claude-sonnet-5-5"),
-        max_tokens=16000,
+        max_tokens=16000,  # the default SMARTSPLIT_LLM_MAX_TOKENS
         max_lines=150,
     )
 
@@ -31,4 +32,6 @@ def test_reads_the_cafe_receipt() -> None:
         (1, 22000),
     ]
     assert (receipt.tax_cents, receipt.total_cents) == (2900, 60900)
+    assert receipt.purchased_at == date(2026, 11, 21)  # printed as 21-11-2026
+    assert receipt.currency == "INR"
     assert receipt.warnings == ()

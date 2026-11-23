@@ -24,14 +24,16 @@ class Settings(BaseSettings):
     timezone: str = "Asia/Kolkata"
     llm_model: str = "claude-sonnet-5-5"
     llm_timeout_seconds: float = Field(default=60, gt=0)
-    llm_max_tokens: int = Field(default=4096, gt=0)
+    llm_max_tokens: int = Field(default=16000, gt=0)
+    """Room for a long receipt (about 40 tokens per line) plus thinking."""
     llm_calls_per_person_per_day: int = Field(default=50, gt=0)
     fuzzy_threshold: int = Field(default=85, ge=1, le=100)
     """At 0, an empty name would fuzzy-match any item."""
     min_line_confidence: float = Field(default=0.6, ge=0, le=1)
     max_receipt_lines: int = Field(default=150, gt=0)
     max_amount_cents: int = Field(default=100_000_000, gt=0)
-    max_image_bytes: int = Field(default=10_000_000, gt=0)
+    max_image_bytes: int = Field(default=5_000_000, gt=0)
+    """The API refuses images over 5 MB, so larger uploads are refused up front."""
     max_queued_drafts: int = Field(default=3, ge=0)
     max_notifications_per_day: int = Field(default=20, gt=0)
     invite_template: str = (
