@@ -65,7 +65,7 @@ def _check_may_change(
     match scope:
         case Everywhere():
             if speaker_id != subject_id:
-                raise NotAllowedError("Only they can change their own rules.")
+                raise NotAllowedError("Only the person it's about can change that rule.")
         case GroupScope(group_id):
             if not _is_current_member(uow, group_id, speaker_id, now):
                 raise NotAllowedError("Only members of this group can change its rules.")

@@ -17,7 +17,9 @@ agreed; changing them later is a decision to log in DECISIONS.md.
 **Where things live** (import-linter enforced): everything in §1 is in `smartsplit.domain`
 (`domain/model.py`, `domain/messages.py`, `domain/commands.py`, `domain/prompts.py`); §2 in
 `smartsplit.engine`; §3 in `smartsplit.ledger`; §4 in `smartsplit.ports` (incl. the port errors);
-§5's `Orchestrator` and the `NotAllowed`/`NeedsClarification` errors in `smartsplit.services`.
+§5's `Orchestrator` and the `NotAllowedError`/`NeedsClarification` errors in `smartsplit.services`.
+Error classes end in `Error` (ruff N818): `ReceiptUnreadableError`, `LlmUnavailableError`,
+`NotAllowedError`, plus `StaleDraftError` for conditional draft updates (see DECISIONS.md, M2/M3).
 
 ---
 
@@ -248,9 +250,12 @@ class ResolvedRule: input: RuleInput, rule: Rule          # keeps scope/author f
 def resolve_rules(rules: Sequence[Rule], participants: Sequence[str], context: Context,
                   added_by: str) -> tuple[ResolvedRule, ...]
 
+def discount_links(lines: Sequence[LineItem]) -> dict[str, str | None]   # discount → plain parent or None
 def propagate_discount_overrides(lines: Sequence[LineItem],
-                                 overrides: Sequence[tuple[str, Override]]) -> tuple[tuple[str, Override], ...]
-    # a linked discount line follows its parent line's override unless it has its own
+                                 overrides: Sequence[tuple[str, Override]],
+                                 participants: Sequence[str]) -> tuple[tuple[str, Override], ...]
+    # a linked discount follows its parent's override unless it has its own;
+    # an unlinked discount is split equally among all participants (M3 review)
 
 class Match: item_key: str | None, how: MatchHow
 def match_item(raw_name: str, aliases: Mapping[str, str], known_keys: Collection[str],
@@ -321,9 +326,12 @@ class ReceiptParser(Protocol):
     def parse(self, image: bytes, mime_type: str, currency: str) -> ParsedReceipt: ...
 
 
-class CommandInterpreter(Protocol):
-    def interpret(self, text: str, context: InterpretContext) -> Command: ...
+class Canonicalizer(Protocol):  # all that item matching needs (M3)
     def canonicalize(self, name: str, known_keys: Sequence[str]) -> str: ...
+
+
+class CommandInterpreter(Canonicalizer, Protocol):
+    def interpret(self, text: str, context: InterpretContext) -> Command: ...
 
 
 class Repository(Protocol):
@@ -334,19 +342,21 @@ class Repository(Protocol):
     # one transaction; commits on success, rolls back on exception; optional per-conversation lock
 
 
-class ReceiptUnreadable(Exception): ...  # bad image / invalid output after the retry
+class ReceiptUnreadableError(Exception): ...  # bad image / invalid output after the retry
 
 
-class LlmUnavailable(Exception): ...  # timeout / API error after the retry
+class LlmUnavailableError(Exception): ...  # timeout / API error after the retry
 ```
 
 `UnitOfWork` exposes one store per aggregate (each a Protocol with get/add/update and the queries the
 services need; method lists finalized in M2): `people`, `identities`, `nicknames`, `groups`,
 `memberships`, `conversations`, `items`, `aliases`, `rules`, `observations`, `receipts`, `drafts`,
-`prompts`, `bills`, `settlements`, `notifications`, `processed`, `llm_usage`. Special queries:
+`prompts`, `bills`, `settlements`, `notifications`, `processed`, `llm_usage` (exposed as read-only
+properties; method lists in `ports/repository.py`). `drafts.update(draft, expected_state)` raises
+`StaleDraftError` if the state changed. Special queries:
 `notifications.claim_due(now, limit, per_person_daily_cap, day_start)` (SKIP LOCKED; the cap counts
 sent notifications except `requested_reply` since `day_start` in the install timezone) and
-`drafts.due_for_reminder_or_expiry(now)`.
+`drafts.due_for_reminder_or_expiry(idle_since)`.
 
 ### 4.1 Parser output
 
@@ -405,7 +415,7 @@ POST /v1/messages
 | Error | Lives in | Handled as |
 |---|---|---|
 | `ValueError` | pure layers, invalid input | a bug if it reaches the user; services validate first |
-| `ReceiptUnreadable` | ports | "Couldn't read that receipt, try another photo" |
-| `LlmUnavailable` | ports | "Couldn't do that, try again in a minute"; nothing changes |
-| `NotAllowed` | services | short plain refusal ("Only Sam can delete that rule") |
+| `ReceiptUnreadableError` | ports | "Couldn't read that receipt, try another photo" |
+| `LlmUnavailableError` | ports | "Couldn't do that, try again in a minute"; nothing changes |
+| `NotAllowedError` | services | short plain refusal ("Only Sam can delete that rule") |
 | `NeedsClarification` | services | becomes a `Prompt` (`which_person`, `need_contact`, …) |

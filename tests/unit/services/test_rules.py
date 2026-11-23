@@ -112,6 +112,27 @@ def test_raj_drinks_milk_now_deletes_the_rule_in_that_scope_only() -> None:
         assert [r.id for r in uow.rules.for_subjects(["raj"])] == ["his"]
 
 
+def test_a_stated_rule_replaces_a_learned_one() -> None:
+    repo = make_repo()
+    learned = Rule("l1", "raj", "milk", RuleKind.ONLY, FLAT, "me", RuleSource.LEARNED, T0)
+    with repo.unit_of_work() as uow:
+        uow.rules.put(learned)
+        stated = add(uow, FLAT, kind=RuleKind.EXCLUDE, rule_id="s1")
+
+    with repo.unit_of_work() as uow:
+        assert uow.rules.find(FLAT, "raj", "milk") == stated
+
+
+def test_any_current_member_can_delete_a_group_rule_someone_else_set() -> None:
+    repo = make_repo()
+    with repo.unit_of_work() as uow:
+        uow.memberships.add(Membership("flat", "sam", 3, T0, None))
+        add(uow, FLAT, author="me")
+        deleted = delete_rule(uow, scope=FLAT, subject_id="raj", item="milk", by="sam", now=T0)
+
+    assert deleted is not None
+
+
 @pytest.mark.parametrize(
     ("scope", "speaker"),
     [

@@ -6,7 +6,13 @@ from smartsplit.adapters.fakes.repository import InMemoryRepository
 from smartsplit.adapters.fakes.system import SequentialIds
 from smartsplit.domain.enums import AnswerOutcome, RuleKind, RuleSource
 from smartsplit.domain.model import Rule
-from smartsplit.domain.values import GroupContext, GroupScope, LocalScope, NotesScope
+from smartsplit.domain.values import (
+    Everywhere,
+    GroupContext,
+    GroupScope,
+    LocalScope,
+    NotesScope,
+)
 from smartsplit.engine import ItemInput, resolve_rules, split_receipt
 from smartsplit.services.learning import LineAnswer, learn_from_bill
 
@@ -127,11 +133,17 @@ def test_relearning_the_same_rule_changes_nothing() -> None:
         assert uow.rules.find(FLAT, "sam", "chips") == first
 
 
-def test_an_everywhere_rule_is_never_learned() -> None:
-    # Learning only ever writes to the bill's local scope.
+def test_learning_leaves_everywhere_rules_alone() -> None:
+    # Everywhere rules are never learned: Sam's own "usually skips chips" stays as he said it.
     repo, ids = InMemoryRepository(), SequentialIds("r")
-    save_bill(repo, ids, "b1", [sam_left_out()])
-    save_bill(repo, ids, "b2", [sam_left_out()])
-
+    his = Rule(
+        "e1", "sam", "chips", RuleKind.SOFT_EXCLUDE, Everywhere(), "sam", RuleSource.STATED, T0
+    )
     with repo.unit_of_work() as uow:
-        assert {type(r.scope) for r in uow.rules.for_subjects(["sam"])} == {GroupScope}
+        uow.rules.put(his)
+    save_bill(repo, ids, "b1", [sam_left_out()])
+    (learned,) = save_bill(repo, ids, "b2", [sam_left_out()])
+
+    assert learned.scope == FLAT
+    with repo.unit_of_work() as uow:
+        assert uow.rules.get("e1") == his

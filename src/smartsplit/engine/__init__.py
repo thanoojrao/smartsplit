@@ -7,7 +7,7 @@ The split engine's types and `split_receipt` are the FROZEN contract from SPEC s
 from smartsplit.engine.exact import amounts_to_weights
 from smartsplit.engine.learning import learned_kind, observe
 from smartsplit.engine.matching import Match, match_item
-from smartsplit.engine.overrides import propagate_discount_overrides
+from smartsplit.engine.overrides import discount_links, propagate_discount_overrides
 from smartsplit.engine.rules import ResolvedRule, resolve_rules
 from smartsplit.engine.split import (
     Assignment,
@@ -29,6 +29,7 @@ __all__ = [
     "SplitResult",
     "TaxedLine",
     "amounts_to_weights",
+    "discount_links",
     "fold_item_tax",
     "learned_kind",
     "match_item",

@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 
 from smartsplit.domain.enums import RuleSource
 from smartsplit.domain.model import Rule
@@ -59,7 +60,7 @@ def _applies(rule: Rule, context: Context, added_by: str) -> bool:
             return False
 
 
-def _precedence(rule: Rule) -> tuple[bool, bool, object, str]:
+def _precedence(rule: Rule) -> tuple[bool, bool, datetime, str]:
     """Larger wins: local scope, then stated, then newest (id breaks exact-time ties)."""
     return (
         not isinstance(rule.scope, Everywhere),

@@ -1,10 +1,15 @@
 """Matching receipt lines to item keys, remembered per place (SPEC section 6.4)."""
 
+from collections.abc import Sequence
+
+import pytest
+
 from smartsplit.adapters.fakes.llm import FakeCanonicalizer
 from smartsplit.adapters.fakes.repository import InMemoryRepository
 from smartsplit.domain.enums import MatchHow
 from smartsplit.domain.model import ItemAlias, LineItem
 from smartsplit.domain.values import GroupScope, LocalScope, NotesScope
+from smartsplit.ports.llm import LlmUnavailableError
 from smartsplit.services.matching import (
     MatchedLines,
     load_match_inputs,
@@ -15,8 +20,8 @@ from smartsplit.services.matching import (
 FLAT, GOA, MY_NOTES = GroupScope("flat"), GroupScope("goa"), NotesScope("me")
 
 
-def line(line_id: str, name: str, discount_for: str | None = None) -> LineItem:
-    return LineItem(line_id, 1, name, 1, 100, None, 0.9, None, discount_for, MatchHow.NONE, False)
+def line(line_id: str, name: str, discount_for: str | None = None, cents: int = 100) -> LineItem:
+    return LineItem(line_id, 1, name, 1, cents, None, 0.9, None, discount_for, MatchHow.NONE, False)
 
 
 def repo_with_items(*keys: str) -> InMemoryRepository:
@@ -63,6 +68,7 @@ def test_exact_then_fuzzy_then_the_model() -> None:
         ("milk", MatchHow.LLM, True),
     ]
     assert model.calls == ["2% MLK GAL"]
+    assert matched.model_calls == 1
 
 
 def test_new_matches_are_remembered_in_this_place_only() -> None:
@@ -107,6 +113,7 @@ def test_the_model_is_asked_once_per_distinct_name() -> None:
     matched = run(repo_with_items(), FLAT, [line("1", "OAT MLK"), line("2", "oat  mlk")], model)
 
     assert model.calls == ["OAT MLK"]
+    assert matched.model_calls == 1
     assert [m.canonical for m in matched.lines] == ["oat milk", "oat milk"]
     assert len(matched.new_aliases) == 1
 
@@ -114,7 +121,7 @@ def test_the_model_is_asked_once_per_distinct_name() -> None:
 def test_a_linked_discount_takes_its_lines_key_without_asking() -> None:
     # E11: "MILK 20% OFF" linked to the milk line shares its key, so the same rules apply.
     model = FakeCanonicalizer({"2% mlk gal": "milk"})
-    lines = [line("1", "2% MLK GAL"), line("2", "MILK 20% OFF", discount_for="1")]
+    lines = [line("1", "2% MLK GAL"), line("2", "MILK 20% OFF", discount_for="1", cents=-20)]
 
     matched = run(repo_with_items("milk"), FLAT, lines, model)
 
@@ -122,14 +129,36 @@ def test_a_linked_discount_takes_its_lines_key_without_asking() -> None:
     assert model.calls == ["2% MLK GAL"]
 
 
-def test_links_to_unknown_or_discount_lines_are_matched_on_their_own_names() -> None:
+def test_unlinked_discounts_stay_unkeyed_and_are_never_sent_to_the_model() -> None:
+    # SPEC 6.4: unlinked discounts are shared by everyone, so no item key (and no rule) applies.
+    model = FakeCanonicalizer({"milk coupon": "milk"})
     lines = [
         line("1", "Milk"),
-        line("2", "Coupon", discount_for="1"),
-        line("3", "Bread", discount_for="2"),
-        line("4", "Eggs", discount_for="gone"),
+        line("2", "Milk coupon", cents=-50),
+        line("3", "Chained", discount_for="2", cents=-5),
+        line("4", "Broken", discount_for="gone", cents=-5),
     ]
 
-    matched = run(repo_with_items("milk", "bread", "eggs"), FLAT, lines)
+    matched = run(repo_with_items("milk"), FLAT, lines, model)
 
-    assert [m.canonical for m in matched.lines] == ["milk", "milk", "bread", "eggs"]
+    assert how(matched)[1:] == [(None, MatchHow.NONE, False)] * 3
+    assert model.calls == []
+    assert matched.new_aliases == ()
+
+
+class Unavailable:
+    def canonicalize(self, name: str, known_keys: Sequence[str]) -> str:
+        raise LlmUnavailableError
+
+
+def test_a_model_outage_propagates_and_nothing_is_remembered() -> None:
+    repo = repo_with_items("milk")
+    with repo.unit_of_work() as uow:
+        inputs = load_match_inputs(uow, FLAT)
+
+    with pytest.raises(LlmUnavailableError):
+        match_lines([line("1", "Milk"), line("2", "Dragon fruit")], inputs, Unavailable(), 85)
+
+    with repo.unit_of_work() as uow:
+        assert uow.items.keys() == frozenset({"milk"})
+        assert uow.aliases.for_scope(FLAT) == ()

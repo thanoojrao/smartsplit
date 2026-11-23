@@ -97,11 +97,14 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 
 - (M3) `match_item` checks this place's aliases before an exact key match. Why: an alias records what people here said ("that's not milk"), which must beat the raw name.
 - (M3) A model answer equal to the line's own normalized name means "new item": it becomes a known key, is not stored as an alias and is not shown as a new match. Fuzzy and other model matches are stored as aliases and marked `match_is_new`. The model is asked at most once per distinct name per receipt.
-- (M3) A discount linked to a plain line takes that line's key and match kind, is never sent to the model and never remembered on its own; a link to an unknown line or to another discount is ignored. Why: SPEC §6.4, without chains.
+- (M3 review) A discount is a negative line or a line with `discount_for`. Linked to a plain line, it takes that line's key and follows its override; with no usable link (none, unknown line, or another discount) it stays unkeyed and `propagate_discount_overrides(lines, overrides, participants)` gives it an equal split among all participants. Neither kind is sent to the model or remembered. Why: SPEC §6.4 "unlinked discounts are shared by everyone", so nobody's rules move a coupon. (CONTRACTS' signature gained `participants`; `discount_links` is the shared helper.)
 - (M3) Services depend on a narrow `Canonicalizer` port for matching; `CommandInterpreter` extends it. The M3 fake is `FakeCanonicalizer` (a table, else the normalized name); M6 builds the full fake interpreter. Why: matching needs only canonicalize.
 - (M3) Learning records at most one observation per (person, item key) per bill (disagreeing lines count as `included`), attributes learned rules to the bill's adder, and leaves an identical learned rule untouched. Why: two milk lines on one receipt must not teach a rule alone; "who set it" needs an author.
 - (M3) Stated-rule and deletion permissions (SPEC §6.2) live in `services/rules.py`: Everywhere only by the subject, group rules by current members, notes by their owner; violations raise `NotAllowedError` (CONTRACTS' `NotAllowed`, renamed for ruff N818). Adding a group rule also needs current membership. Why: non-members are asked to join first.
 - (M3) `resolve_rules` breaks exact-timestamp ties by rule id. Why: deterministic.
+
+- (M3 review) SPEC §6.2 "a group cannot override someone's everywhere rule" is read as "can't delete or change it": on a group bill the group's own rule for that person still wins (§6.3, F7). The learning/match scope follows the bill's context (`local_scope_for`), so a bill filed into a group from a personal chat learns in the group. Why: §6.3 and F7 are explicit; a filed bill is a group bill.
+- (M3 review) `match_lines` reports `model_calls` so the orchestrator can count them against the per-person daily limit. Why: SPEC §12.2.
 
 ## Made by Claude (design review, technical)
 

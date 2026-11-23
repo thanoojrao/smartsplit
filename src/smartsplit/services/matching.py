@@ -12,13 +12,15 @@ from smartsplit.domain import normalize_item_name
 from smartsplit.domain.enums import MatchHow
 from smartsplit.domain.model import ItemAlias, LineItem
 from smartsplit.domain.values import LocalScope
-from smartsplit.engine import Match, match_item
+from smartsplit.engine import Match, discount_links, match_item
 from smartsplit.ports.llm import Canonicalizer
 from smartsplit.ports.repository import UnitOfWork
 
 
 @dataclass(frozen=True, slots=True)
 class MatchInputs:
+    """What matching needs from the database, read up front so no transaction stays open."""
+
     scope: LocalScope
     aliases: Mapping[str, str]
     """Normalized raw name → item key, remembered in this scope."""
@@ -27,12 +29,17 @@ class MatchInputs:
 
 @dataclass(frozen=True, slots=True)
 class MatchedLines:
+    """Matched lines plus what to remember and count once the draft is written."""
+
     lines: tuple[LineItem, ...]
     new_aliases: tuple[ItemAlias, ...]
     """Fuzzy and model matches to remember in the scope; each is shown once in the summary."""
+    model_calls: int
+    """How many times the model was asked, for the per-person daily limit (SPEC 12.2)."""
 
 
 def load_match_inputs(uow: UnitOfWork, scope: LocalScope) -> MatchInputs:
+    """Read this place's aliases and the known keys in a short transaction."""
     aliases = {alias.raw_name: alias.item_key for alias in uow.aliases.for_scope(scope)}
     return MatchInputs(scope, aliases, uow.items.keys())
 
@@ -45,62 +52,58 @@ def match_lines(
 ) -> MatchedLines:
     """Set `canonical`, `match_how` and `match_is_new` on every line.
 
-    A discount linked to another line takes that line's key, so it is shared like it; it is
-    never sent to the model or remembered on its own. The model is asked at most once per
-    distinct name.
+    A discount linked to a plain line takes that line's key, so it is shared like it. A
+    discount with no usable link is left unkeyed (it is shared by everyone, see
+    `propagate_discount_overrides`). Neither is sent to the model or remembered on its own.
+    The model is asked at most once per distinct name; LlmUnavailableError propagates.
     """
+    links = discount_links(lines)
     by_name: dict[str, tuple[Match, bool]] = {}
     matched: dict[str, LineItem] = {}
-    parents = _link_parents(lines)
-    by_id = {line.id: line for line in lines}
+    calls = 0
     for line in lines:
-        if line.id in parents:
+        if line.id in links:
             continue
         name = normalize_item_name(line.name)
         if name not in by_name:
-            by_name[name] = _match_name(line.name, inputs, canonicalizer, threshold)
+            match, is_new, asked = _match_name(line.name, inputs, canonicalizer, threshold)
+            by_name[name] = (match, is_new)
+            calls += asked
         match, is_new = by_name[name]
         matched[line.id] = replace(
             line, canonical=match.item_key, match_how=match.how, match_is_new=is_new
         )
-    for line_id, parent_id in parents.items():
-        line, parent = by_id[line_id], matched[parent_id]
-        matched[line_id] = replace(
-            line, canonical=parent.canonical, match_how=parent.match_how, match_is_new=False
-        )
+    for line in lines:
+        if line.id in links:
+            parent = matched.get(links[line.id] or "")
+            matched[line.id] = replace(
+                line,
+                canonical=parent.canonical if parent else None,
+                match_how=parent.match_how if parent else MatchHow.NONE,
+                match_is_new=False,
+            )
     new_aliases = tuple(
         ItemAlias(inputs.scope, name, match.item_key)
         for name, (match, is_new) in by_name.items()
         if is_new and match.item_key is not None
     )
-    return MatchedLines(tuple(matched[line.id] for line in lines), new_aliases)
-
-
-def _link_parents(lines: Sequence[LineItem]) -> dict[str, str]:
-    """Discount line id → the plain line it reduces. Links to unknown or discount lines don't
-    count, so such a line is matched on its own name."""
-    by_id = {line.id: line for line in lines}
-    return {
-        line.id: line.discount_for
-        for line in lines
-        if line.discount_for in by_id and by_id[line.discount_for].discount_for is None
-    }
+    return MatchedLines(tuple(matched[line.id] for line in lines), new_aliases, calls)
 
 
 def _match_name(
     raw_name: str, inputs: MatchInputs, canonicalizer: Canonicalizer, threshold: int
-) -> tuple[Match, bool]:
-    """The match and whether it is new here (to be remembered and shown once)."""
+) -> tuple[Match, bool, int]:
+    """The match, whether it is new here (remembered and shown once), and model calls made."""
     match = match_item(raw_name, inputs.aliases, inputs.known_keys, threshold)
     if match.how is MatchHow.FUZZY:
-        return match, True
+        return match, True, 0
     if match.how is not MatchHow.NONE:
-        return match, False
+        return match, False, 0
     name = normalize_item_name(raw_name)
     key = normalize_item_name(canonicalizer.canonicalize(raw_name, sorted(inputs.known_keys)))
     if not key or key == name:
-        return Match(name, MatchHow.LLM), False
-    return Match(key, MatchHow.LLM), True
+        return Match(name, MatchHow.LLM), False, 1
+    return Match(key, MatchHow.LLM), True, 1
 
 
 def remember_matches(uow: UnitOfWork, matched: MatchedLines) -> None:

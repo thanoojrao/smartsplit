@@ -87,6 +87,10 @@ def test_stated_beats_learned_then_newest_wins() -> None:
     assert chosen([stated_new, stated_old, learned_new]) == ["stated_new"]
 
 
+def test_exact_time_ties_are_broken_by_id() -> None:
+    assert chosen([rule("b", Everywhere()), rule("a", Everywhere())]) == ["b"]
+
+
 def test_rules_about_people_not_in_the_bill_are_ignored() -> None:
     # B3: Raj moved out, so he isn't a participant and Flat 4B's rules about him don't apply.
     assert resolve_rules([rule("r", GroupScope("flat"))], ["me", "sam"], FLAT, "me") == ()
