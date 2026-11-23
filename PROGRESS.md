@@ -4,16 +4,16 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 ## Next up
 
-M1–M7 done. **Continue with M8** (orchestrator II: SPEC §10.5–10.8 — notifications outbox +
-`Orchestrator.tick` (claims, reminders, expiry, retrying drafts left in `parsing`, expiring join
-prompts), invites, saved-bill edits/deletes/"not mine" via `confirm_action`, payments (record,
-not received, undo, overpay, square-up), "remind X", history, stop/start, caps), then M9, without
-stopping (user-confirmed); same process per milestone; stop at CHECKPOINT B (push, open the PR,
-notify, summarize). M8 review range: `7986fd4..HEAD`. Entry points for M8: `services/dispatch.py`
-(the `case _:` "I can't do that yet." fallback is where M8 commands land), `services/answers.py`
-(`CONFIRM_ACTION` applies only `RuleChangeEffect` so far), `services/saving.py` (notify after save),
-tests in `tests/integration/` (`World` harness). One question is open for the user (DECISIONS
-"Open": square-up edge case); option (a) is built, nothing blocked.
+M1–M8 done. **Continue with M9** (SPEC §11): Typer CLI (`person add`, `group create`, `member add`,
+`receipt add --as --in`, `say --as --in`, `balances --as`, `rules --about`, `tick`, `--live`)
+and FastAPI app (`POST /v1/messages`, `POST /v1/tick`, `GET /v1/groups/{id}/balances`,
+`GET /v1/people/{id}/balances`, `GET /v1/people/{id}/rules`, `GET /healthz`; bearer token with
+constant-time compare; refuse to start without `SMARTSPLIT_API_TOKEN`), wiring
+`OrchestratorSettings` from `config.Settings`, and a README "try it" walkthrough with the fakes.
+Then stop at CHECKPOINT B: push, open the PR, notify, summarize. M9 review range: `2eeadaa..HEAD`.
+Still with the user: DECISIONS "Open" (square-up edge case, option (a) built); the example name
+"Thanoo" remains in `docs/USE_CASES.md`, `docs/USE_CASE_TRACE.md` and `LICENSE` (the edit was
+blocked by the permission check; the user decides).
 
 ## Milestones
 
@@ -28,7 +28,7 @@ tests in `tests/integration/` (`World` harness). One question is open for the us
 - [x] M5 — Receipt parsing (SPEC §7): port + Anthropic adapter + fixtures + opt-in live test; quantity, taxed, discount_for, confidence, validation
 - [x] M6 — Command interpreter (SPEC §8): full command set, Anthropic adapter (tool use) + keyword fake
 - [x] M7 — Orchestrator I (SPEC §10.1–10.4, 10.7, §12.2–12.3): reacting rules, identity + onboarding + membership, group and personal bill flows, prompts, review edits, confirm, cancel, queue, duplicates, privacy routing, balances queries; idempotency + serialization; DB-backed state; integration tests with fakes (no notifications yet)
-- [ ] M8 — Orchestrator II (SPEC §10.5–10.8): notifications outbox + `tick` (reminders, expiry, batching), invites, saved-bill edits/deletes/"not mine", payments (record, not received, undo, overpay, square-up), reminders, history, stop/start, caps
+- [x] M8 — Orchestrator II (SPEC §10.5–10.8): notifications outbox + `tick` (reminders, expiry, batching), invites, saved-bill edits/deletes/"not mine", payments (record, not received, undo, overpay, square-up), reminders, history, stop/start, caps
 - [ ] M9 — CLI + FastAPI entrypoints (SPEC §11) incl. API token, README "try it" walkthrough with the fake adapters
 
 **CHECKPOINT B** — final: stop, push, open a PR, notify the user, and summarize.
@@ -44,6 +44,7 @@ tests in `tests/integration/` (`World` harness). One question is open for the us
 - M5: Anthropic vision parser with structured output (one retry; image-vs-setup 400s), shared validation (`services/receipt_output.py`), `FakeReceiptParser` reading recorded-shape fixtures, opt-in live test with a rendered receipt, `pytest-socket` no-network guard; review must-fix (client factory untested) fixed. Range `41f4cdb..0b0bdbe`. Commit `0b0bdbe`.
 - M6: one tool per command (plain, within the documented structured-output limits), schemas from the dataclasses, decode via the domain codec, `canonicalize` with structured output, keyword fake for tests/demo, `check_amounts`; review must-fixes (strict-tool limits, Unknown text, missing phrases) fixed. Range `ecb1156..3d2f47d`. Commit `3d2f47d`.
 - M7: orchestrator `handle` (model calls outside the lock, one locked transaction per message with idempotency, refusals rolled back, receipts read after commit), group/personal bill flows with queue, duplicates, who-with, review edits, numbered question batches, confirm/cancel/save with learning, onboarding and membership, rules in chat with restated changes, balances with privacy; integration tests on fakes plus a Postgres tour and concurrent confirms; review must-fixes (15) fixed. Range `3d2f47d..7986fd4`. Commit `7986fd4`.
+- M8: outbox + `tick` (one message per person rendered at send time, numbered batches, invites once, daily cap by local day, reminder after 24 h and expiry after 3 days, quiet retries of unread receipts), saved-bill edit/delete/not-mine as reversal + new bill after a restated yes, payments with allocation, disputes, undo, overpay credit and square-up pinned to a ledger version, remind, history, stop/start; review must-fixes (5) fixed. Range `7986fd4..2eeadaa`. Commit `2eeadaa`.
 
 ## Follow-ups
 
@@ -63,3 +64,6 @@ tests in `tests/integration/` (`World` harness). One question is open for the us
 - (M7 review) A photo refused after its image was stored (e.g. not a member) leaves an orphaned image until the image store prunes it.
 - (M7 review) A model-supplied id is echoed back in "X isn't in Flat 4B": harmless (it resolves to nobody), but a generic refusal would read better.
 - (M7) Each group answer re-reads memberships and the directory per message; fine at chat scale, revisit if profiling says otherwise.
+- (M8 review) `tick`'s delivery writes `last_listed_bill_ids` without the chat's lock; a turn in that personal chat at the same moment could overwrite it (only the numbering for "details 2" is affected).
+- (M8 review) `OrchestratorSettings` repeats defaults from `config.Settings`; M9 builds it from config so there is one source.
+- (M8) A model outage leaves a receipt retried every 2 minutes for up to 3 days; a back-off would save calls.
