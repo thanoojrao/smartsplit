@@ -6,7 +6,7 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 M1–M4 done. **Continue with M6** (command interpreter, SPEC §8), then M7 → M9 without stopping
 (user-confirmed), same process per milestone; stop at CHECKPOINT B (push, open the PR, notify,
-summarize). M6 review range: starts at the M5 close-out commit below. No Anthropic API key here: the live test is skipped
+summarize). M6 review range: `0b0bdbe..HEAD`. No Anthropic API key here: the live test is skipped
 unless SMARTSPLIT_LIVE_LLM=1; tests use the recorded-shape fixtures in `tests/fixtures/receipts/`.
 One question is open for the user (DECISIONS "Open": square-up when a greedy plan reshuffles);
 option (a) is built, nothing is blocked by it.
@@ -37,7 +37,7 @@ option (a) is built, nothing is blocked by it.
 - M3: `resolve_rules`, `match_item`, discount links/overrides (linked follow the parent, unlinked are split among everyone), learning (`observe`, `learned_kind`); services for matching (model outside any transaction, aliases per place, model-call count), stated rules with §6.2 permissions and "drinks milk now" deletes, `learn_from_bill`; `Canonicalizer` port + fake; 264 tests, 99% coverage; review must-fix (unlinked discounts) fixed. Range `c993395..16f21a7`. Commit `16f21a7`.
 - Checkpoint A fixes (docs/CHECKPOINT_A_REVIEW.md items 1–18): refunds matched by name, exact amounts before tax, weighted learning, serialized claims, rule upsert, one active draft, port constraint errors on both backends, scope derived by the rules service, codec property + JSONB tests, config/README. Review must-fix (asymmetric exact-amount test) fixed. Range `93abd81..b949279` plus the fix-review commit after M4.
 - M4: ledger (balances, greedy `simplify_debts`, group/personal pair views, overall with breakdown, payment allocation, iterative square-up) with property tests; review must-fixes (square-up net → Open question, option (a) built and tested; named-context overpayment logged). Range `b949279..41f4cdb`. Commit `41f4cdb`.
-- M5: Anthropic vision parser with structured output (one retry; image-vs-setup 400s), shared validation (`services/receipt_output.py`), `FakeReceiptParser` reading recorded-shape fixtures, opt-in live test with a rendered receipt, `pytest-socket` no-network guard; review must-fix (client factory untested) fixed. Range `41f4cdb..(M5 close-out)`.
+- M5: Anthropic vision parser with structured output (one retry; image-vs-setup 400s), shared validation (`services/receipt_output.py`), `FakeReceiptParser` reading recorded-shape fixtures, opt-in live test with a rendered receipt, `pytest-socket` no-network guard; review must-fix (client factory untested) fixed. Range `41f4cdb..0b0bdbe`. Commit `0b0bdbe`.
 
 ## Follow-ups
 
