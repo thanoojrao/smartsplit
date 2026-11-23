@@ -1,4 +1,4 @@
-# SmartSplit — Data shapes and contracts (v2, under review with the user)
+# SmartSplit — Data shapes and contracts (v2, agreed with the user 2026-11-23)
 
 The concrete types and interfaces every milestone builds against. SPEC.md says *what* happens;
 this file says *what the data looks like*. Python-style signatures. Field names are final once

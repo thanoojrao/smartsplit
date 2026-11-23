@@ -99,6 +99,8 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - Duplicate check runs after parsing and includes other open drafts. Queued drafts are parsed after the first transaction commits (and `tick` retries stuck ones). Why: needs the total; no model calls inside the lock.
 - Added `phonenumbers` dependency (pure E.164 parsing). Why: see the identity decision above.
 
+- (User) CONTRACTS.md v2 agreed; build runs in a fresh session, M1 → M3 straight through, stopping at CHECKPOINT A.
+
 ## Open (waiting for the user)
 
 (none)

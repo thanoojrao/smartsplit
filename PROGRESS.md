@@ -4,13 +4,17 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 ## Next up
 
-PAUSED before building, finishing pre-build setup with the user. Done so far: vision walkthrough,
-SPEC rewrite, USE_CASES rewrite, four independent design reviews (`docs/DESIGN_REVIEW.md`), all
-P1–P24 product answers, and every review fix applied to SPEC/USE_CASES/DECISIONS.
-Remaining, in order:
-1. ~~Engineering setup fixes~~ (done, incl. CI, compaction hook, branch rule).
-2. Step 4 of the plan: data shapes and contracts — `docs/CONTRACTS.md` v2 (after an independent contracts review and a full use-case trace, `docs/USE_CASE_TRACE.md`), waiting for the user's final OK.
-3. Then start M1.
+Pre-build work is finished and agreed with the user: SPEC, USE_CASES, CONTRACTS (v2, agreed),
+DESIGN_REVIEW, USE_CASE_TRACE, DECISIONS, setup and CI. **Start M1** and continue through M2 and M3
+without stopping, then stop at CHECKPOINT A.
+
+M1 = `split_receipt` (SPEC §5, CONTRACTS §2) incl. weighted overrides, plus `fold_item_tax` (§5.1) and
+`amounts_to_weights` (§5.2), in `src/smartsplit/engine/` (split into modules; keep the public names
+importable from `smartsplit.engine`). The frozen engine types in `engine/__init__.py` must not change
+except as SPEC §5 allows. Done when `bash scripts/check.sh` exits 0, CI is green, and the review gate
+(`docs/REVIEW.md`, range `fc41671..HEAD` for M1, since M0's commit is `fc41671`) has no open must-fix.
+Also bump `actions/checkout` and `astral-sh/setup-uv` in `.github/workflows/ci.yml` to versions that run
+on Node 24 (GitHub warned that Node 20 is deprecated).
 
 ## Milestones
 
