@@ -62,10 +62,10 @@ def split_receipt(
     members: Sequence[str],
     rules: Sequence[RuleInput] = (),
     adjustments_cents: int = 0,
-    overrides: Mapping[str, Sequence[str]] | None = None,
+    overrides: Mapping[str, Sequence[str] | Mapping[str, int]] | None = None,
 ) -> SplitResult:
     """Split a receipt among group members, applying preference rules.
 
     See SPEC section 5 for the exact semantics, ordering, and rounding.
     """
-    raise NotImplementedError("M2: implement per SPEC section 5")
+    raise NotImplementedError("M1: implement per SPEC section 5")

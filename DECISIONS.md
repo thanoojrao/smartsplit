@@ -24,11 +24,20 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (Vision review) Reminders: manual only ("remind Raj" sends a nudge with the balance). No automatic reminders in the first build. Why: avoid spam and WhatsApp ban risk.
 - (Vision review) History: read-only "what did I spend this month?" / "show last 5 bills".
 - (Vision review) Group bills: anyone in the group can answer questions; conflicting answers make the bot re-ask showing both; the adder gives the final confirm. Unanswered questions: one reminder to the adder after 24 hours; nothing is saved until confirmed. "Cancel" drops a bill still in review.
+- (Spec review) Per-item tax: the parser marks taxed lines; a pure `fold_item_tax` spreads tax over taxed lines only; if no lines are marked, tax is split like other adjustments. Why: untaxed groceries shouldn't carry someone else's alcohol tax.
+- (Spec review) Bot in an unknown group chat: auto-creates the group; anyone who writes becomes a member; "add Priya" adds quiet members.
+- (Spec review) One bill draft per conversation; later receipts are queued.
+- (Spec review) Low-confidence receipt lines are flagged in the summary and must be confirmed or fixed before saving.
+- (Spec review) Rule deletion: everywhere rules only by the subject; group rules by any active member (subject told); notes only by their owner.
+- (Spec review) Timed work (24h reminders, batched notifications) runs via a `tick` entrypoint (CLI + `POST /v1/tick`) using the Clock port.
 - (Vision review) Settling up against an overall balance is allocated across the groups automatically, largest debt first (oldest on ties); the user can still target one group. Why: every group's balance stays correct.
 
 ## Made by Claude during the build
 
 - (M0) Money as integer cents, with exact Fractions inside the split engine, and largest-remainder rounding with ties broken by member order. Why: deterministic and always sums exactly to the receipt total.
+- (Spec review) No Channel port: use-cases return the OutboundMessages to deliver (including notifications to other people's personal chats, via a Notification outbox); entrypoints hand them on. Added an IdGenerator port so services stay deterministic in tests. Why: simpler, fully testable.
+- (Spec review) Summaries show the reason for group rules and the adder's notes, but only "skipped" for someone's Everywhere rule. Why: personal facts shouldn't leak into other groups.
+- (Spec review) Settle-up overpayment beyond what A owes B is recorded in the personal-splits context. Why: never lose money, no error for the user.
 - (M0) Layering enforced by import-linter in `scripts/check.sh`. Why: stops long autonomous runs from eroding the architecture.
 - (M1 prep, user-approved) Adjustments are weighted by item subtotals clamped at 0; if the raw subtotals sum to ≤ 0, or all clamped weights are 0, split equally. Why: nobody gets paid via tip because a discount was assigned to them, and SPEC's "discount cancels everything → equal" still holds.
 - (M1 prep, user-approved) Rules about members not in the split are ignored. Why: someone who left must not strip an item from everyone.

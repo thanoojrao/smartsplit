@@ -6,9 +6,9 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 PAUSED for a product review with the user (no code yet). The decisions so far are under
 "Made by the user" and "M1 prep" in `DECISIONS.md`. Agreed plan, in order:
-1. Finish walking through the user's vision (remaining: editing/undoing bills, people
-   moving in/out, reminders, anything else the user raises).
-2. Thorough read of `docs/SPEC.md` against `DECISIONS.md`; fix every conflict in the spec.
+1. ~~Finish walking through the user's vision~~ (done).
+2. ~~Thorough read of `docs/SPEC.md` against `DECISIONS.md`; fix every conflict~~ (done: SPEC rewritten).
+   Next: agree a new milestone list with the user (the original M2–M8 no longer cover the scope).
 3. Rewrite `docs/USE_CASES.md` (current file is an outdated draft) to cover everything.
 4. Agree data shapes and contracts (domain model, ports, messages) with the user.
 5. Then build, starting with M1 (split engine incl. weighted overrides per SPEC §5).
