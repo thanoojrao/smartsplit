@@ -5,9 +5,9 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 ## Next up
 
 M1–M9 done: **CHECKPOINT B** reached; PR #1 is open and green, waiting on the user's review.
-Now: **live model checks** before merging. `ANTHROPIC_API_KEY` is set as an environment variable
+Now: **live model checks** before merging. The key is set as an environment variable (`SMARTSPLIT_ANTHROPIC_API_KEY`, or `ANTHROPIC_API_KEY`)
 on the cloud environment (only sessions started after it was added can see it; check with
-`[ -n "$ANTHROPIC_API_KEY" ]`, never print it). Run
+`[ -n "$SMARTSPLIT_ANTHROPIC_API_KEY$ANTHROPIC_API_KEY" ]`, never print it). Run
 `SMARTSPLIT_LIVE_LLM=1 uv run pytest tests/live -v` (the receipt test plus four conversation
 scenarios in `tests/live/test_live_conversation.py`, about 30 calls on `claude-sonnet-5-5`); the
 run ends with a "model usage" table (calls, tokens, cache reads/writes, estimated USD).

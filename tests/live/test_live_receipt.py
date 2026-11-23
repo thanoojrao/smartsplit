@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from smartsplit.adapters.llm.receipts import AnthropicReceiptParser, anthropic_client
+from tests.live.keys import live_key
 
 RECEIPT = Path(__file__).parents[1] / "fixtures" / "receipts" / "live_cafe_receipt.png"
 
@@ -19,7 +20,7 @@ RECEIPT = Path(__file__).parents[1] / "fixtures" / "receipts" / "live_cafe_recei
 @pytest.mark.enable_socket
 def test_reads_the_cafe_receipt() -> None:
     parser = AnthropicReceiptParser(
-        anthropic_client(None, timeout_seconds=120),
+        anthropic_client(live_key(), timeout_seconds=120),
         model=os.environ.get("SMARTSPLIT_LLM_MODEL", "claude-sonnet-5-5"),
         max_tokens=16000,  # the default SMARTSPLIT_LLM_MAX_TOKENS
         max_lines=150,

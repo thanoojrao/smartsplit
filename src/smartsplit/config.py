@@ -3,7 +3,7 @@
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,7 +17,11 @@ class Settings(BaseSettings):
 
     database_url: SecretStr = Field(validation_alias="DATABASE_URL")
     """Usually holds the database password, so it is a secret too."""
-    anthropic_api_key: SecretStr | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
+    anthropic_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SMARTSPLIT_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"),
+    )
+    """`SMARTSPLIT_ANTHROPIC_API_KEY` wins: hosts that run Claude Code reserve the plain name."""
     api_token: SecretStr | None = None
     currency: str = Field(default="INR", pattern=r"^[A-Z]{3}$")
     default_region: str = Field(default="IN", pattern=r"^[A-Z]{2}$")

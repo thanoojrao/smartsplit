@@ -70,3 +70,16 @@ def test_database_url_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_the_project_key_name_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://x/y")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "plain")
+    monkeypatch.setenv("SMARTSPLIT_ANTHROPIC_API_KEY", "project")
+    key = Settings().anthropic_api_key
+    assert key is not None
+    assert key.get_secret_value() == "project"
+    monkeypatch.delenv("SMARTSPLIT_ANTHROPIC_API_KEY")
+    key = Settings().anthropic_api_key
+    assert key is not None
+    assert key.get_secret_value() == "plain"

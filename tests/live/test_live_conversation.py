@@ -18,6 +18,7 @@ from smartsplit.adapters.llm.commands import AnthropicCommandInterpreter
 from smartsplit.adapters.llm.receipts import AnthropicReceiptParser, anthropic_client
 from smartsplit.domain.messages import ImageAttachment
 from tests.integration.world import FLAT, RAJ, SAM, YOU, World, flat
+from tests.live.keys import live_key
 
 PHOTO = Path(__file__).parents[1] / "fixtures" / "receipts" / "live_cafe_receipt.png"
 MODEL = os.environ.get("SMARTSPLIT_LLM_MODEL", "claude-sonnet-5-5")
@@ -26,7 +27,7 @@ pytestmark = [pytest.mark.live, pytest.mark.enable_socket]
 
 
 def live_world() -> World:
-    client = anthropic_client(None, timeout_seconds=120)
+    client = anthropic_client(live_key(), timeout_seconds=120)
     return World(
         interpreter=AnthropicCommandInterpreter(client, model=MODEL, max_tokens=16000),
         receipts=AnthropicReceiptParser(client, model=MODEL, max_tokens=16000, max_lines=150),
