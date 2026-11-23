@@ -78,20 +78,24 @@ class Renderer:
             rows.append(f"Tip, charges and discounts {self.money(extras)}")
         return "\n".join(rows)
 
-    def questions(self, draft: BillDraft, open_prompts: Sequence[Prompt]) -> list[str]:
+    def questions(self, draft: BillDraft, batch: Sequence[Prompt]) -> list[str]:
+        """The batch's questions still unanswered, numbered by their place in the batch, so
+        "2 no" means the same question to everyone who saw it."""
         by_id = {line.id: line for line in draft.lines}
         asked: list[str] = []
-        for prompt in open_prompts:
+        for n, prompt in enumerate(batch, 1):
             payload = prompt.payload
             if not isinstance(payload, EngineQuestionPayload) or payload.line_id not in by_id:
+                continue
+            if prompt.answers:
                 continue
             line = by_id[payload.line_id]
             what = f"{line.name} ({self.money(line.amount_cents)})"
             if payload.reason is QuestionReason.SOFT_RULE and payload.member_id:
-                asked.append(f"Does {self.name(payload.member_id)} share the {what}?")
+                asked.append(f"{n}) Does {self.name(payload.member_id)} share the {what}?")
             else:
-                asked.append(f"Who shares the {what}? Rules leave nobody for it.")
-        return [f"{n}) {text}" for n, text in enumerate(asked, 1)]
+                asked.append(f"{n}) Who shares the {what}? Rules leave nobody for it.")
+        return asked
 
     def _skipped(
         self, draft: BillDraft, resolved: Sequence[ResolvedRule], split: DraftSplit

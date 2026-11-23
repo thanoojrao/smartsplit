@@ -29,7 +29,7 @@ from smartsplit.domain.values import EqualSplit, GroupContext, LineRef, Override
 from smartsplit.services.drafting import exact_override, manual_line, split_of
 from smartsplit.services.errors import NotAllowedError
 from smartsplit.services.names import Directory
-from smartsplit.services.prompting import mark_answered
+from smartsplit.services.prompting import record_answer
 from smartsplit.services.scopes import local_scope_for
 from smartsplit.services.speaker import current_member_ids
 from smartsplit.services.turn import Turn
@@ -61,10 +61,11 @@ def _line_edit(
     op: SetLineAmount | RemoveLine | AddLine | SetTotal | AcceptDifference,
 ) -> BillDraft:
     match op:
-        case SetLineAmount(line, amount):
+        case SetLineAmount(line, amount):  # a person read it now: no longer flagged as unclear
             target = find_line(draft, line)
             lines = tuple(
-                replace(x, amount_cents=amount) if x.id == target.id else x for x in draft.lines
+                replace(x, amount_cents=amount, confidence=1.0) if x.id == target.id else x
+                for x in draft.lines
             )
             return replace(draft, lines=lines)
         case RemoveLine(line):
@@ -175,7 +176,8 @@ def current_assignees(turn: Turn, draft: BillDraft, line_id: str) -> tuple[str, 
 def answer_question(
     turn: Turn, draft: BillDraft, prompt: Prompt, answer: AnswerPrompt, directory: Directory
 ) -> BillDraft:
-    """An answer changes that line's current assignment; other questions stay open (G2)."""
+    """An answer changes that line's current assignment; other questions stay open (G2), and
+    the question stays in its batch so a later answer can replace it (G3)."""
     payload = prompt.payload
     if not isinstance(payload, EngineQuestionPayload):
         raise NotAllowedError("That isn't a question about a line.")
@@ -196,7 +198,7 @@ def answer_question(
         raise NotAllowedError('Answer "yes", "no", or say who shares it.')
     if not people:
         raise NotAllowedError("Someone has to share it.")
-    mark_answered(turn, prompt, answer)
+    record_answer(turn, prompt, answer)
     return with_override(draft, line.id, EqualSplit(people))
 
 

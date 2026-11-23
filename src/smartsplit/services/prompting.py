@@ -45,3 +45,10 @@ def mark_answered(turn: Turn, prompt: Prompt, answer: AnswerPrompt) -> None:
 
 def drop(turn: Turn, prompt: Prompt) -> None:
     turn.uow.prompts.update(replace(prompt, status=PromptStatus.DROPPED))
+
+
+def record_answer(turn: Turn, prompt: Prompt, answer: AnswerPrompt) -> None:
+    """A line question keeps its place in the batch after an answer (SPEC 10.4)."""
+    turn.uow.prompts.update(
+        replace(prompt, answers=(*prompt.answers, PromptAnswer(turn.speaker.id, answer, turn.now)))
+    )

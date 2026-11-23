@@ -75,7 +75,7 @@ def directory(uow: UnitOfWork, speaker_id: str) -> Directory:
     for bill in uow.bills.for_participant(speaker_id):
         others.update(bill.participants)
     others.update(known)
-    others.discard(speaker_id)
+    others.add(speaker_id)  # "Sam and Raj", said by Raj, includes Raj
     by_name: dict[str, list[str]] = {}
     by_phone: dict[str, str] = {}
     for person_id in sorted(others):

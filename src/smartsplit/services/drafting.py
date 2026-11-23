@@ -203,24 +203,32 @@ def present(turn: Turn, draft: BillDraft) -> str:
 
 
 def _sync_questions(turn: Turn, draft: BillDraft, split: DraftSplit) -> list[Prompt]:
-    """New questions become pending prompts and vanished ones are dropped. Up to N are asked
-    at once; the next batch opens only when the current one is answered (SPEC 10.4)."""
+    """Keep the engine's questions as prompts and return the batch being asked.
+
+    New questions become pending, and ones that no longer apply are dropped. A question whose
+    line someone answered stays in its batch (an answer only changes that line's assignment,
+    and the latest answer wins), so its number doesn't move. Up to N are asked at once; when
+    every question in the batch has an answer, the batch closes and the next one opens.
+    """
     uow = turn.uow
     wanted = [(q.item_id, q.member_id, q.reason) for q in split.result.questions]
-    prompts = [p for p in uow.prompts.for_draft(draft.id) if p.kind is PromptKind.ENGINE_QUESTION]
-    seen: set[tuple[object, ...]] = set()
+    answered_lines = {line_id for line_id, _ in draft.overrides}
     live: list[Prompt] = []
-    for prompt in prompts:
+    seen: set[tuple[object, ...]] = set()
+    for prompt in uow.prompts.for_draft(draft.id):
         payload = prompt.payload
-        if not isinstance(payload, EngineQuestionPayload):
+        if prompt.kind is not PromptKind.ENGINE_QUESTION or not isinstance(
+            payload, EngineQuestionPayload
+        ):
             continue
         key = (payload.line_id, payload.member_id, payload.reason)
         seen.add(key)
-        if prompt.status in (PromptStatus.PENDING, PromptStatus.OPEN):
-            if key in wanted:
-                live.append(prompt)
-            else:
-                uow.prompts.update(replace(prompt, status=PromptStatus.DROPPED))
+        if prompt.status not in (PromptStatus.PENDING, PromptStatus.OPEN):
+            continue
+        if key in wanted or _still_asked(draft, payload, answered_lines):
+            live.append(prompt)
+        else:
+            uow.prompts.update(replace(prompt, status=PromptStatus.DROPPED))
     for line_id, member_id, reason in wanted:
         if (line_id, member_id, reason) not in seen:
             prompt = Prompt(
@@ -237,12 +245,23 @@ def _sync_questions(turn: Turn, draft: BillDraft, split: DraftSplit) -> list[Pro
             )
             uow.prompts.add(prompt)
             live.append(prompt)
-    opened: list[Prompt] = []
-    still_open = [p for p in live if p.status is PromptStatus.OPEN]
-    if still_open:
-        return still_open  # the next batch waits until this one is answered
-    for prompt in live[: turn.settings.questions_per_message]:
-        asked = replace(prompt, status=PromptStatus.OPEN)
-        uow.prompts.update(asked)
-        opened.append(asked)
+    batch = [p for p in live if p.status is PromptStatus.OPEN]
+    if batch and not all(p.answers for p in batch):
+        return batch
+    for prompt in batch:
+        uow.prompts.update(replace(prompt, status=PromptStatus.ANSWERED))
+    waiting = [p for p in live if p.status is PromptStatus.PENDING]
+    opened = [
+        replace(p, status=PromptStatus.OPEN) for p in waiting[: turn.settings.questions_per_message]
+    ]
+    for prompt in opened:
+        uow.prompts.update(prompt)
     return opened
+
+
+def _still_asked(draft: BillDraft, payload: EngineQuestionPayload, answered: set[str]) -> bool:
+    """An answer on the line keeps its question (the engine stops asking once a line has an
+    override), as long as the line and the person are still in the bill."""
+    line_ids = {line.id for line in draft.lines}
+    person_in = payload.member_id is None or payload.member_id in draft.participants
+    return payload.line_id in answered and payload.line_id in line_ids and person_in

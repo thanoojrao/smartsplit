@@ -81,6 +81,14 @@ RULES: Sequence[Rule] = [
     (_rule(r"(?:yes|y|yeah|yep|sure)"), lambda m, c: AnswerPrompt(yes=True)),
     (_rule(r"(?:no|nope|n)"), lambda m, c: AnswerPrompt(yes=False)),
     (_rule(r"(\d+)"), lambda m, c: AnswerPrompt(choice=int(m[1]))),
+    (
+        _rule(r"(\d+)[:)]?\s+(yes|no)"),
+        lambda m, c: AnswerPrompt(choice=int(m[1]), yes=m[2].lower() == "yes"),
+    ),
+    (
+        _rule(r"(\d+)[:)]\s+(?:just |only )?(.+)"),
+        lambda m, c: AnswerPrompt(choice=int(m[1]), people=names(m[2])),
+    ),
     (_rule(r"(?:ok|okay|thanks|thank you|cool)"), lambda m, c: Acknowledge()),
     (_rule(r"help"), lambda m, c: Help()),
     (_rule(r"stop"), lambda m, c: Notifications(on=False)),
