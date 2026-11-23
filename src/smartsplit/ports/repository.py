@@ -212,24 +212,61 @@ class LlmUsageStore(Protocol):
 
 
 class UnitOfWork(Protocol):
-    people: PeopleStore
-    identities: IdentityStore
-    nicknames: NicknameStore
-    groups: GroupStore
-    memberships: MembershipStore
-    conversations: ConversationStore
-    items: ItemStore
-    aliases: AliasStore
-    rules: RuleStore
-    observations: ObservationStore
-    receipts: ReceiptStore
-    drafts: DraftStore
-    prompts: PromptStore
-    bills: BillStore
-    settlements: SettlementStore
-    notifications: NotificationStore
-    processed: ProcessedStore
-    llm_usage: LlmUsageStore
+    """One transaction's view of every store (read-only members, so implementations may narrow)."""
+
+    @property
+    def people(self) -> PeopleStore: ...
+
+    @property
+    def identities(self) -> IdentityStore: ...
+
+    @property
+    def nicknames(self) -> NicknameStore: ...
+
+    @property
+    def groups(self) -> GroupStore: ...
+
+    @property
+    def memberships(self) -> MembershipStore: ...
+
+    @property
+    def conversations(self) -> ConversationStore: ...
+
+    @property
+    def items(self) -> ItemStore: ...
+
+    @property
+    def aliases(self) -> AliasStore: ...
+
+    @property
+    def rules(self) -> RuleStore: ...
+
+    @property
+    def observations(self) -> ObservationStore: ...
+
+    @property
+    def receipts(self) -> ReceiptStore: ...
+
+    @property
+    def drafts(self) -> DraftStore: ...
+
+    @property
+    def prompts(self) -> PromptStore: ...
+
+    @property
+    def bills(self) -> BillStore: ...
+
+    @property
+    def settlements(self) -> SettlementStore: ...
+
+    @property
+    def notifications(self) -> NotificationStore: ...
+
+    @property
+    def processed(self) -> ProcessedStore: ...
+
+    @property
+    def llm_usage(self) -> LlmUsageStore: ...
 
 
 class Repository(Protocol):

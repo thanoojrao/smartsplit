@@ -60,22 +60,27 @@ def _decode(data: Json, hint: Any) -> Any:
 
 
 def _decode_union(data: Json, options: tuple[Any, ...]) -> Any:
+    """Tagged dicts pick their class by name; plain values prefer an exact primitive match,
+    then the first class that accepts them (dates, datetimes, enums)."""
     leaves = _flatten(options)
     if data is None and type(None) in leaves:
         return None
-    for leaf in leaves:
-        if isinstance(data, dict):
-            if (
-                isinstance(leaf, type)
-                and dataclasses.is_dataclass(leaf)
-                and leaf.__name__ == data.get("type")
-            ):
+    if isinstance(data, dict):
+        for leaf in leaves:
+            if isinstance(leaf, type) and leaf.__name__ == data.get("type"):
                 return _decode_class(data, leaf)
-        elif get_origin(leaf) is Literal:
-            if data in get_args(leaf):
-                return data
-        elif isinstance(leaf, type) and type(data) is leaf:
+        raise ValueError(f"no union member named {data.get('type')!r}")
+    for leaf in leaves:
+        if get_origin(leaf) is Literal and data in get_args(leaf):
             return data
+        if type(data) is leaf:
+            return data
+    for leaf in leaves:
+        if isinstance(leaf, type) and leaf is not type(None):
+            try:
+                return _decode_class(data, leaf)
+            except ValueError:
+                continue
     raise ValueError(f"{data!r} matches no union member")
 
 

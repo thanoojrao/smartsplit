@@ -4,7 +4,7 @@ import hashlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import Connection, Engine, create_engine, func, select
+from sqlalchemy import Connection, Engine, func, select
 
 from smartsplit.adapters.db import draft_stores, ledger_stores, people_stores, rule_stores
 from smartsplit.domain.values import ConversationKey
@@ -36,17 +36,14 @@ class SqlUnitOfWork:
 
 def lock_id(key: ConversationKey) -> int:
     """A stable signed 64-bit advisory-lock id for one conversation."""
-    digest = hashlib.blake2b(f"{key.channel}\0{key.ref}".encode(), digest_size=8).digest()
+    unambiguous = f"{len(key.channel)}:{key.channel}{key.ref}"  # no two keys share a string
+    digest = hashlib.blake2b(unambiguous.encode(), digest_size=8).digest()
     return int.from_bytes(digest, "big", signed=True)
 
 
 class SqlRepository:
     def __init__(self, engine: Engine) -> None:
         self._engine = engine
-
-    @classmethod
-    def from_url(cls, database_url: str) -> "SqlRepository":
-        return cls(create_engine(database_url, pool_pre_ping=True))
 
     @contextmanager
     def unit_of_work(self, lock: ConversationKey | None = None) -> Iterator[SqlUnitOfWork]:

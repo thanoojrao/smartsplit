@@ -78,6 +78,7 @@ strict = true
 python_version = "3.12"
 mypy_path = "src"
 files = ["src", "tests"]
+plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

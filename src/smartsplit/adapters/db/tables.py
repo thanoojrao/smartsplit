@@ -7,7 +7,6 @@ one-rule-per-(scope, subject, item) constraint is a plain unique key. A null
 """
 
 from sqlalchemy import (
-    ARRAY,
     BigInteger,
     Boolean,
     Column,
@@ -24,7 +23,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 
 metadata = MetaData()
 

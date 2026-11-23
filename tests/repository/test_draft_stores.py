@@ -1,0 +1,134 @@
+"""Receipts, drafts, prompts and processed messages."""
+
+from dataclasses import replace
+from datetime import date
+
+import pytest
+
+from smartsplit.domain.commands import AnswerPrompt, AssignLine, Edit, StartSplit
+from smartsplit.domain.enums import DraftState, PromptKind, PromptStatus, RuleKind
+from smartsplit.domain.messages import OutboundMessage
+from smartsplit.domain.model import Receipt
+from smartsplit.domain.prompts import (
+    ConfirmActionPayload,
+    ProcessedMessage,
+    PromptAnswer,
+    RuleChangeEffect,
+    WhichPersonPayload,
+)
+from smartsplit.domain.values import ConversationKey, ExactAmount, GroupScope, PersonalContext
+from smartsplit.ports.repository import Repository
+from tests.repository.builders import CHAT, T0, at, draft, line, prompt, rule
+
+
+def test_receipts_round_trip(repo: Repository) -> None:
+    receipt = Receipt(
+        "r1",
+        "img.jpg",
+        "image/jpeg",
+        "Toit",
+        date(2026, 11, 1),
+        (line("l1", 1200, taxed=False), line("l2", -200, 2, discount_for="l1", confidence=0.4)),
+        100,
+        50,
+        1150,
+        ("total doesn't match",),
+    )
+    with repo.unit_of_work() as uow:
+        uow.receipts.add(receipt)
+
+    with repo.unit_of_work() as uow:
+        assert uow.receipts.get("r1") == receipt
+        assert uow.receipts.get("r2") is None
+
+
+def test_drafts_round_trip_and_update(repo: Repository) -> None:
+    with repo.unit_of_work() as uow:
+        uow.drafts.add(draft("d1"))
+        uow.drafts.add(replace(draft("d2"), context=PersonalContext(), purchased_at=None))
+        uow.drafts.update(replace(draft("d1"), state=DraftState.SAVED, reminded_at=at(5)))
+
+    with repo.unit_of_work() as uow:
+        assert uow.drafts.get("d1") == replace(
+            draft("d1"), state=DraftState.SAVED, reminded_at=at(5)
+        )
+        assert uow.drafts.get("d2") == replace(
+            draft("d2"), context=PersonalContext(), purchased_at=None
+        )
+
+
+def test_updating_a_missing_draft_raises(repo: Repository) -> None:
+    with pytest.raises(KeyError), repo.unit_of_work() as uow:
+        uow.drafts.update(draft("nope"))
+
+
+def test_drafts_for_a_conversation_by_state(repo: Repository) -> None:
+    with repo.unit_of_work() as uow:
+        uow.drafts.add(draft("d2", state=DraftState.QUEUED, minutes=2))
+        uow.drafts.add(draft("d1", minutes=1))
+        uow.drafts.add(draft("d3", state=DraftState.QUEUED, minutes=3))
+        uow.drafts.add(replace(draft("d4"), conversation=ConversationKey("cli", "other")))
+
+    with repo.unit_of_work() as uow:
+        queued = uow.drafts.for_conversation(CHAT, [DraftState.QUEUED])
+        assert [d.id for d in queued] == ["d2", "d3"]
+        both = uow.drafts.for_conversation(CHAT, [DraftState.QUEUED, DraftState.REVIEWING])
+        assert [d.id for d in both] == ["d1", "d2", "d3"]
+
+
+def test_drafts_due_for_reminder_or_expiry(repo: Repository) -> None:
+    with repo.unit_of_work() as uow:
+        uow.drafts.add(draft("idle", minutes=0))
+        uow.drafts.add(draft("waiting", state=DraftState.AWAITING_PEOPLE, minutes=1))
+        uow.drafts.add(draft("active", minutes=100))
+        uow.drafts.add(draft("queued", state=DraftState.QUEUED, minutes=0))
+        uow.drafts.add(draft("done", state=DraftState.SAVED, minutes=0))
+
+    with repo.unit_of_work() as uow:
+        due = uow.drafts.due_for_reminder_or_expiry(idle_since=at(1))
+        assert [d.id for d in due] == ["idle", "waiting"]
+
+
+def test_prompts_with_typed_payloads_and_answers(repo: Repository) -> None:
+    confirm = replace(
+        prompt("p2", minutes=2),
+        kind=PromptKind.CONFIRM_ACTION,
+        payload=ConfirmActionPayload(
+            Edit(AssignLine(2, exact=(ExactAmount("Sam", 100),)), reason="typo"),
+            RuleChangeEffect(rule("r1", GroupScope("g1"), kind=RuleKind.ONLY), None),
+            based_on_version=3,
+        ),
+        answers=(PromptAnswer("raj", AnswerPrompt(yes=True, people=("Sam",)), at(3)),),
+    )
+    which = replace(
+        prompt("p3", minutes=3, draft_id=None),
+        kind=PromptKind.WHICH_PERSON,
+        payload=WhichPersonPayload("Sam", ("s1", "s2"), StartSplit(people=("Sam",))),
+        asked_of="me",
+    )
+    with repo.unit_of_work() as uow:
+        uow.prompts.add(prompt("p1", minutes=1))
+        uow.prompts.add(confirm)
+        uow.prompts.add(which)
+        uow.prompts.update(replace(prompt("p1", minutes=1), status=PromptStatus.ANSWERED))
+
+    with repo.unit_of_work() as uow:
+        assert uow.prompts.get("p2") == confirm
+        assert uow.prompts.get("p3") == which
+        open_ones = uow.prompts.for_conversation(CHAT, [PromptStatus.OPEN])
+        assert [p.id for p in open_ones] == ["p2", "p3"]
+        assert [p.id for p in uow.prompts.for_draft("d1")] == ["p1", "p2"]
+        assert uow.prompts.get("nope") is None
+
+
+def test_processed_messages_store_their_replies(repo: Repository) -> None:
+    replies = (
+        OutboundMessage(CHAT, None, "Saved. Raj owes ₹300."),
+        OutboundMessage(ConversationKey("cli", "raj"), "raj", "Sam added Toit."),
+    )
+    with repo.unit_of_work() as uow:
+        uow.processed.add(ProcessedMessage(CHAT, "m1", replies, T0))
+
+    with repo.unit_of_work() as uow:
+        assert uow.processed.get(CHAT, "m1") == ProcessedMessage(CHAT, "m1", replies, T0)
+        assert uow.processed.get(CHAT, "m2") is None

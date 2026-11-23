@@ -1,7 +1,7 @@
 """Settings from the environment (SPEC section 12.1). Read only by entrypoints, then injected."""
 
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -38,5 +38,9 @@ class Settings(BaseSettings):
     @field_validator("timezone")
     @classmethod
     def _known_timezone(cls, value: str) -> str:
-        ZoneInfo(value)  # raises for an unknown zone, so a typo fails at startup
+        """A typo in the timezone fails at startup, not on the first "this month"."""
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as error:
+            raise ValueError(f"unknown timezone {value!r}") from error
         return value

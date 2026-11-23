@@ -76,6 +76,19 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (M1) A bare string as an override raises ValueError. Why: a `str` is a `Sequence[str]` and would silently split by letters.
 - (M1) CI uses `actions/checkout@v7` and `astral-sh/setup-uv@v7` (both Node 24). Why: GitHub deprecated Node 20.
 
+- (M2) Domain split into `enums.py`, `values.py`, `model.py`, `messages.py`, `commands.py`, `prompts.py`, `phone.py`; `smartsplit.domain` re-exports only the most used names. Command fields with natural defaults (empty tuples, None) have them, so `Edit` lists `op` before `target`. Why: readable construction in services, tests and the fake interpreter; field names are as agreed.
+- (M2) Port errors are `ReceiptUnreadableError` and `LlmUnavailableError` (CONTRACTS said `ReceiptUnreadable`/`LlmUnavailable`). Why: ruff N818 requires the `Error` suffix; renaming beats suppressing a lint rule.
+- (M2) Store method lists finalized for what M3 needs plus CONTRACTS' special queries; later milestones add queries as they need them (e.g. "held notifications for a person", "bills by adder"). Why: no speculative methods. `due_for_reminder_or_expiry(idle_since)` takes the cutoff, so the 24h/3-day policy stays in services.
+- (M2) `UnitOfWork` exposes its stores as read-only properties. Why: Protocol attributes are invariant in mypy; properties let implementations return their concrete stores.
+- (M2) Postgres adapter uses SQLAlchemy Core tables mapped by hand to the frozen dataclasses (no ORM); nested value tuples (lines, overrides, payloads, answers, replies) are tagged JSONB through a small codec; participants and bill ids are text arrays (GIN index for "bills I'm in"); scopes are (scope_kind, scope_ref) with '' for Everywhere; a null context_group_id is the personal context; `seq` identity columns break timestamp ties. Why: simple, explicit, and the frozen domain stays free of persistence concerns.
+- (M2) The conversation lock is `pg_advisory_xact_lock` on a blake2b hash of the length-prefixed (channel, ref). Why: released automatically at commit/rollback; length prefix avoids collisions between e.g. ("a", "b\0c") and ("a\0b", "c").
+- (M2) Alembic runs programmatically (`adapters/db/migrate.py`, no root alembic.ini); a test asserts the migrations match the table definitions. Why: one less config file for self-hosters; the CLI gets a migrate command in M9.
+- (M2) Repository contract tests run every case against the in-memory fake and real Postgres. The Postgres schema is rebuilt from the migrations once per session and all tables are truncated before each test. Why: proves the fake behaves like the database; truncation gives each test a clean schema at a fraction of the cost of re-migrating.
+- (M2) The in-memory repository deep-copies state per unit of work and commits by swapping. Why: real rollback semantics in unit tests.
+- (M2) Added the `pydantic.mypy` plugin to `[tool.mypy]`. Why: without it mypy thinks `Settings()` needs every required field as an argument (pydantic-settings fills them from the environment); the plugin adds pydantic-aware checking and loosens nothing else.
+- (M2) `config.Settings` validates currency (ISO code), region, timezone (zoneinfo) and numeric limits at startup; `invite_template` has a neutral default (operators set their wa.me link). Why: misconfiguration fails fast.
+- (M2) `FileImageStore` names files `<uuid hex><ext>` and refuses refs that aren't a plain file name. Why: an image_ref from the DB can never escape the image directory.
+
 ## Made by Claude (design review, technical)
 
 - Group balance (incl. settlements) is the source of truth inside a group; who-owes-whom there = `simplify_debts`; personal splits use raw pairs; overall = sum. Why: one consistent model; following the bot's advice can't corrupt the overall view.
