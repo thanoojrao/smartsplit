@@ -14,10 +14,10 @@ from smartsplit.domain.values import ConversationKey
 @dataclass
 class InMemoryUnitOfWork:
     people: p.PeopleStore = field(default_factory=p.PeopleStore)
-    identities: p.IdentityStore = field(default_factory=p.IdentityStore)
-    nicknames: p.NicknameStore = field(default_factory=p.NicknameStore)
+    identities: p.IdentityStore = field(init=False)
+    nicknames: p.NicknameStore = field(init=False)
     groups: p.GroupStore = field(default_factory=p.GroupStore)
-    memberships: p.MembershipStore = field(default_factory=p.MembershipStore)
+    memberships: p.MembershipStore = field(init=False)
     conversations: p.ConversationStore = field(default_factory=p.ConversationStore)
     items: r.ItemStore = field(default_factory=r.ItemStore)
     aliases: r.AliasStore = field(default_factory=r.AliasStore)
@@ -33,6 +33,10 @@ class InMemoryUnitOfWork:
     llm_usage: r.LlmUsageStore = field(default_factory=r.LlmUsageStore)
 
     def __post_init__(self) -> None:
+        """Stores that check references get the stores they point into."""
+        self.identities = p.IdentityStore(self.people)
+        self.nicknames = p.NicknameStore(self.people)
+        self.memberships = p.MembershipStore(self.groups, self.people)
         self.notifications = b.NotificationStore(self.people)
 
 

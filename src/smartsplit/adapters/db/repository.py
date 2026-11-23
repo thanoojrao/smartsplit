@@ -5,9 +5,22 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 
 from sqlalchemy import Connection, Engine, func, select, text
+from sqlalchemy.exc import IntegrityError
 
 from smartsplit.adapters.db import draft_stores, ledger_stores, people_stores, rule_stores
 from smartsplit.domain.values import ConversationKey
+from smartsplit.ports.repository import (
+    ConstraintViolationError,
+    DuplicateKeyError,
+    InvalidRecordError,
+    MissingReferenceError,
+)
+
+_BY_SQLSTATE: dict[str, type[ConstraintViolationError]] = {
+    "23505": DuplicateKeyError,
+    "23503": MissingReferenceError,
+    "23514": InvalidRecordError,
+}
 
 
 class SqlUnitOfWork:
@@ -50,8 +63,18 @@ class SqlRepository:
     @contextmanager
     def unit_of_work(self, lock: ConversationKey | None = None) -> Iterator[SqlUnitOfWork]:
         """Commit on success, roll back on exception; the lock lasts until the transaction ends."""
-        with self._engine.begin() as connection:
-            connection.execute(text("SET LOCAL TIME ZONE 'UTC'"))  # times come back in UTC
-            if lock is not None:
-                connection.execute(select(func.pg_advisory_xact_lock(lock_id(lock))))
-            yield SqlUnitOfWork(connection)
+        try:
+            with self._engine.begin() as connection:
+                connection.execute(text("SET LOCAL TIME ZONE 'UTC'"))  # times come back in UTC
+                if lock is not None:
+                    connection.execute(select(func.pg_advisory_xact_lock(lock_id(lock))))
+                yield SqlUnitOfWork(connection)
+        except IntegrityError as error:
+            raise _port_error(error) from error
+
+
+def _port_error(error: IntegrityError) -> Exception:
+    """The port's constraint error for a Postgres integrity error (by SQLSTATE)."""
+    sqlstate = getattr(error.orig, "sqlstate", None) or ""
+    kind = _BY_SQLSTATE.get(sqlstate)
+    return kind(str(error.orig)) if kind else error

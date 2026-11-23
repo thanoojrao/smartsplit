@@ -4,7 +4,7 @@ from collections.abc import Collection
 from dataclasses import replace
 from datetime import datetime
 
-from smartsplit.adapters.fakes.base import insert, replace_existing
+from smartsplit.adapters.fakes.base import insert, replace_existing, require_reference
 from smartsplit.adapters.fakes.people_stores import PeopleStore
 from smartsplit.domain.enums import DraftState, NotificationKind, PromptStatus
 from smartsplit.domain.model import (
@@ -126,6 +126,7 @@ class NotificationStore:
         self._people = people
 
     def add(self, notification: Notification) -> None:
+        require_reference(self._people.records, notification.recipient_id)
         insert(self.records, notification.id, notification)
 
     def claim_due(

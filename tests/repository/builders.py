@@ -5,8 +5,6 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy.exc import IntegrityError
-
 from smartsplit.domain.enums import (
     DraftState,
     MatchHow,
@@ -43,9 +41,6 @@ from smartsplit.domain.values import (
     Weight,
     Weighted,
 )
-
-DUPLICATE = (ValueError, IntegrityError)
-"""Adding a duplicate key: the fake raises ValueError, Postgres an IntegrityError."""
 
 T0 = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
 CHAT = ConversationKey("cli", "flat-4b")

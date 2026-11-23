@@ -3,7 +3,7 @@
 from dataclasses import replace
 from datetime import datetime
 
-from smartsplit.adapters.fakes.base import insert, replace_existing
+from smartsplit.adapters.fakes.base import insert, replace_existing, require_reference
 from smartsplit.domain.model import (
     ChatIdentity,
     Conversation,
@@ -13,6 +13,7 @@ from smartsplit.domain.model import (
     Person,
 )
 from smartsplit.domain.values import ConversationKey
+from smartsplit.ports.repository import DuplicateKeyError, InvalidRecordError
 
 
 class PeopleStore:
@@ -36,17 +37,19 @@ class PeopleStore:
     def _check_phone_free(self, person: Person) -> None:
         holder = self.by_phone(person.phone)
         if holder is not None and holder.id != person.id:
-            raise ValueError("duplicate phone")
+            raise DuplicateKeyError("duplicate phone")
 
 
 class IdentityStore:
-    def __init__(self) -> None:
+    def __init__(self, people: PeopleStore) -> None:
         self.records: dict[tuple[str, str], ChatIdentity] = {}
+        self._people = people
 
     def get(self, channel: str, external_ref: str) -> ChatIdentity | None:
         return self.records.get((channel, external_ref))
 
     def add(self, identity: ChatIdentity) -> None:
+        require_reference(self._people.records, identity.person_id)
         insert(self.records, (identity.channel, identity.external_ref), identity)
 
     def for_person(self, person_id: str) -> tuple[ChatIdentity, ...]:
@@ -55,10 +58,13 @@ class IdentityStore:
 
 
 class NicknameStore:
-    def __init__(self) -> None:
+    def __init__(self, people: PeopleStore) -> None:
         self.records: dict[tuple[str, str], Nickname] = {}
+        self._people = people
 
     def put(self, nickname: Nickname) -> None:
+        require_reference(self._people.records, nickname.owner_id)
+        require_reference(self._people.records, nickname.subject_id)
         self.records[(nickname.owner_id, nickname.name)] = nickname
 
     def for_owner(self, owner_id: str) -> tuple[Nickname, ...]:
@@ -92,16 +98,20 @@ class GroupStore:
     def _check_chat_free(self, group: Group) -> None:
         holder = self.by_channel_ref(group.channel_ref) if group.channel_ref else None
         if holder is not None and holder.id != group.id:
-            raise ValueError("duplicate channel_ref")
+            raise DuplicateKeyError("duplicate channel_ref")
 
 
 class MembershipStore:
-    def __init__(self) -> None:
+    def __init__(self, groups: GroupStore, people: PeopleStore) -> None:
         self.records: list[Membership] = []
+        self._groups = groups
+        self._people = people
 
     def add(self, membership: Membership) -> None:
+        require_reference(self._groups.records, membership.group_id)
+        require_reference(self._people.records, membership.person_id)
         if self._current_index(membership.group_id, membership.person_id) is not None:
-            raise ValueError("already a current member")
+            raise DuplicateKeyError("already a current member")
         self.records.append(membership)
 
     def end(self, group_id: str, person_id: str, left_at: datetime) -> None:
@@ -137,7 +147,14 @@ class ConversationStore:
         return self.records.get(key)
 
     def add(self, conversation: Conversation) -> None:
+        _check_group_or_person(conversation)
         insert(self.records, conversation.key, conversation)
 
     def update(self, conversation: Conversation) -> None:
+        _check_group_or_person(conversation)
         replace_existing(self.records, conversation.key, conversation)
+
+
+def _check_group_or_person(conversation: Conversation) -> None:
+    if (conversation.group_id is None) == (conversation.person_id is None):
+        raise InvalidRecordError("a conversation belongs to exactly one group or person")

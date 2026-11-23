@@ -30,6 +30,22 @@ from smartsplit.domain.prompts import Notification, ProcessedMessage, Prompt
 from smartsplit.domain.values import Context, ConversationKey, LocalScope, RuleScope
 
 
+class ConstraintViolationError(Exception):
+    """A write broke a storage rule; both the fake and Postgres raise these subclasses."""
+
+
+class DuplicateKeyError(ConstraintViolationError):
+    """A record with this key (id, phone, chat, current membership, ...) already exists."""
+
+
+class MissingReferenceError(ConstraintViolationError):
+    """The record points at a person or group that doesn't exist."""
+
+
+class InvalidRecordError(ConstraintViolationError):
+    """The record breaks a check, e.g. a conversation with both a group and a person."""
+
+
 class StaleDraftError(Exception):
     """The draft's state changed since it was read (e.g. expired by `tick` meanwhile)."""
 

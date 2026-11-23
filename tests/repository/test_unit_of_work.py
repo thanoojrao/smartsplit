@@ -7,7 +7,6 @@ import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import Engine, create_engine, select, text
-from sqlalchemy.exc import IntegrityError
 
 from smartsplit.adapters.db.repository import SqlRepository, lock_id
 from smartsplit.adapters.db.tables import metadata
@@ -15,7 +14,7 @@ from smartsplit.adapters.fakes.repository import InMemoryRepository
 from smartsplit.domain.enums import ConversationKind
 from smartsplit.domain.model import Conversation
 from smartsplit.domain.values import ConversationKey
-from smartsplit.ports.repository import Repository
+from smartsplit.ports.repository import InvalidRecordError, Repository
 from tests.repository.builders import CHAT, person
 
 
@@ -110,11 +109,13 @@ def test_times_come_back_in_utc_whatever_the_server_timezone(pg_url: str, clean_
     assert found.created_at.utcoffset() == timedelta(0)
 
 
-@pytest.mark.db
-def test_a_conversation_belongs_to_a_group_or_a_person_not_both(clean_pg: Engine) -> None:
-    both = Conversation(CHAT, ConversationKind.GROUP, "Flat 4B", "g1", "sam", ())
-    with pytest.raises(IntegrityError), SqlRepository(clean_pg).unit_of_work() as uow:
-        uow.conversations.add(both)
+@pytest.mark.parametrize(("group_id", "person_id"), [("g1", "sam"), (None, None)])
+def test_a_conversation_belongs_to_a_group_or_a_person(
+    repo: Repository, group_id: str | None, person_id: str | None
+) -> None:
+    chat = Conversation(CHAT, ConversationKind.GROUP, "Flat 4B", group_id, person_id, ())
+    with pytest.raises(InvalidRecordError), repo.unit_of_work() as uow:
+        uow.conversations.add(chat)
 
 
 def test_the_fake_refuses_nested_units_of_work() -> None:

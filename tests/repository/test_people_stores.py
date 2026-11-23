@@ -7,8 +7,8 @@ import pytest
 from smartsplit.domain.enums import ConversationKind
 from smartsplit.domain.model import ChatIdentity, Conversation, Group, Membership, Nickname
 from smartsplit.domain.values import ConversationKey
-from smartsplit.ports.repository import Repository
-from tests.repository.builders import CHAT, DUPLICATE, T0, at, person
+from smartsplit.ports.repository import DuplicateKeyError, Repository
+from tests.repository.builders import CHAT, T0, at, person
 
 
 def test_people_by_id_and_phone_and_update(repo: Repository) -> None:
@@ -25,7 +25,7 @@ def test_people_by_id_and_phone_and_update(repo: Repository) -> None:
 
 
 def test_phone_is_unique(repo: Repository) -> None:
-    with pytest.raises(DUPLICATE), repo.unit_of_work() as uow:
+    with pytest.raises(DuplicateKeyError), repo.unit_of_work() as uow:
         uow.people.add(person("sam", "+919876543210"))
         uow.people.add(person("other", "+919876543210"))
 
@@ -35,7 +35,7 @@ def test_changing_a_phone_to_one_already_taken_raises(repo: Repository) -> None:
         uow.people.add(person("sam", "+919876543210"))
         uow.people.add(person("raj", "+919876543211"))
 
-    with pytest.raises(DUPLICATE), repo.unit_of_work() as uow:
+    with pytest.raises(DuplicateKeyError), repo.unit_of_work() as uow:
         uow.people.update(person("raj", "+919876543210"))
 
 
@@ -44,7 +44,7 @@ def test_linking_a_group_to_a_chat_already_taken_raises(repo: Repository) -> Non
         uow.groups.add(Group("g1", "Flat 4B", CHAT, T0))
         uow.groups.add(Group("g2", "Other", None, T0))
 
-    with pytest.raises(DUPLICATE), repo.unit_of_work() as uow:
+    with pytest.raises(DuplicateKeyError), repo.unit_of_work() as uow:
         uow.groups.update(Group("g2", "Other", CHAT, T0))
 
 
@@ -118,7 +118,7 @@ def test_memberships_end_and_rejoin(repo: Repository) -> None:
 
 
 def test_one_current_membership_per_person_and_group(repo: Repository) -> None:
-    with pytest.raises(DUPLICATE), repo.unit_of_work() as uow:
+    with pytest.raises(DuplicateKeyError), repo.unit_of_work() as uow:
         uow.groups.add(Group("g1", "Flat 4B", CHAT, T0))
         uow.people.add(person("sam"))
         uow.memberships.add(Membership("g1", "sam", 1, at(0), None))
