@@ -1,7 +1,8 @@
 """The API process: `uvicorn --factory smartsplit.entrypoints.api.server:from_environment`.
 
-It refuses to start without `SMARTSPLIT_API_TOKEN`. With `ANTHROPIC_API_KEY` set it uses the
-real model; without one it runs on the offline stand-ins, for trying the API locally.
+It refuses to start without `SMARTSPLIT_API_TOKEN`, and without `ANTHROPIC_API_KEY` unless
+`SMARTSPLIT_OFFLINE=1` asks for the offline stand-ins: a gateway must never end up on them by
+accident.
 """
 
 from fastapi import FastAPI
@@ -16,7 +17,9 @@ def from_environment() -> FastAPI:
     settings = Settings()
     if settings.api_token is None:
         raise SystemExit("SMARTSPLIT_API_TOKEN is not set; the API won't start without it")
-    built = build(settings, live=settings.anthropic_api_key is not None)
+    if not settings.offline and settings.anthropic_api_key is None:
+        raise SystemExit("Set ANTHROPIC_API_KEY, or SMARTSPLIT_OFFLINE=1 to use the stand-ins")
+    built = build(settings, live=not settings.offline)
     return create_app(
         built.orchestrator,
         built.repository,

@@ -9,17 +9,21 @@ import mimetypes
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from smartsplit.config import Settings
-from smartsplit.domain.enums import ConversationKind
+from smartsplit.domain.enums import ConversationKind, RuleSource
 from smartsplit.domain.messages import ImageAttachment, InboundMessage, OutboundMessage
+from smartsplit.domain.phone import normalize_phone
 from smartsplit.domain.values import ConversationKey
 from smartsplit.entrypoints.wiring import build
+from smartsplit.ports.images import ImageStore
 from smartsplit.ports.repository import Repository
+from smartsplit.ports.system import Clock
 from smartsplit.services import Orchestrator
 from smartsplit.services.reports import person_report, rules_report
 from smartsplit.services.text import money
@@ -32,7 +36,11 @@ PERSONAL = "personal"
 class Bot:
     orchestrator: Orchestrator
     repository: Repository
+    images: ImageStore
+    clock: Clock
     currency: str
+    region: str
+    max_image_bytes: int
 
 
 type Connect = Callable[[bool], Bot]
@@ -45,17 +53,9 @@ In = Annotated[str, typer.Option("--in", help='"personal" or a group name.')]
 def make_cli(connect: Connect) -> typer.Typer:
     """The CLI around whatever `connect` builds, so tests can run it on the fakes."""
     cli = typer.Typer(no_args_is_help=True, add_completion=False)
-    person = typer.Typer(no_args_is_help=True, help="People.")
-    group = typer.Typer(no_args_is_help=True, help="Groups.")
-    member = typer.Typer(no_args_is_help=True, help="Group members.")
-    receipt = typer.Typer(no_args_is_help=True, help="Receipts.")
-    for sub, name in (
-        (person, "person"),
-        (group, "group"),
-        (member, "member"),
-        (receipt, "receipt"),
-    ):
-        cli.add_typer(sub, name=name)
+    person, group, member, receipt, images = (
+        _subcommand(cli, name) for name in ("person", "group", "member", "receipt", "images")
+    )
     state: dict[str, Bot] = {}
 
     @cli.callback()
@@ -78,12 +78,16 @@ def make_cli(connect: Connect) -> typer.Typer:
     @person.command("add")
     def person_add(name: str, phone: str) -> None:
         """Someone says hi to the bot in their own chat (that's how people join)."""
-        send(name, PERSONAL, "help", phone=phone)
+        try:
+            normalize_phone(phone, state["bot"].region)
+        except ValueError as error:
+            raise typer.BadParameter(f"{phone} isn't a phone number") from error
+        send(name, PERSONAL, "hi", phone=phone)
 
     @group.command("create")
     def group_create(name: str, speaker: As) -> None:
         """The first message in a new group chat creates the group; the speaker joins."""
-        send(speaker, name, "help")
+        send(speaker, name, "hi")
 
     @member.command("add")
     def member_add(group_name: str, name: str) -> None:
@@ -98,8 +102,19 @@ def make_cli(connect: Connect) -> typer.Typer:
         caption: Annotated[str | None, typer.Option(help='e.g. "split with Sam".')] = None,
     ) -> None:
         """A receipt photo, or with the offline parser a recorded receipt (.json)."""
+        if image.stat().st_size > state["bot"].max_image_bytes:
+            raise typer.BadParameter("that image is too large")
         mime = mimetypes.guess_type(image.name)[0] or "application/octet-stream"
         send(speaker, where, caption, image=ImageAttachment(mime, image.read_bytes()))
+
+    @images.command("prune")
+    def images_prune(
+        older_than_days: Annotated[int, typer.Option(min=1, help="Keep newer images.")] = 30,
+    ) -> None:
+        """Delete stored receipt images older than this (SPEC 12.4)."""
+        bot = state["bot"]
+        cutoff = bot.clock.now() - timedelta(days=older_than_days)
+        typer.echo(f"Deleted {bot.images.prune(cutoff)} images.")
 
     @cli.command()
     def say(text: str, speaker: As, where: In) -> None:
@@ -157,16 +172,19 @@ def _message(
 
 
 def _print(bot: Bot, speaker: str | None, replies: list[OutboundMessage]) -> None:
-    """Each reply under its chat: a group by name, a personal chat by whose it is."""
+    """Each reply under its chat: a group by name, the speaker's own chat as "you", anyone
+    else's personal chat by their name."""
+    me = _known_id(bot, speaker) if speaker else None
     with bot.repository.unit_of_work() as uow:
         for reply in replies:
-            if reply.recipient_id is None:
-                header = reply.conversation.ref.removeprefix("group:")
+            ref = reply.conversation.ref
+            if ref.startswith("group:"):
+                header = ref.removeprefix("group:")
+            elif reply.recipient_id is None or reply.recipient_id == me:
+                header = "you"
             else:
                 person = uow.people.get(reply.recipient_id)
-                name = person.display_name if person else "someone"
-                mine = speaker is not None and name.casefold() == _ref(speaker)
-                header = "you" if mine else f"to {name}"
+                header = f"to {person.display_name if person else 'someone'}"
             typer.echo(f"[{header}]")
             for line in reply.text.splitlines():
                 typer.echo(f"  {line}")
@@ -185,12 +203,17 @@ def _subcommand(cli: typer.Typer, name: str) -> typer.Typer:
     return sub
 
 
-def _person_id(bot: Bot, name: str) -> str:
+def _known_id(bot: Bot, name: str) -> str | None:
     with bot.repository.unit_of_work() as uow:
         identity = uow.identities.get(CHANNEL, _ref(name))
-    if identity is None:
+    return identity.person_id if identity else None
+
+
+def _person_id(bot: Bot, name: str) -> str:
+    person_id = _known_id(bot, name)
+    if person_id is None:
         raise typer.BadParameter(f"no person called {name}; use `person add`")
-    return identity.person_id
+    return person_id
 
 
 def _show_balances(bot: Bot, name: str) -> None:
@@ -212,13 +235,23 @@ def _show_rules(bot: Bot, name: str) -> None:
     if not report:
         typer.echo("No rules.")
     for rule in report:
-        typer.echo(f"{rule.item}: {rule.kind.value} ({rule.scope}, {rule.source.value})")
+        how = "learned" if rule.source is RuleSource.LEARNED else f"set by {rule.author}"
+        typer.echo(f"{rule.item}: {rule.kind.value} ({rule.scope}, {how})")
 
 
 def _connect(live: bool) -> Bot:
     """The real thing: settings from the environment, Postgres, files, and the model if live."""
     built = build(Settings(), live=live)
-    return Bot(built.orchestrator, built.repository, built.settings.currency)
+    settings = built.settings
+    return Bot(
+        built.orchestrator,
+        built.repository,
+        built.images,
+        built.clock,
+        settings.currency,
+        settings.default_region,
+        settings.max_image_bytes,
+    )
 
 
 app = make_cli(_connect)

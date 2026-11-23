@@ -1,6 +1,7 @@
 """The HTTP API around an orchestrator on the in-memory fakes (SPEC section 11, K3-K4)."""
 
 import base64
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,6 +28,7 @@ def message(text: str | None = None, **extra: object) -> dict[str, object]:
         "sender_phone": "+919876500001",
         "sender_name": "Alex",
         "addressed_to_bot": True,
+        "reply_to_bot": False,
         "text": text,
     }
     return body | extra
@@ -37,15 +39,18 @@ def test_health_is_open_and_everything_else_needs_the_token() -> None:
     api = client(World())
     assert api.get("/healthz").json() == {"status": "ok"}
     assert api.post("/v1/tick").status_code == 401
-    assert api.post("/v1/tick", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    wrong = api.post("/v1/tick", headers={"Authorization": "Bearer wrong"})
+    assert wrong.status_code == 401
+    assert wrong.headers["WWW-Authenticate"] == "Bearer"
     assert api.get("/v1/people/x/rules").status_code == 401
     assert api.post("/v1/tick", headers=AUTH).json() == []
 
 
 def test_the_api_refuses_to_start_without_a_token() -> None:
     world = World()
-    with pytest.raises(ValueError, match="SMARTSPLIT_API_TOKEN"):
-        create_app(world.bot, world.repository, api_token="", max_image_bytes=1)
+    for token in ("", "   "):
+        with pytest.raises(ValueError, match="SMARTSPLIT_API_TOKEN"):
+            create_app(world.bot, world.repository, api_token=token, max_image_bytes=1)
 
 
 def test_a_message_goes_through_the_orchestrator_and_retries_return_the_same() -> None:
@@ -113,9 +118,59 @@ def test_operator_reads() -> None:
             "kind": "exclude",
             "scope": "Flat 4B",
             "author_id": raj.id,
+            "author": "Raj",
             "source": "stated",
         }
     ]
     assert api.get("/v1/groups/nope/balances", headers=AUTH).status_code == 404
     assert api.get("/v1/people/nope/balances", headers=AUTH).status_code == 404
     assert api.get("/v1/people/nope/rules", headers=AUTH).status_code == 404
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["message_id", "sender_ref", "sender_name", "conversation_name", "sender_phone"],
+)
+def test_control_characters_are_refused(field: str) -> None:
+    api = client(World())
+    response = api.post("/v1/messages", headers=AUTH, json=message("hi", **{field: "a\u0000b"}))
+    assert response.status_code == 422
+
+
+def test_control_characters_in_nested_fields_are_refused() -> None:
+    api = client(World())
+    nested: list[dict[str, Any]] = [
+        {"conversation": {"channel": "whatsapp", "ref": "a\u0000"}},
+        {"image": {"mime_type": "image/\u0000", "data_base64": ""}},
+        {"contact": {"name": "Priya", "phone": "+91\u0000"}},
+        {"event": {"kind": "participant_left", "subject_ref": "\u0000"}},
+        {"text": "hi\u0000"},
+    ]
+    for extra in nested:
+        assert api.post("/v1/messages", headers=AUTH, json=message(**extra)).status_code == 422
+    assert api.post("/v1/messages", headers=AUTH, json=message("two\nlines")).status_code == 200
+
+
+def test_bodies_are_size_limited_before_they_are_read() -> None:
+    api = client(World(), max_image_bytes=10)
+    huge = "x" * 200_000
+    body = message(image={"mime_type": "image/jpeg", "data_base64": huge})
+    assert api.post("/v1/messages", headers=AUTH, json=body).status_code == 413
+    no_length = api.post(
+        "/v1/messages", headers=AUTH | {"Transfer-Encoding": "chunked"}, content=iter([b"{}"])
+    )
+    assert no_length.status_code == 411
+
+
+def test_rules_in_someones_notes_name_the_owner() -> None:
+    world = World()
+    flat(world, YOU, SAM)
+    world.say(YOU, None, "Sam never shares dessert")
+    world.say(YOU, None, "yes")
+    with world.repository.unit_of_work() as uow:
+        sam = uow.people.by_phone(SAM.phone)
+        assert sam is not None
+    rules = client(world).get(f"/v1/people/{sam.id}/rules", headers=AUTH).json()["rules"]
+    assert [(r["item"], r["scope"], r["author"]) for r in rules] == [
+        ("dessert", "Alex's notes", "Alex")
+    ]

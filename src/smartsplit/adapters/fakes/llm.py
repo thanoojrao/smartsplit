@@ -7,6 +7,14 @@ from smartsplit.domain import normalize_item_name
 from smartsplit.ports.llm import ParsedReceipt, ReceiptUnreadableError
 from smartsplit.services.receipt_output import receipt_from_model_output
 
+DEMO_ITEMS = {
+    "2% MLK GAL": "milk",
+    "OAT MLK 1L": "milk",
+    "Whey Protein Powder 1kg": "protein powder",
+    "PROTEIN POWDER REFUND": "protein powder",
+}
+"""What the offline demo's stand-in "model" knows about the recorded receipts' names."""
+
 
 class FakeCanonicalizer:
     """Answers from a fixed table (normalized name → key); unknown names are new items.

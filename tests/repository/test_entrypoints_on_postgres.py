@@ -31,14 +31,21 @@ def test_the_console_script_runs_the_demo(environment: None) -> None:
         assert result.exit_code == 0, result.output
         return result.output
 
+    # the README walkthrough: Raj's rule keeps him off the milk
     run("person", "add", "Alex", "+919876500001")
     run("person", "add", "Sam", "+919876500002")
+    run("person", "add", "Raj", "+919876500003")
     run("group", "create", "Flat 4B", "--as", "Alex")
     run("member", "add", "Flat 4B", "Sam")
-    receipt = str(RECEIPTS / "restaurant_tip.json")
-    assert "Toit, ₹2,047.00" in run("receipt", "add", receipt, "--as", "Alex", "--in", "Flat 4B")
-    assert "Sam owes Alex ₹1,023.50" in run("say", "yes", "--as", "Alex", "--in", "Flat 4B")
-    assert "you owe ₹1,023.50" in run("balances", "--as", "Sam")
+    run("member", "add", "Flat 4B", "Raj")
+    run("say", "Raj doesn't drink milk", "--as", "Raj", "--in", "Flat 4B")
+    receipt = str(RECEIPTS / "grocery_taxed_mix.json")
+    shown = run("receipt", "add", receipt, "--as", "Alex", "--in", "Flat 4B")
+    assert "Raj skipped: 2% MLK GAL (group rule)" in shown
+    details = run("say", "details", "--as", "Alex", "--in", "Flat 4B")
+    assert "1. 2% MLK GAL ₹120.00: Alex and Sam" in details
+    assert "Sam owes Alex" in run("say", "yes", "--as", "Alex", "--in", "Flat 4B")
+    assert "Alex: you owe" in run("balances", "--as", "Sam")
 
 
 def test_live_needs_a_key(environment: None) -> None:
@@ -51,6 +58,9 @@ def test_the_api_factory(environment: None, monkeypatch: pytest.MonkeyPatch) -> 
     with pytest.raises(SystemExit, match="SMARTSPLIT_API_TOKEN"):
         from_environment()
     monkeypatch.setenv("SMARTSPLIT_API_TOKEN", "t0ken")
+    with pytest.raises(SystemExit, match="ANTHROPIC_API_KEY"):
+        from_environment()
+    monkeypatch.setenv("SMARTSPLIT_OFFLINE", "1")
     api = TestClient(from_environment())
     assert api.get("/healthz").json() == {"status": "ok"}
     assert api.post("/v1/tick", headers={"Authorization": "Bearer t0ken"}).json() == []

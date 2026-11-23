@@ -41,6 +41,8 @@ class Settings(BaseSettings):
         "https://wa.me/<bot-number>?text=hi"
     )
     image_dir: Path = Path("./data/images")
+    offline: bool = False
+    """Run the API on the offline stand-ins instead of the model (for trying it locally)."""
 
     @field_validator("anthropic_api_key", "api_token", mode="before")
     @classmethod

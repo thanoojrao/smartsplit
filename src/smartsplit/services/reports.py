@@ -53,10 +53,12 @@ class RuleReport:
     kind: RuleKind
     scope: str
     author_id: str
+    author: str
     source: RuleSource
 
 
 def group_report(uow: UnitOfWork, group_id: str) -> GroupReport | None:
+    """A group's balances and its settle-up plan, for the operator; None if unknown."""
     group = uow.groups.get(group_id)
     if group is None:
         return None
@@ -70,6 +72,7 @@ def group_report(uow: UnitOfWork, group_id: str) -> GroupReport | None:
 
 
 def person_report(uow: UnitOfWork, person_id: str) -> tuple[WithReport, ...] | None:
+    """Everyone a person has something open with, and where; None if unknown."""
     if uow.people.get(person_id) is None:
         return None
     return tuple(
@@ -84,10 +87,18 @@ def person_report(uow: UnitOfWork, person_id: str) -> tuple[WithReport, ...] | N
 
 
 def rules_report(uow: UnitOfWork, person_id: str) -> tuple[RuleReport, ...] | None:
+    """Every rule about a person, with scope and author; None if unknown."""
     if uow.people.get(person_id) is None:
         return None
     return tuple(
-        RuleReport(r.item_key, r.kind, scope_label(uow, r.scope), r.author_id, r.source)
+        RuleReport(
+            r.item_key,
+            r.kind,
+            scope_label(uow, r.scope),
+            r.author_id,
+            _name(uow, r.author_id),
+            r.source,
+        )
         for r in uow.rules.for_subjects([person_id])
     )
 

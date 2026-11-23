@@ -55,6 +55,7 @@ someone else's personal chat. With a real key, add `--live` (e.g.
 
 ```bash
 export SMARTSPLIT_API_TOKEN=...   # required; the API refuses to start without it
+export SMARTSPLIT_OFFLINE=1       # or set ANTHROPIC_API_KEY for the real model
 uv run uvicorn --factory smartsplit.entrypoints.api.server:from_environment
 curl -s localhost:8000/healthz
 curl -s -X POST localhost:8000/v1/messages -H "Authorization: Bearer $SMARTSPLIT_API_TOKEN" \
@@ -65,7 +66,8 @@ curl -s -X POST localhost:8000/v1/messages -H "Authorization: Bearer $SMARTSPLIT
   "text": "help"}'
 ```
 
-Without `ANTHROPIC_API_KEY` the API runs on the offline stand-ins, like the CLI.
+The API needs `ANTHROPIC_API_KEY`, or `SMARTSPLIT_OFFLINE=1` to run on the offline stand-ins
+like the CLI.
 `POST /v1/messages` takes the gateway's message and returns the replies to deliver;
 call `POST /v1/tick` every minute or so. `GET /v1/groups/{id}/balances`,
 `GET /v1/people/{id}/balances` and `GET /v1/people/{id}/rules` are operator reads.
