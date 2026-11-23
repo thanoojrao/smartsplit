@@ -19,12 +19,19 @@ from smartsplit.domain.prompts import (
     RuleChangeEffect,
     WhichPersonPayload,
 )
-from smartsplit.domain.values import ConversationKey, ExactAmount, GroupScope, PersonalContext
+from smartsplit.domain.values import (
+    ConversationKey,
+    ExactAmount,
+    GroupContext,
+    GroupScope,
+    PersonalContext,
+)
 from smartsplit.ports.errors import DuplicateKeyError, StaleDraftError
 from smartsplit.ports.repository import Repository
 from tests.repository.builders import CHAT, T0, at, draft, line, prompt, rule
 
 OTHER = ConversationKey("cli", "other")
+THIRD = ConversationKey("cli", "third")
 
 
 def test_receipts_round_trip(repo: Repository) -> None:
@@ -204,3 +211,33 @@ def test_processed_messages_store_their_replies(repo: Repository) -> None:
     with repo.unit_of_work() as uow:
         assert uow.processed.get(CHAT, "m1") == ProcessedMessage(CHAT, "m1", replies, T0)
         assert uow.processed.get(CHAT, "m2") is None
+
+
+def test_open_drafts_of_a_context_across_chats(repo: Repository) -> None:
+    # A group draft can be under review in a personal chat (filed into the group).
+    with repo.unit_of_work() as uow:
+        uow.drafts.add(draft("d1", minutes=1))
+        uow.drafts.add(draft("d2", chat=OTHER, minutes=2))
+        uow.drafts.add(draft("d3", chat=OTHER, state=DraftState.QUEUED, minutes=3))
+        uow.drafts.add(draft("d4", chat=THIRD, state=DraftState.SAVED, minutes=4))
+        uow.drafts.add(replace(draft("d5", chat=THIRD, minutes=5), context=PersonalContext()))
+
+    with repo.unit_of_work() as uow:
+        assert [d.id for d in uow.drafts.open_in_context(GroupContext("g1"))] == ["d1", "d2", "d3"]
+        assert [d.id for d in uow.drafts.open_in_context(PersonalContext())] == ["d5"]
+
+
+def test_replies_can_be_added_to_a_processed_message(repo: Repository) -> None:
+    first = OutboundMessage(CHAT, None, "Reading it.")
+    later = OutboundMessage(CHAT, None, "Toit, ₹1,200.")
+    with repo.unit_of_work() as uow:
+        uow.processed.add(ProcessedMessage(CHAT, "m1", (first,), T0))
+    with repo.unit_of_work() as uow:
+        uow.processed.add_replies(CHAT, "m1", [later])
+
+    with repo.unit_of_work() as uow:
+        stored = uow.processed.get(CHAT, "m1")
+        assert stored is not None
+        assert stored.replies == (first, later)
+    with pytest.raises(KeyError), repo.unit_of_work() as uow:
+        uow.processed.add_replies(CHAT, "m2", [later])

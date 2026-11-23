@@ -1,6 +1,6 @@
 """Postgres stores for receipts, drafts, prompts and processed messages."""
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from datetime import datetime
 
 from sqlalchemy import Row, insert, select, update
@@ -22,9 +22,9 @@ from smartsplit.domain.prompts import (
     PromptAnswer,
     PromptPayload,
 )
-from smartsplit.domain.values import ConversationKey, Override
+from smartsplit.domain.values import Context, ConversationKey, Override
 from smartsplit.ports.errors import StaleDraftError
-from smartsplit.ports.repository import IDLE_DRAFT_STATES
+from smartsplit.ports.repository import IDLE_DRAFT_STATES, OPEN_DRAFT_STATES
 
 
 class ReceiptStore(Store):
@@ -155,6 +155,21 @@ class DraftStore(Store):
         )
         return tuple(_draft(r) for r in rows)
 
+    def open_in_context(self, context: Context) -> tuple[BillDraft, ...]:
+        c = t.drafts.c
+        group_id = context_group_id(context)
+        rows = self._execute(
+            select(t.drafts)
+            .where(
+                c.context_group_id.is_(None)
+                if group_id is None
+                else c.context_group_id == group_id,
+                c.state.in_([state.value for state in OPEN_DRAFT_STATES]),
+            )
+            .order_by(c.created_at, c.seq)
+        )
+        return tuple(_draft(r) for r in rows)
+
     def due_for_reminder_or_expiry(self, idle_since: datetime) -> tuple[BillDraft, ...]:
         c = t.drafts.c
         rows = self._execute(
@@ -250,6 +265,19 @@ class ProcessedStore(Store):
             return None
         return ProcessedMessage(
             key, message_id, decode(row.replies, tuple[OutboundMessage, ...]), row.processed_at
+        )
+
+    def add_replies(
+        self, key: ConversationKey, message_id: str, replies: Sequence[OutboundMessage]
+    ) -> None:
+        stored = self.get(key, message_id)
+        if stored is None:
+            raise KeyError((key, message_id))
+        c = t.processed_messages.c
+        self._execute(
+            update(t.processed_messages)
+            .where(c.channel == key.channel, c.ref == key.ref, c.message_id == message_id)
+            .values(replies=encode((*stored.replies, *replies)))
         )
 
     def add(self, processed: ProcessedMessage) -> None:

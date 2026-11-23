@@ -1,12 +1,13 @@
 """In-memory stores for receipts, drafts, prompts, bills, payments and the outbox."""
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from dataclasses import replace
 from datetime import datetime
 
 from smartsplit.adapters.fakes.base import insert, replace_existing, require_reference
 from smartsplit.adapters.fakes.people_stores import PeopleStore
 from smartsplit.domain.enums import DraftState, NotificationKind, PromptStatus
+from smartsplit.domain.messages import OutboundMessage
 from smartsplit.domain.model import (
     Bill,
     BillDraft,
@@ -16,7 +17,7 @@ from smartsplit.domain.model import (
 from smartsplit.domain.prompts import Notification, ProcessedMessage, Prompt
 from smartsplit.domain.values import Context, ConversationKey
 from smartsplit.ports.errors import DuplicateKeyError, StaleDraftError
-from smartsplit.ports.repository import ACTIVE_DRAFT_STATES, IDLE_DRAFT_STATES
+from smartsplit.ports.repository import ACTIVE_DRAFT_STATES, IDLE_DRAFT_STATES, OPEN_DRAFT_STATES
 
 
 class ReceiptStore:
@@ -64,6 +65,14 @@ class DraftStore:
     ) -> tuple[BillDraft, ...]:
         mine = [d for d in self.records.values() if d.conversation == key and d.state in states]
         return tuple(sorted(mine, key=lambda d: d.created_at))
+
+    def open_in_context(self, context: Context) -> tuple[BillDraft, ...]:
+        found = [
+            d
+            for d in self.records.values()
+            if d.context == context and d.state in OPEN_DRAFT_STATES
+        ]
+        return tuple(sorted(found, key=lambda d: d.created_at))
 
     def due_for_reminder_or_expiry(self, idle_since: datetime) -> tuple[BillDraft, ...]:
         due = [
@@ -191,3 +200,9 @@ class ProcessedStore:
 
     def add(self, processed: ProcessedMessage) -> None:
         insert(self.records, (processed.key, processed.message_id), processed)
+
+    def add_replies(
+        self, key: ConversationKey, message_id: str, replies: Sequence[OutboundMessage]
+    ) -> None:
+        stored = self.records[(key, message_id)]
+        self.records[(key, message_id)] = replace(stored, replies=(*stored.replies, *replies))

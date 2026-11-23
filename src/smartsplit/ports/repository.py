@@ -4,12 +4,13 @@ Stores return frozen domain records; a change is written back with `update`/`put
 Queries return tuples in a stable order (stated per method).
 """
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from contextlib import AbstractContextManager
 from datetime import date, datetime
 from typing import Protocol
 
 from smartsplit.domain.enums import DraftState, PromptStatus
+from smartsplit.domain.messages import OutboundMessage
 from smartsplit.domain.model import (
     AnswerObservation,
     Bill,
@@ -152,6 +153,11 @@ class DraftStore(Protocol):
         """Drafts of this chat in one of `states`, oldest first."""
         ...
 
+    def open_in_context(self, context: Context) -> tuple[BillDraft, ...]:
+        """Active and queued drafts of one group, or all personal ones, in any chat, oldest
+        first: a group draft can be under review in someone's personal chat (SPEC 10.4)."""
+        ...
+
     def due_for_reminder_or_expiry(self, idle_since: datetime) -> tuple[BillDraft, ...]:
         """Awaiting-people or reviewing drafts with no activity since `idle_since`, oldest first.
 
@@ -164,6 +170,9 @@ ACTIVE_DRAFT_STATES = frozenset(
     {DraftState.AWAITING_PEOPLE, DraftState.PARSING, DraftState.REVIEWING}
 )
 """At most one draft per conversation is in one of these states (SPEC section 4.5)."""
+
+OPEN_DRAFT_STATES = ACTIVE_DRAFT_STATES | {DraftState.QUEUED}
+"""Not finished yet: active, or waiting behind the active one."""
 
 IDLE_DRAFT_STATES = frozenset({DraftState.AWAITING_PEOPLE, DraftState.REVIEWING})
 """Drafts that wait on people and can be reminded about or expire (SPEC section 10.4)."""
@@ -222,6 +231,12 @@ class NotificationStore(Protocol):
 class ProcessedStore(Protocol):
     def get(self, key: ConversationKey, message_id: str) -> ProcessedMessage | None: ...
     def add(self, processed: ProcessedMessage) -> None: ...
+    def add_replies(
+        self, key: ConversationKey, message_id: str, replies: Sequence[OutboundMessage]
+    ) -> None:
+        """Append replies sent after the first transaction (a receipt read once the message was
+        recorded), so a retried message returns them too (SPEC 12.2)."""
+        ...
 
 
 class LlmUsageStore(Protocol):
