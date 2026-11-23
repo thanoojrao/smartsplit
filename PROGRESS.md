@@ -4,23 +4,22 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 ## Next up
 
-M1 is done. **Continue with M2**, then M3, then stop at CHECKPOINT A (no stop between M2 and M3).
+M1 and M2 are done. **Continue with M3**, then stop at CHECKPOINT A.
 
-M2 = everything in CONTRACTS §1 in `smartsplit.domain` (`enums.py`, `values.py`, `model.py`,
-`messages.py`, `commands.py`, `prompts.py`, plus a `phone.py` E.164 helper using `phonenumbers`);
-the ports from CONTRACTS §4 in `smartsplit.ports` (Clock, IdGenerator, ImageStore, ReceiptParser,
-CommandInterpreter, Repository with a unit of work and one store per aggregate, the port errors);
-`src/smartsplit/config.py` (pydantic-settings, SPEC §12.1); the Postgres adapter in `adapters/db`
-(SQLAlchemy Core tables, Alembic migration, advisory lock per conversation); a filesystem ImageStore
-in `adapters/files` (add it to the "Adapters are independent" import-linter contract); in-memory
-fakes in `adapters/fakes`; and repository tests run against real Postgres (`db` marker,
-`TEST_DATABASE_URL`, fail-not-skip). Review range for M2: `42c46b6..HEAD`.
+M3 = SPEC §6 rules and matching. Pure parts in `engine/` (`rules.py` resolve_rules, `matching.py`
+match_item, `overrides.py` propagate_discount_overrides, `learning.py` observe + learned_kind);
+services in `services/` (`scopes.py` stated_rule_scope + local_scope_for, `matching.py`
+load_match_inputs → match_lines (model asked outside any transaction) → remember_matches,
+`rules.py` add_stated_rule / delete_rule with §6.2 permissions, `learning.py` learn_from_bill);
+a `Canonicalizer` port (CommandInterpreter extends it) and `adapters/fakes/llm.py` FakeCanonicalizer.
+Summary display, "that's not milk", rule listing and duplicate detection are M7.
+Review range for M3: `0f64ca5..HEAD`.
 
 ## Milestones
 
 - [x] M0 — Scaffold: spec, tooling, quality gate, frozen engine contract + acceptance tests
 - [x] M1 — Split engine (SPEC §5): `split_receipt` incl. weighted overrides, `fold_item_tax` (§5.1), `amounts_to_weights` (§5.2); all acceptance tests pass + own unit tests (negative subtotals, many members, large amounts, weights, exact amounts, validation)
-- [ ] M2 — Domain model, messages and commands (CONTRACTS §1) + ports incl. ImageStore with unit of work (CONTRACTS §4) + `config.py` + Postgres adapter with Alembic migration + filesystem ImageStore (add `adapters.files` to the independence contract) + repository tests against real Postgres
+- [x] M2 — Domain model, messages and commands (CONTRACTS §1) + ports incl. ImageStore with unit of work (CONTRACTS §4) + `config.py` + Postgres adapter with Alembic migration + filesystem ImageStore (add `adapters.files` to the independence contract) + repository tests against real Postgres
 - [ ] M3 — Rules and matching (SPEC §6): scopes, `resolve_rules`, item matching with per-scope aliases and discount linking, learning, with a fake LLM canonicalizer
 
 **CHECKPOINT A** — stop, push, notify the user, and summarize. The core logic is reviewed by the human before anything is built on top of it.
@@ -38,9 +37,12 @@ fakes in `adapters/fakes`; and repository tests run against real Postgres (`db` 
 
 - M0: scaffold created by hand. Engine contract frozen in `src/smartsplit/engine/__init__.py`. Commit `fc41671`.
 - M1: `split_receipt` (weighted overrides, clamped adjustments, one floor + largest-remainder helper), `fold_item_tax`, `amounts_to_weights`; frozen types moved to `engine/split.py` and re-exported; CI actions on Node 24; 74 tests, 100% coverage; review: no must-fix. Commit `42c46b6`.
+- M2: CONTRACTS §1 domain, ports (Repository + UoW, ImageStore, parser/interpreter, clock, ids), `config.py`, Postgres adapter (Core tables, tagged-JSONB codec, advisory lock, Alembic), file ImageStore, in-memory fakes; repository contract tests run on fake and Postgres; 233 tests, 97% coverage; review must-fix (SKIP LOCKED test) fixed. Commit `0f64ca5`.
 
 ## Follow-ups
 
 (non-blocking review findings go here)
 
 - (M1 review) `amounts_to_weights` raises on no fixed amounts: the orchestrator (M7) must use a plain list override for an equal split, never route "no exact amounts" here.
+- (M2 review) The fake `claim_due` returns a `requested_reply` for a recipient who doesn't exist, while Postgres (inner join, FK) can't store one; the fake skips FK checks generally. Harmless today.
+- (M2 review) Services must use `drafts.update(draft, expected_state=...)` and handle `StaleDraftError` (M7/M8).
