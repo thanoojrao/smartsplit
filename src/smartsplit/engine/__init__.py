@@ -1,71 +1,43 @@
-"""Split engine: the FROZEN contract from SPEC section 5.
+"""Pure engine: splitting, tax, exact amounts, rule resolution, matching and learning.
 
-The types and the `split_receipt` signature are the public contract pinned by
-tests/acceptance/test_split_engine.py. Implement the body; do not change the
-signature or the types without asking the user (see CLAUDE.md).
+The split engine's types and `split_receipt` are the FROZEN contract from SPEC section 5
+(defined in `engine/split.py`, pinned by tests/acceptance/test_split_engine.py).
 """
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from smartsplit.engine.duplicates import DuplicateCandidate, find_likely_duplicate
+from smartsplit.engine.exact import amounts_to_weights
+from smartsplit.engine.learning import learned_kind, observe
+from smartsplit.engine.matching import Match, match_item
+from smartsplit.engine.overrides import discount_links, propagate_discount_overrides
+from smartsplit.engine.rules import ResolvedRule, resolve_rules
+from smartsplit.engine.split import (
+    Assignment,
+    ItemInput,
+    Question,
+    RuleInput,
+    SplitResult,
+    split_receipt,
+)
+from smartsplit.engine.tax import TaxedLine, fold_item_tax
 
-from smartsplit.domain import QuestionReason, RuleKind
-
-
-@dataclass(frozen=True)
-class ItemInput:
-    """One receipt line. `amount_cents` may be negative for a discount line."""
-
-    id: str
-    name: str
-    amount_cents: int
-    canonical: str | None = None
-
-
-@dataclass(frozen=True)
-class RuleInput:
-    """A member's preference for an item key (already canonical/normalized)."""
-
-    member_id: str
-    item_key: str
-    kind: RuleKind
-
-
-@dataclass(frozen=True)
-class Question:
-    """Something the engine wants a human to confirm for one item."""
-
-    item_id: str
-    member_id: str | None
-    reason: QuestionReason
-
-
-@dataclass(frozen=True)
-class Assignment:
-    """Which members share an item, in group member order."""
-
-    item_id: str
-    member_ids: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class SplitResult:
-    shares: dict[str, int]
-    """Cents owed per member. Every member present; sums exactly to items + adjustments."""
-    assignments: tuple[Assignment, ...]
-    """One per input item, in input order."""
-    questions: tuple[Question, ...] = field(default_factory=tuple)
-    """In input item order, then member order."""
-
-
-def split_receipt(
-    items: Sequence[ItemInput],
-    members: Sequence[str],
-    rules: Sequence[RuleInput] = (),
-    adjustments_cents: int = 0,
-    overrides: Mapping[str, Sequence[str]] | None = None,
-) -> SplitResult:
-    """Split a receipt among group members, applying preference rules.
-
-    See SPEC section 5 for the exact semantics, ordering, and rounding.
-    """
-    raise NotImplementedError("M2: implement per SPEC section 5")
+__all__ = [
+    "Assignment",
+    "DuplicateCandidate",
+    "ItemInput",
+    "Match",
+    "Question",
+    "ResolvedRule",
+    "RuleInput",
+    "SplitResult",
+    "TaxedLine",
+    "amounts_to_weights",
+    "discount_links",
+    "find_likely_duplicate",
+    "fold_item_tax",
+    "learned_kind",
+    "match_item",
+    "observe",
+    "propagate_discount_overrides",
+    "resolve_rules",
+    "split_receipt",
+]

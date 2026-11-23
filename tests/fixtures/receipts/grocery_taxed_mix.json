@@ -1,0 +1,42 @@
+{
+  "merchant": "Nature's Basket",
+  "purchased_at": "2026-11-20",
+  "currency": "INR",
+  "lines": [
+    {
+      "name": "2% MLK GAL",
+      "quantity": 2,
+      "amount_cents": 12000,
+      "taxed": false,
+      "confidence": 0.95,
+      "discount_for_index": null
+    },
+    {
+      "name": "Bread",
+      "quantity": 1,
+      "amount_cents": 4500,
+      "taxed": false,
+      "confidence": 0.95,
+      "discount_for_index": null
+    },
+    {
+      "name": "Red Wine",
+      "quantity": 1,
+      "amount_cents": 90000,
+      "taxed": true,
+      "confidence": 0.95,
+      "discount_for_index": null
+    },
+    {
+      "name": "Chips",
+      "quantity": 3,
+      "amount_cents": 6000,
+      "taxed": true,
+      "confidence": 0.55,
+      "discount_for_index": null
+    }
+  ],
+  "tax_cents": 9600,
+  "other_adjustments_cents": 0,
+  "total_cents": 122100
+}

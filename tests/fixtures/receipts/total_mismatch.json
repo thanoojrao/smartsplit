@@ -1,0 +1,26 @@
+{
+  "merchant": "Kirana",
+  "purchased_at": null,
+  "currency": null,
+  "lines": [
+    {
+      "name": "Rice 5kg",
+      "quantity": 1,
+      "amount_cents": 42000,
+      "taxed": null,
+      "confidence": 0.95,
+      "discount_for_index": null
+    },
+    {
+      "name": "Dal 1kg",
+      "quantity": 1,
+      "amount_cents": 14000,
+      "taxed": null,
+      "confidence": 0.4,
+      "discount_for_index": null
+    }
+  ],
+  "tax_cents": 0,
+  "other_adjustments_cents": 0,
+  "total_cents": 57000
+}

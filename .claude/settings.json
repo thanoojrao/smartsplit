@@ -14,6 +14,15 @@
             "timeout": 300
           }
         ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Context was compacted. Before continuing: re-read docs/SPEC.md, PROGRESS.md and DECISIONS.md, then run: bash scripts/check.sh'"
+          }
+        ]
       }
     ]
   },

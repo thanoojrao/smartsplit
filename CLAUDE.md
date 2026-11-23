@@ -23,6 +23,7 @@ A smaller, clean, fully tested result is better than a large messy one.
 4. **Review gate:** spawn a subagent with fresh context, using the prompt in `docs/REVIEW.md`, on the milestone's diff. Fix every finding marked *must-fix*. Log the rest under "Follow-ups" in `PROGRESS.md`.
 5. Update `PROGRESS.md`: tick the milestone, add a one-line summary, and rewrite "Next up" so a brand-new session could continue with no other context.
 6. Commit with a clear message (`M3: preference rules + canonicalization`) and push. Commit in small steps within a milestone too; never leave work uncommitted at the end of a turn.
+   Work on the branch the session assigns (currently `claude/great-feynman-y9tao9`) and push only there; never push to `main`. Record the milestone's final commit hash on its line in the `PROGRESS.md` log. CI (`.github/workflows/ci.yml`) must be green too.
 
 ## Hard rules
 

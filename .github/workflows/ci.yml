@@ -1,0 +1,63 @@
+# Independent run of the quality gate (CLAUDE.md: "done" means scripts/check.sh exits 0),
+# plus a guard that the frozen files never change. See docs/DESIGN_REVIEW.md E1/E2.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  frozen-files:
+    name: Frozen files unchanged
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Compare tests/acceptance and scripts/check.sh with main
+        run: |
+          git fetch --no-tags origin main
+          changed=$(git diff --name-only origin/main...HEAD -- tests/acceptance scripts/check.sh)
+          if [ -n "$changed" ]; then
+            echo "Frozen files changed (CLAUDE.md forbids this):"; echo "$changed"; exit 1
+          fi
+      - name: No unlisted files in tests/acceptance
+        run: |
+          listed=$(awk '{print $2}' tests/acceptance/CHECKSUMS.sha256 | sed 's|^\./||' | sort)
+          actual=$(git ls-files tests/acceptance | grep -v 'CHECKSUMS.sha256$' | sort)
+          if [ "$listed" != "$actual" ]; then
+            echo "tests/acceptance files don't match CHECKSUMS.sha256"; diff <(echo "$listed") <(echo "$actual"); exit 1
+          fi
+
+  check:
+    name: scripts/check.sh
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: smartsplit
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-retries 15
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/smartsplit
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/smartsplit_test
+      HYPOTHESIS_PROFILE: ci
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Python 3.12
+        run: uv python install 3.12 && uv python pin 3.12
+      - name: Create the test database
+        run: PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE smartsplit_test"
+      - name: Quality gate
+        run: bash scripts/check.sh

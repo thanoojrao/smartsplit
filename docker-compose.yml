@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: smartsplit
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"  # local only; never expose the default password
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/create_test_db.sql:/docker-entrypoint-initdb.d/create_test_db.sql:ro

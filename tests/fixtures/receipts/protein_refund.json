@@ -1,0 +1,34 @@
+{
+  "merchant": "Decathlon",
+  "purchased_at": null,
+  "currency": "INR",
+  "lines": [
+    {
+      "name": "Shaker",
+      "quantity": 1,
+      "amount_cents": 50000,
+      "taxed": null,
+      "confidence": 0.95,
+      "discount_for_index": null
+    },
+    {
+      "name": "Whey Protein Powder 1kg",
+      "quantity": 1,
+      "amount_cents": 300000,
+      "taxed": null,
+      "confidence": 0.95,
+      "discount_for_index": null
+    },
+    {
+      "name": "PROTEIN POWDER REFUND",
+      "quantity": 1,
+      "amount_cents": -250000,
+      "taxed": null,
+      "confidence": 0.9,
+      "discount_for_index": null
+    }
+  ],
+  "tax_cents": 0,
+  "other_adjustments_cents": 0,
+  "total_cents": 100000
+}
