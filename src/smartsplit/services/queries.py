@@ -4,6 +4,7 @@ A group chat only ever hears about that group. Anything wider goes to the asker'
 """
 
 from smartsplit.domain.commands import ShowBalances
+from smartsplit.domain.values import GroupContext
 from smartsplit.ledger import pair_debts
 from smartsplit.ledger.overall import owed_to
 from smartsplit.services.errors import NotAllowedError
@@ -11,6 +12,7 @@ from smartsplit.services.ledgers import (
     between_text,
     group_balances_text,
     group_ledger,
+    has_balances_elsewhere,
     overall_text,
 )
 from smartsplit.services.names import Directory
@@ -32,8 +34,11 @@ def show_balances(turn: Turn, command: ShowBalances, directory: Directory) -> No
             turn.reply(group_balances_text(uow, group_id, currency))
         else:
             turn.reply(_pair_here(turn, group_id, other))
-        wider = between_text(uow, me, other, currency) if other else overall_text(uow, me, currency)
-        send_privately(turn, wider)
+        if has_balances_elsewhere(uow, me, GroupContext(group_id)):
+            wider = (
+                between_text(uow, me, other, currency) if other else overall_text(uow, me, currency)
+            )
+            send_privately(turn, wider)
         return
     if named_group is not None:
         text = group_balances_text(uow, named_group, currency)
@@ -57,7 +62,7 @@ def _pair_here(turn: Turn, group_id: str, other: str) -> str:
 
 
 def send_privately(turn: Turn, text: str) -> None:
-    """Overall answers go to the asker's personal chat, if they have one (10.7)."""
+    """Wider answers go to the asker's personal chat, if they have one (10.7)."""
     if turn.direct(turn.speaker.id, text):
         turn.reply("I sent you the rest in a DM.")
 

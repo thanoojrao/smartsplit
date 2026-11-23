@@ -57,8 +57,11 @@ def group_balances_text(uow: UnitOfWork, group_id: str, currency: str) -> str:
 
 
 def overall_text(uow: UnitOfWork, person_id: str, currency: str) -> str:
-    """ "what do I owe?": one net line per person, from the asker's side."""
-    totals = [b for b in overall_for(person_id, ledgers_for(uow, person_id)) if b.net_cents]
+    """ "what do I owe?": one net line per person, from the asker's side, largest first."""
+    totals = sorted(
+        (b for b in overall_for(person_id, ledgers_for(uow, person_id)) if b.net_cents),
+        key=lambda b: (-abs(b.net_cents), b.other_id),
+    )
     if not totals:
         return "You're all settled up."
     return "\n".join(_net_line(uow, person_id, b, currency) for b in totals)
@@ -96,4 +99,14 @@ def _net_line(uow: UnitOfWork, me: str, balance: OverallBalance, currency: str) 
 def _signed(cents: int, currency: str) -> str:
     return (
         f"owes you {money(cents, currency)}" if cents > 0 else f"you owe {money(-cents, currency)}"
+    )
+
+
+def has_balances_elsewhere(uow: UnitOfWork, person_id: str, here: Context) -> bool:
+    """Whether anything is open for this person outside one context."""
+    return any(
+        cents
+        for balance in overall_for(person_id, ledgers_for(uow, person_id))
+        for context, cents in balance.breakdown
+        if context != here
     )

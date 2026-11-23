@@ -148,7 +148,7 @@ def test_busy_group_chat_is_ignored() -> None:
 
 
 def test_unaddressed_answer_to_an_open_question_counts() -> None:
-    # B1: "clear answers to its questions"
+    # B1: clear answers to its questions count even when not addressed
     world = World()
     flat(world, YOU, SAM)
     world.say(SAM, FLAT, "I usually don't drink beer pitcher")

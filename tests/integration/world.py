@@ -19,6 +19,8 @@ from smartsplit.domain.messages import (
     OutboundMessage,
 )
 from smartsplit.domain.values import ConversationKey
+from smartsplit.ports.llm import CommandInterpreter
+from smartsplit.ports.repository import Repository
 from smartsplit.services.orchestrator import Orchestrator
 from smartsplit.services.turn import OrchestratorSettings
 
@@ -52,8 +54,10 @@ class World:
     """One bot; `say` sends a message and returns the texts that came back, by chat."""
 
     clock: FixedClock = field(default_factory=lambda: FixedClock(T0))
-    repository: InMemoryRepository = field(default_factory=InMemoryRepository)
+    repository: Repository = field(default_factory=InMemoryRepository)
     canonical: FakeCanonicalizer = field(default_factory=FakeCanonicalizer)
+    interpreter: CommandInterpreter | None = None
+    """None: the keyword fake, which canonicalizes with `canonical`."""
     settings: OrchestratorSettings = field(default_factory=OrchestratorSettings)
     last: list[OutboundMessage] = field(default_factory=list)
     _ids: "count[int]" = field(default_factory=count)
@@ -61,7 +65,7 @@ class World:
     def __post_init__(self) -> None:
         ids = SequentialIds()
         self.parser = FakeReceiptParser(self.settings.max_receipt_lines)
-        self.interpreter = KeywordInterpreter(self.canonical)
+        self.interpreter = self.interpreter or KeywordInterpreter(self.canonical)
         self.bot = Orchestrator(
             repository=self.repository,
             images=InMemoryImageStore(self.clock, SequentialIds("img")),
