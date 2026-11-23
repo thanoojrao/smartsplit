@@ -12,7 +12,7 @@ log = logging.getLogger("smartsplit.llm")
 
 
 def log_usage(purpose: str, response: Message) -> None:
-    """`purpose` is "interpret", "canonicalize" or "receipt". An answer without a usage
+    """`purpose` is "agent", "canonicalize" or "receipt". An answer without a usage
     block (malformed) is not logged: logging never breaks a call."""
     usage = getattr(response, "usage", None)
     if usage is None:

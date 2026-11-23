@@ -1,20 +1,14 @@
 """In-memory stores for receipts, drafts, prompts, bills, payments and the outbox."""
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection
 from dataclasses import replace
 from datetime import datetime
 
 from smartsplit.adapters.fakes.base import insert, replace_existing, require_reference
 from smartsplit.adapters.fakes.people_stores import PeopleStore
-from smartsplit.domain.enums import DraftState, NotificationKind, PromptStatus
-from smartsplit.domain.messages import OutboundMessage
-from smartsplit.domain.model import (
-    Bill,
-    BillDraft,
-    Receipt,
-    Settlement,
-)
-from smartsplit.domain.prompts import Notification, ProcessedMessage, Prompt
+from smartsplit.domain.enums import DraftState, NotificationKind, PhotoOutcome, PromptStatus
+from smartsplit.domain.model import Bill, BillDraft, PhotoRead, Receipt, Settlement
+from smartsplit.domain.prompts import ChatMessage, Notification, ProcessedMessage, Prompt
 from smartsplit.domain.values import Context, ConversationKey
 from smartsplit.ports.errors import DuplicateKeyError, StaleDraftError
 from smartsplit.ports.repository import ACTIVE_DRAFT_STATES, IDLE_DRAFT_STATES, OPEN_DRAFT_STATES
@@ -42,11 +36,11 @@ class DraftStore:
         self._check_one_active(draft)
         insert(self.records, draft.id, draft)
 
-    def update(self, draft: BillDraft, expected_state: DraftState) -> None:
+    def update(self, draft: BillDraft, expected_version: int) -> None:
         current = self.records.get(draft.id)
         if current is None:
             raise KeyError(draft.id)
-        if current.state is not expected_state:
+        if current.version != expected_version:
             raise StaleDraftError(draft.id)
         self._check_one_active(draft)
         self.records[draft.id] = draft
@@ -55,10 +49,11 @@ class DraftStore:
         if draft.state in ACTIVE_DRAFT_STATES and any(
             d.id != draft.id
             and d.conversation == draft.conversation
+            and d.added_by == draft.added_by
             and d.state in ACTIVE_DRAFT_STATES
             for d in self.records.values()
         ):
-            raise DuplicateKeyError("the chat already has an active draft")
+            raise DuplicateKeyError("the adder already has an active draft in that chat")
 
     def for_conversation(
         self, key: ConversationKey, states: Collection[DraftState]
@@ -73,14 +68,6 @@ class DraftStore:
             if d.context == context and d.state in OPEN_DRAFT_STATES
         ]
         return tuple(sorted(found, key=lambda d: d.created_at))
-
-    def parsing_idle_since(self, idle_since: datetime) -> tuple[BillDraft, ...]:
-        stuck = [
-            d
-            for d in self.records.values()
-            if d.state is DraftState.PARSING and d.last_activity_at <= idle_since
-        ]
-        return tuple(sorted(stuck, key=lambda d: d.created_at))
 
     def due_for_reminder_or_expiry(self, idle_since: datetime) -> tuple[BillDraft, ...]:
         due = [
@@ -180,7 +167,7 @@ class NotificationStore:
         any that would push a person past the cap within this batch."""
         sent_today: dict[str, int] = {}
         for n in self.records.values():
-            if n.sent_at is not None and n.sent_at >= day_start and _counts_toward_cap(n):
+            if n.sent_at is not None and n.sent_at >= day_start:
                 sent_today[n.recipient_id] = sent_today.get(n.recipient_id, 0) + 1
         unsent = sorted(
             (n for n in self.records.values() if n.sent_at is None), key=lambda n: n.created_at
@@ -188,19 +175,16 @@ class NotificationStore:
         batch = [n for n in unsent if self._deliverable(n, sent_today, per_person_daily_cap)]
         claimed: list[Notification] = []
         for n in batch[:limit]:
-            if _counts_toward_cap(n):
-                count = sent_today.get(n.recipient_id, 0)
-                if count >= per_person_daily_cap:
-                    continue
-                sent_today[n.recipient_id] = count + 1
+            count = sent_today.get(n.recipient_id, 0)
+            if count >= per_person_daily_cap:
+                continue
+            sent_today[n.recipient_id] = count + 1
             sent = replace(n, sent_at=now)
             self.records[n.id] = sent
             claimed.append(sent)
         return tuple(claimed)
 
     def _deliverable(self, n: Notification, sent_today: dict[str, int], cap: int) -> bool:
-        if not _counts_toward_cap(n):
-            return True
         person = self._people.get(n.recipient_id)
         return (
             person is not None
@@ -208,10 +192,6 @@ class NotificationStore:
             and person.notifications_enabled
             and sent_today.get(n.recipient_id, 0) < cap
         )
-
-
-def _counts_toward_cap(notification: Notification) -> bool:
-    return notification.kind is not NotificationKind.REQUESTED_REPLY
 
 
 class ProcessedStore:
@@ -224,8 +204,57 @@ class ProcessedStore:
     def add(self, processed: ProcessedMessage) -> None:
         insert(self.records, (processed.key, processed.message_id), processed)
 
-    def add_replies(
-        self, key: ConversationKey, message_id: str, replies: Sequence[OutboundMessage]
-    ) -> None:
-        stored = self.records[(key, message_id)]
-        self.records[(key, message_id)] = replace(stored, replies=(*stored.replies, *replies))
+
+class PhotoStore:
+    def __init__(self) -> None:
+        self.records: dict[tuple[ConversationKey, str], PhotoRead] = {}
+
+    def get(self, key: ConversationKey, message_id: str) -> PhotoRead | None:
+        return self.records.get((key, message_id))
+
+    def add(self, photo: PhotoRead) -> None:
+        insert(self.records, (photo.conversation, photo.message_id), photo)
+
+    def update(self, photo: PhotoRead) -> None:
+        replace_existing(self.records, (photo.conversation, photo.message_id), photo)
+
+    def latest_unused(
+        self, key: ConversationKey, sender_id: str, since: datetime
+    ) -> PhotoRead | None:
+        found = [
+            p
+            for p in self.records.values()
+            if p.conversation == key
+            and p.sender_id == sender_id
+            and p.outcome is PhotoOutcome.RECEIPT
+            and p.used_by_draft_id is None
+            and p.created_at >= since
+        ]
+        return max(found, key=lambda p: p.created_at, default=None)
+
+
+class ChatStore:
+    """Every chat's transcript; `seq` comes from one counter, like the Postgres sequence."""
+
+    def __init__(self) -> None:
+        self.records: list[ChatMessage] = []
+        self._seq = 0
+
+    def append(self, message: ChatMessage) -> ChatMessage:
+        self._seq += 1
+        stored = replace(message, seq=self._seq)
+        self.records.append(stored)
+        return stored
+
+    def recent(self, key: ConversationKey, limit: int) -> tuple[ChatMessage, ...]:
+        mine = [m for m in self.records if m.conversation == key]
+        return tuple(mine[-limit:]) if limit > 0 else ()
+
+    def prune(self, key: ConversationKey, keep: int) -> None:
+        kept = {m.seq for m in self.recent(key, keep)}
+        self.records = [m for m in self.records if m.conversation != key or m.seq in kept]
+
+    def delete_older_than(self, before: datetime) -> int:
+        old = [m for m in self.records if m.created_at < before]
+        self.records = [m for m in self.records if m.created_at >= before]
+        return len(old)

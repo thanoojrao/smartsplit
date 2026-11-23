@@ -92,11 +92,11 @@ class LlmUsageStore:
     def __init__(self) -> None:
         self.records: dict[tuple[str, date], LlmUsage] = {}
 
-    def get(self, person_id: str, day: date) -> LlmUsage | None:
-        return self.records.get((person_id, day))
+    def get(self, counter: str, day: date) -> LlmUsage | None:
+        return self.records.get((counter, day))
 
-    def increment(self, person_id: str, day: date) -> int:
-        current = self.records.get((person_id, day))
+    def increment(self, counter: str, day: date) -> int:
+        current = self.records.get((counter, day))
         calls = (current.calls if current else 0) + 1
-        self.records[(person_id, day)] = LlmUsage(person_id, day, calls)
+        self.records[(counter, day)] = LlmUsage(counter, day, calls)
         return calls

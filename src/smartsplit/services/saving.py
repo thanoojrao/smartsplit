@@ -1,9 +1,11 @@
-"""Confirming, saving and cancelling drafts, and starting the next queued one (SPEC 10.4)."""
+"""Saving and cancelling drafts, and starting the adder's next queued one (SPEC 10.4, 10.5)."""
+
+from dataclasses import replace
 
 from smartsplit.domain import normalize_item_name
-from smartsplit.domain.enums import DraftState, NotificationKind, PromptKind
+from smartsplit.domain.enums import DraftState, NotificationKind
 from smartsplit.domain.model import Bill, BillDraft, BillLine
-from smartsplit.domain.prompts import ConfirmTotalPayload
+from smartsplit.domain.prompts import ChatRef
 from smartsplit.domain.values import EqualSplit, GroupContext, Share, Weight, Weighted
 from smartsplit.services.drafting import split_of
 from smartsplit.services.errors import NotAllowedError
@@ -11,42 +13,26 @@ from smartsplit.services.learning import LineAnswer, learn_from_bill
 from smartsplit.services.ledgers import group_balances_text, overall_text
 from smartsplit.services.lifecycle import finish, start_next
 from smartsplit.services.notifications import invites_for, tell_participants
-from smartsplit.services.prompting import open_prompt
 from smartsplit.services.rules import is_current_member
 from smartsplit.services.scopes import local_scope_for
+from smartsplit.services.speaker import group_chat
 from smartsplit.services.splitting import DraftSplit, effective_overrides
 from smartsplit.services.text import money, name_for
 from smartsplit.services.turn import Turn
 
 
-def confirm(turn: Turn, draft: BillDraft) -> None:
-    """Only the adder saves. A total that still doesn't match is asked about first (C5)."""
-    if turn.speaker.id != draft.added_by:
-        adder = name_for(turn.uow, None, draft.added_by)
-        raise NotAllowedError(f"Only {adder} can save this bill.")
+def save_bill(turn: Turn, draft: BillDraft, *, accept_difference: bool) -> Bill:
+    """Write the bill exactly as shown (an accepted difference is shared like a tip), learn
+    from its answers, and say so where the bill lives."""
     split = split_of(turn, draft)
-    if split.difference_cents:
-        ask_about_difference(turn, draft, split)
-        return
-    save_bill(turn, draft, split)
-
-
-def ask_about_difference(turn: Turn, draft: BillDraft, split: DraftSplit) -> None:
-    currency = turn.settings.currency
-    payload = ConfirmTotalPayload(split.difference_cents)
-    open_prompt(turn, draft.id, PromptKind.CONFIRM_TOTAL, payload, draft.added_by)
-    turn.reply(
-        f"The lines come to {money(split.lines_total_cents, currency)} but the total is "
-        f"{money(draft.total_cents, currency)}.\n"
-        'Fix a line, or say "yes" to share the difference like a tip.'
-    )
-
-
-def save_bill(turn: Turn, draft: BillDraft, split: DraftSplit) -> Bill:
-    """Write the bill exactly as shown, learn from its answers, and reply with balances."""
+    if split.difference_cents and accept_difference:
+        draft = replace(
+            draft, other_adjustments_cents=draft.other_adjustments_cents + split.difference_cents
+        )
+        split = split_of(turn, draft)
     bill = bill_from_draft(turn, draft, split)
     turn.uow.bills.add(bill)
-    finish(turn, draft, DraftState.SAVED)
+    ended = finish(turn, turn.uow.drafts.get(draft.id) or draft, DraftState.SAVED)
     learn_from_bill(
         turn.uow,
         turn.ids,
@@ -58,31 +44,30 @@ def save_bill(turn: Turn, draft: BillDraft, split: DraftSplit) -> Bill:
     )
     currency = turn.settings.currency
     saved = f"Saved: {bill.description}, {money(bill.total_cents, currency)}."
+    ref = (ChatRef("bill", bill.id),)
     if isinstance(bill.context, GroupContext):
         balances = group_balances_text(turn.uow, bill.context.group_id, currency)
-        group_chat = turn.uow.groups.get(bill.context.group_id)
-        chat = (
-            turn.uow.conversations.get(group_chat.channel_ref)
-            if group_chat and group_chat.channel_ref
-            else None
-        )
+        chat = group_chat(turn.uow, bill.context.group_id)
         if chat is not None and chat.key != turn.conversation.key:
             shares = "\n".join(
                 f"{name_for(turn.uow, None, share.person_id)}: {money(share.cents, currency)}"
                 for share in bill.shares
             )
             added = f"{turn.speaker.display_name} added a bill. {saved}"
-            turn.post(chat, f"{added}\n{shares}\n{balances}")
-        turn.reply(f"{saved}\n{balances}")
+            turn.post(chat, f"{added}\n{shares}\n{balances}", ref)
+        turn.show(f"{saved}\n{balances}", ref)
     else:
         tell_participants(turn, bill, NotificationKind.BILL_ADDED, None)
-        turn.reply(f"{saved}\n{overall_text(turn.uow, turn.speaker.id, currency)}")
-        for name in invites_for(turn, bill):
-            turn.reply(
+        turn.show(f"{saved}\n{overall_text(turn.uow, turn.speaker.id, currency)}", ref)
+        for person_id in invites_for(turn, bill):
+            name = name_for(turn.uow, turn.speaker.id, person_id)
+            turn.show(
                 f"{name} hasn't used SmartSplit yet. Forward this to them:\n"
-                f"{turn.settings.invite_template}"
+                f"I added our split on SmartSplit. Say hi to the bot to see it: "
+                f"{turn.settings.bot_link}",
+                (ChatRef("person", person_id),),
             )
-    start_next(turn, draft)
+    start_next(turn, ended)
     return bill
 
 
@@ -118,7 +103,7 @@ def bill_from_draft(turn: Turn, draft: BillDraft, split: DraftSplit) -> Bill:
         participants=draft.participants,
         lines=lines,
         tax_cents=draft.tax_cents,
-        other_adjustments_cents=draft.other_adjustments_cents + draft.accepted_difference_cents,
+        other_adjustments_cents=draft.other_adjustments_cents,
         total_cents=draft.total_cents,
         shares=tuple(Share(p, split.result.shares[p]) for p in draft.participants),
         reverses_id=None,
@@ -157,7 +142,7 @@ def cancel(turn: Turn, draft: BillDraft) -> None:
             raise NotAllowedError("Only members of this group can cancel its bills.")
     elif turn.speaker.id != draft.added_by:
         raise NotAllowedError("Only the person who added it can cancel this bill.")
-    finish(turn, draft, DraftState.CANCELLED)
+    ended = finish(turn, draft, DraftState.CANCELLED)
     who = f"{turn.speaker.display_name} cancelled" if turn.in_group else "Cancelled"
-    turn.reply(f"{who} the {draft.description} bill. Nothing was saved.")
-    start_next(turn, draft)
+    turn.show(f"{who} the {draft.description} bill. Nothing was saved.")
+    start_next(turn, ended)

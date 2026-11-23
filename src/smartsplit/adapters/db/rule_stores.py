@@ -172,16 +172,14 @@ class ObservationStore(Store):
 
 
 class LlmUsageStore(Store):
-    def get(self, person_id: str, day: date) -> LlmUsage | None:
+    def get(self, counter: str, day: date) -> LlmUsage | None:
         c = t.llm_usage.c
-        calls = self._execute(
-            select(c.calls).where(c.person_id == person_id, c.day == day)
-        ).scalar()
-        return LlmUsage(person_id, day, calls) if calls is not None else None
+        calls = self._execute(select(c.calls).where(c.counter == counter, c.day == day)).scalar()
+        return LlmUsage(counter, day, calls) if calls is not None else None
 
-    def increment(self, person_id: str, day: date) -> int:
-        statement = pg_insert(t.llm_usage).values(person_id=person_id, day=day, calls=1)
+    def increment(self, counter: str, day: date) -> int:
+        statement = pg_insert(t.llm_usage).values(counter=counter, day=day, calls=1)
         upsert = statement.on_conflict_do_update(
-            index_elements=["person_id", "day"], set_={"calls": t.llm_usage.c.calls + 1}
+            index_elements=["counter", "day"], set_={"calls": t.llm_usage.c.calls + 1}
         ).returning(t.llm_usage.c.calls)
         return int(self._execute(upsert).scalar_one())

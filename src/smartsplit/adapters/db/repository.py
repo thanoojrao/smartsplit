@@ -3,6 +3,7 @@
 import hashlib
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import date
 
 from sqlalchemy import Connection, Engine, create_engine, func, select, text
 from sqlalchemy.exc import IntegrityError
@@ -16,6 +17,7 @@ class SqlUnitOfWork:
     """The stores, all bound to one connection inside one transaction."""
 
     def __init__(self, connection: Connection) -> None:
+        self._connection = connection
         self.people = people_stores.PeopleStore(connection)
         self.identities = people_stores.IdentityStore(connection)
         self.nicknames = people_stores.NicknameStore(connection)
@@ -27,6 +29,8 @@ class SqlUnitOfWork:
         self.rules = rule_stores.RuleStore(connection)
         self.observations = rule_stores.ObservationStore(connection)
         self.llm_usage = rule_stores.LlmUsageStore(connection)
+        self.photos = draft_stores.PhotoStore(connection)
+        self.chat = draft_stores.ChatStore(connection)
         self.receipts = draft_stores.ReceiptStore(connection)
         self.drafts = draft_stores.DraftStore(connection)
         self.prompts = draft_stores.PromptStore(connection)
@@ -34,6 +38,12 @@ class SqlUnitOfWork:
         self.bills = ledger_stores.BillStore(connection)
         self.settlements = ledger_stores.SettlementStore(connection)
         self.notifications = ledger_stores.NotificationStore(connection)
+
+    @contextmanager
+    def savepoint(self) -> Iterator[None]:
+        """A Postgres SAVEPOINT, released on success and rolled back if the block raises."""
+        with self._connection.begin_nested():
+            yield
 
 
 def lock_id(key: ConversationKey) -> int:
@@ -63,6 +73,11 @@ class SqlRepository:
             if translated is None:
                 raise
             raise translated from error
+
+    def count_usage(self, counter: str, day: date) -> int:
+        """Its own connection and transaction, committed at once (SPEC 12.5)."""
+        with self._engine.begin() as connection:
+            return rule_stores.LlmUsageStore(connection).increment(counter, day)
 
 
 def connect(database_url: str) -> SqlRepository:

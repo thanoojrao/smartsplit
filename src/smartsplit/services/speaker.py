@@ -88,7 +88,7 @@ def _new_conversation(
     """A new personal chat, or a new group chat: the group is created and the sender joins."""
     if message.conversation_kind is ConversationKind.PERSONAL:
         conversation = Conversation(
-            message.conversation, ConversationKind.PERSONAL, None, None, speaker.id, ()
+            message.conversation, ConversationKind.PERSONAL, None, None, speaker.id
         )
     else:
         group = Group(
@@ -97,7 +97,7 @@ def _new_conversation(
         uow.groups.add(group)
         uow.memberships.add(Membership(group.id, speaker.id, 1, now, None))
         conversation = Conversation(
-            message.conversation, ConversationKind.GROUP, group.name, group.id, None, ()
+            message.conversation, ConversationKind.GROUP, group.name, group.id, None
         )
     uow.conversations.add(conversation)
     return conversation
@@ -121,3 +121,11 @@ def addressed(message: InboundMessage) -> bool:
         or message.event is not None
         or message.contact is not None
     )
+
+
+def group_chat(uow: UnitOfWork, group_id: str) -> Conversation | None:
+    """The group chat a group is linked to, if any."""
+    group = uow.groups.get(group_id)
+    if group is None or group.channel_ref is None:
+        return None
+    return uow.conversations.get(group.channel_ref)

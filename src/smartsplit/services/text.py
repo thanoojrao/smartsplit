@@ -8,14 +8,13 @@ from smartsplit.ports.repository import UnitOfWork
 
 _SYMBOLS = {"INR": "₹", "USD": "$", "EUR": "€", "GBP": "£"}
 
-HELP = """I split bills. Send a receipt photo, or write a bill like "rent 30000 with Sam and Raj".
-In a group, everyone in it shares by default: "split with me and Priya" or "everyone except Raj".
-Tell me what people don't use: "Raj doesn't drink milk", "Sam usually skips chips".
-Ask "balances" or "what do I owe Sam?". Say "details" during a review to see every line."""
-
+WELCOME = (
+    "Hi {name}! I split bills: send me a receipt photo, or type one like "
+    '"rent 30000 with Sam and Raj".\n'
+    "I remember who skips what and keep everyone's balances. Just talk to me."
+)
 
 TRY_AGAIN = "Couldn't do that, try again in a minute."
-READ_LATER = "Couldn't read the receipt just now. I'll try again shortly."
 OVER_LIMIT = "That's all I can do for you today. Try again tomorrow."
 NEEDS_NUMBER = "Message me 1:1 first, so I can link this chat to your number."
 

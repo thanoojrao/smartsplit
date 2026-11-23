@@ -141,7 +141,7 @@ def create_app(
 
     @app.post("/v1/messages", dependencies=guarded)
     def messages(body: MessageIn) -> list[MessageOut]:
-        return _out(orchestrator.handle(_inbound(body, max_image_bytes)))
+        return _out(list(orchestrator.handle(_inbound(body, max_image_bytes)).replies))
 
     @app.post("/v1/tick", dependencies=guarded)
     def tick() -> list[MessageOut]:

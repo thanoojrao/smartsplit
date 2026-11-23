@@ -4,8 +4,8 @@ import json
 from collections.abc import Mapping, Sequence
 
 from smartsplit.domain import normalize_item_name
-from smartsplit.ports.llm import ParsedReceipt, ReceiptUnreadableError
-from smartsplit.services.receipt_output import receipt_from_model_output
+from smartsplit.ports.llm import NotAReceipt, ParsedReceipt, ReceiptUnreadableError
+from smartsplit.services.receipt_output import read_model_output
 
 DEMO_ITEMS = {
     "2% MLK GAL": "milk",
@@ -35,19 +35,21 @@ class FakeCanonicalizer:
 class FakeReceiptParser:
     """Reads "images" that are recorded model output (`tests/fixtures/receipts/*.json`).
 
-    The bytes go through the same validation as the real parser, so tests and the CLI demo
-    see exactly what a recorded model answer would produce. Anything that isn't JSON is
-    unreadable, like a blurry photo.
+    The bytes go through the same validation as the real parser, so tests and the demo see
+    exactly what a recorded model answer would produce (`{"is_receipt": false}` is a photo
+    that isn't a receipt). Anything that isn't JSON is unreadable, like a blurry photo.
     """
 
     def __init__(self, max_lines: int) -> None:
         self._max_lines = max_lines
         self.calls = 0
 
-    def parse(self, image: bytes, mime_type: str, currency: str) -> ParsedReceipt:
+    def parse(
+        self, image: bytes, mime_type: str, currency: str, timeout_seconds: float
+    ) -> ParsedReceipt | NotAReceipt:
         self.calls += 1
         try:
             recorded = json.loads(image.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise ReceiptUnreadableError("not a recorded receipt") from error
-        return receipt_from_model_output(recorded, currency, self._max_lines)
+        return read_model_output(recorded, currency, self._max_lines)

@@ -109,7 +109,6 @@ conversations = Table(
     Column("name", Text),
     Column("group_id", Text),
     Column("person_id", Text),
-    Column("last_listed_bill_ids", ARRAY(Text), nullable=False),
     PrimaryKeyConstraint("channel", "ref"),
     CheckConstraint("(group_id IS NULL) <> (person_id IS NULL)", name="group_or_person"),
 )
@@ -157,10 +156,10 @@ answer_observations = Table(
 llm_usage = Table(
     "llm_usage",
     metadata,
-    Column("person_id", Text, nullable=False),
+    Column("counter", Text, nullable=False),
     Column("day", Date, nullable=False),
     Column("calls", Integer, nullable=False),
-    PrimaryKeyConstraint("person_id", "day"),
+    PrimaryKeyConstraint("counter", "day"),
 )
 
 receipts = Table(
@@ -189,29 +188,30 @@ drafts = Table(
     Column("added_by", Text, nullable=False),
     Column("payer_id", Text, nullable=False),
     Column("receipt_id", Text),
-    Column("image_ref", Text),
-    Column("image_mime_type", Text),
     Column("description", Text, nullable=False),
     Column("purchased_at", Date),
     Column("lines", JSONB, nullable=False),
     _cents("tax_cents"),
     _cents("other_adjustments_cents"),
     _cents("total_cents"),
-    _cents("accepted_difference_cents"),
     Column("participants", ARRAY(Text), nullable=False),
     Column("overrides", JSONB, nullable=False),
     Column("owes_all_id", Text),
+    Column("possible_duplicate_of", JSONB, nullable=False),
+    Column("waiting_for", ARRAY(Text), nullable=False),
     Column("state", Text, nullable=False),
+    Column("version", Integer, nullable=False),
     _ts("created_at"),
     _ts("last_activity_at"),
     _ts("reminded_at", nullable=True),
     Index("drafts_by_conversation", "channel", "ref", "state"),
     Index(
-        "one_active_draft",
+        "one_active_draft_per_adder",
         "channel",
         "ref",
+        "added_by",
         unique=True,
-        postgresql_where=text("state IN ('awaiting_people', 'parsing', 'reviewing')"),
+        postgresql_where=text("state IN ('awaiting_people', 'reviewing')"),
     ),
 )
 
@@ -229,8 +229,38 @@ prompts = Table(
     Column("asked_of", Text),
     Column("created_by", Text, nullable=False),
     _ts("created_at"),
+    _ts("expires_at", nullable=True),
     Column("answers", JSONB, nullable=False),
     Index("prompts_by_conversation", "channel", "ref", "status"),
+)
+
+photo_reads = Table(
+    "photo_reads",
+    metadata,
+    Column("channel", Text, nullable=False),
+    Column("ref", Text, nullable=False),
+    Column("message_id", Text, nullable=False),
+    _seq(),
+    Column("sender_id", Text, nullable=False),
+    Column("outcome", Text, nullable=False),
+    Column("receipt_id", Text),
+    Column("used_by_draft_id", Text),
+    _ts("created_at"),
+    PrimaryKeyConstraint("channel", "ref", "message_id"),
+)
+
+chat_messages = Table(
+    "chat_messages",
+    metadata,
+    Column("seq", BigInteger, Identity(), primary_key=True),
+    Column("channel", Text, nullable=False),
+    Column("ref", Text, nullable=False),
+    Column("sender_id", Text),
+    Column("text", Text, nullable=False),
+    Column("refs", JSONB, nullable=False),
+    _ts("created_at"),
+    Index("chat_by_conversation", "channel", "ref", "seq"),
+    Index("chat_by_age", "created_at"),
 )
 
 bills = Table(
@@ -286,7 +316,7 @@ notifications = Table(
     Column("kind", Text, nullable=False),
     Column("bill_ids", ARRAY(Text), nullable=False),
     Column("payment_id", Text),
-    Column("text_args", JSONB, nullable=False),
+    Column("args", JSONB, nullable=False),
     _ts("created_at"),
     _ts("sent_at", nullable=True),
     Index("notifications_unsent", "created_at", postgresql_where=text("sent_at IS NULL")),

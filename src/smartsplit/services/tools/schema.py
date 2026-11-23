@@ -1,7 +1,8 @@
-"""JSON schemas for strict tools, generated from the command dataclasses (SPEC section 8).
+"""JSON schemas for the agent's tools, generated from the argument dataclasses (SPEC 8.3).
 
-Every field is required (strict tools need that); optional fields accept null. Variants of a
-union carry a `type` tag naming their class, so a tool call decodes with the domain codec.
+Every field is listed as required, and optional ones accept null; a call that leaves one out
+still decodes (`complete` fills it). Variants of a union carry a `type` tag naming their
+class, so a tool call decodes with the domain codec.
 """
 
 import dataclasses
@@ -74,3 +75,52 @@ def _flatten(options: tuple[Any, ...]) -> list[Any]:
         else:
             leaves.append(resolved)
     return leaves
+
+
+def complete(data: object, hint: object) -> object:
+    """Fill fields the model left out: null for optional ones, [] for lists, false for flags;
+    and the `type` tag of a dataclass that isn't a union variant. Anything else is left for
+    the codec to refuse."""
+    if isinstance(hint, TypeAliasType):
+        return complete(data, hint.__value__)
+    origin = get_origin(hint)
+    if origin in (Union, types.UnionType) and isinstance(data, dict):
+        named = [
+            option
+            for option in _flatten(get_args(hint))
+            if isinstance(option, type) and option.__name__ == data.get("type")
+        ]
+        return complete(data, named[0]) if named else data
+    if origin is tuple and isinstance(data, list) and get_args(hint)[-1:] == (Ellipsis,):
+        return [complete(item, get_args(hint)[0]) for item in data]
+    if isinstance(hint, type) and dataclasses.is_dataclass(hint) and isinstance(data, dict):
+        return _complete_fields(data, hint)
+    return data
+
+
+def _complete_fields(data: dict[str, object], cls: type) -> dict[str, object]:
+    filled: dict[str, object] = {"type": cls.__name__, **data}
+    for field in dataclasses.fields(cls):
+        if field.name in data:
+            filled[field.name] = complete(data[field.name], field.type)
+        else:
+            missing = _missing_value(field.type)
+            if missing is not _NO_DEFAULT:
+                filled[field.name] = missing
+    return filled
+
+
+_NO_DEFAULT = object()
+
+
+def _missing_value(hint: object) -> object:
+    if isinstance(hint, TypeAliasType):
+        return _missing_value(hint.__value__)
+    origin = get_origin(hint)
+    if origin in (Union, types.UnionType) and type(None) in _flatten(get_args(hint)):
+        return None
+    if origin is tuple:
+        return []
+    if hint is bool:
+        return False
+    return _NO_DEFAULT

@@ -1,0 +1,72 @@
+"""ScriptedAgent: plays a list of model steps and records what it was sent (SPEC 8.7).
+
+Tests and `smartsplit demo` drive the real tools through it. A step is a ModelStep, or a
+function of the request (to pick a handle out of the turn input) that returns one. When the
+script runs out, the bot says nothing.
+"""
+
+import re
+from collections.abc import Callable, Iterable
+from itertools import count
+
+from smartsplit.ports.agent import AgentRequest, ModelStep, ToolCall
+
+type Step = ModelStep | Callable[[AgentRequest], ModelStep]
+
+_CALL_IDS = count(1)
+
+
+def call(name: str, **arguments: object) -> ModelStep:
+    """One tool call."""
+    return calls((name, arguments))
+
+
+def calls(*tool_calls: tuple[str, dict[str, object]]) -> ModelStep:
+    """Several tool calls in one step."""
+    return ModelStep(
+        tuple(ToolCall(f"call_{next(_CALL_IDS)}", name, args) for name, args in tool_calls), None
+    )
+
+
+def say(text: str = "") -> ModelStep:
+    """The model's reply: no tool calls."""
+    return ModelStep((), text)
+
+
+def handle_of(request: AgentRequest, name: str) -> str:
+    """The handle the turn input gave a person, draft, bill or group called `name` (its
+    first mention), e.g. `handle_of(request, "Sam")` → "P2"."""
+    found = re.search(rf"\b([PBDGQAT]\d+) \"?{re.escape(name)}\b", request.turn_input)
+    if found is None:
+        raise LookupError(f"no handle for {name!r} in the turn input")
+    return found.group(1)
+
+
+def first_handle(request: AgentRequest, prefix: str) -> str:
+    """The first handle with this prefix in the turn input ("D" → "D1")."""
+    found = re.search(rf"\b({prefix}\d+)\b", request.turn_input)
+    if found is None:
+        raise LookupError(f"no {prefix} handle in the turn input")
+    return found.group(1)
+
+
+class ScriptedAgent:
+    """Plays queued steps in order; `requests` records every request it was sent."""
+
+    def __init__(self, steps: Iterable[Step] = ()) -> None:
+        self._steps: list[Step] = list(steps)
+        self.requests: list[AgentRequest] = []
+
+    def queue(self, *steps: Step) -> None:
+        self._steps += steps
+
+    @property
+    def pending(self) -> int:
+        return len(self._steps)
+
+    def step(self, request: AgentRequest) -> ModelStep:
+        self.requests.append(request)
+        if not self._steps:
+            return say()
+        step = self._steps.pop(0)
+        return step(request) if callable(step) else step

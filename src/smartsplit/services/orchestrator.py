@@ -1,71 +1,56 @@
-"""The conversation state machine's entry point (SPEC section 10, CONTRACTS section 5).
+"""One message, end to end (SPEC 8.1, CONTRACTS section 5).
 
-One inbound message: read what's needed and call the model with no lock held, then handle it
-in one locked transaction that also records the message as processed, then read any receipt
-that this started, again outside the lock (SPEC 12.2).
+Read-only checks first (a repeat, whether the bot reacts, the daily limit), then the photo is
+read outside the lock and stored on its own, then the whole turn runs in one locked
+transaction: the agent loop, the replies, the transcript, and the processed-message record.
+If a model call fails or the deadline passes, everything the turn did rolls back and the
+person is asked to try again; the photo read and the usage counts survive.
 """
 
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, replace
+from datetime import date, datetime, timedelta
 
-from smartsplit.domain.commands import StartSplit, Unknown
-from smartsplit.domain.enums import ConversationKind, PromptKind, PromptStatus
-from smartsplit.domain.messages import ChatEvent, InboundMessage, OutboundMessage
-from smartsplit.domain.prompts import ProcessedMessage, StoredImage
+from smartsplit.domain.enums import ConversationKind
+from smartsplit.domain.messages import InboundMessage, OutboundMessage
+from smartsplit.domain.model import PhotoRead
+from smartsplit.domain.prompts import ProcessedMessage
+from smartsplit.ports.agent import AgentModel
+from smartsplit.ports.errors import StaleDraftError
 from smartsplit.ports.images import ImageStore
-from smartsplit.ports.llm import (
-    CommandInterpreter,
-    InterpretContext,
-    LlmUnavailableError,
-    ReceiptParser,
-)
+from smartsplit.ports.llm import Canonicalizer, LlmUnavailableError, ReceiptParser
 from smartsplit.ports.repository import Repository, UnitOfWork
 from smartsplit.ports.system import Clock, IdGenerator
-from smartsplit.services.answers import ask_who
-from smartsplit.services.command_checks import InvalidAmountError, check_amounts
-from smartsplit.services.context import interpret_context
-from smartsplit.services.dispatch import dispatch
-from smartsplit.services.errors import NeedsClarificationError, NotAllowedError
-from smartsplit.services.intents import (
-    Intent,
-    cleaned,
-    fit_command,
-    is_aside,
-    local_date,
-    without_model,
-)
-from smartsplit.services.ledgers import overall_text
+from smartsplit.services import transcript
+from smartsplit.services.agent_loop import run_loop
 from smartsplit.services.membership import member_left
-from smartsplit.services.prompting import still_asked
-from smartsplit.services.receipt_reading import ReceiptReader, Source
-from smartsplit.services.speaker import Arrival, arrive, find_speaker
-from smartsplit.services.text import HELP, NEEDS_NUMBER, OVER_LIMIT, TRY_AGAIN
+from smartsplit.services.photos import PhotoReader
+from smartsplit.services.reply_text import clean_reply
+from smartsplit.services.sending import send
+from smartsplit.services.speaker import arrive, find_speaker
+from smartsplit.services.text import NEEDS_NUMBER, OVER_LIMIT, TRY_AGAIN, WELCOME
 from smartsplit.services.ticking import Ticker
-from smartsplit.services.turn import OrchestratorSettings, Turn
-
-type Refusal = NotAllowedError | NeedsClarificationError | InvalidAmountError
+from smartsplit.services.turn import OrchestratorSettings, Said, Turn, local_date
+from smartsplit.services.turn_input import build_turn_input
+from smartsplit.services.usage import Meter, MeteredCanonicalizer
 
 
 @dataclass(frozen=True, slots=True)
-class _Prepared:
-    """What was read before the lock: enough to decide whether, and how, to call the model."""
+class _Incoming:
+    """One message as the locked turn needs it, with what was settled before the lock."""
 
-    done: tuple[OutboundMessage, ...] | None
-    react: bool = False
-    over_limit: bool = False
-    recipient: str | None = None
-    intent: Intent | None = None
-    """What the message means when no model is needed (`context` None)."""
-    context: InterpretContext | None = None
-    """Set when the model must interpret the text."""
+    message: InboundMessage
+    now: datetime
+    deadline: datetime
+    meter: Meter
+    photo: PhotoRead | None
+    over_limit: bool
 
 
-class _RefusedError(Exception):
-    """Carries a refusal out of the transaction, so its writes are rolled back."""
-
-    def __init__(self, refusal: Refusal) -> None:
-        super().__init__(str(refusal))
-        self.refusal = refusal
+@dataclass(frozen=True, slots=True)
+class HandleOutcome:
+    replies: tuple[OutboundMessage, ...]
+    busy: bool = False
+    """The chat stayed busy too long: the gateway retries (HTTP 503)."""
 
 
 class Orchestrator:
@@ -77,201 +62,205 @@ class Orchestrator:
         repository: Repository,
         images: ImageStore,
         parser: ReceiptParser,
-        interpreter: CommandInterpreter,
+        canonicalizer: Canonicalizer,
+        agent: AgentModel,
         clock: Clock,
         ids: IdGenerator,
         settings: OrchestratorSettings,
     ) -> None:
         self._repository = repository
-        self._images = images
-        self._interpreter = interpreter
+        self._canonicalizer = canonicalizer
+        self._agent = agent
         self._clock = clock
         self._ids = ids
         self._settings = settings
-        self._reader = ReceiptReader(repository, images, parser, interpreter, clock, ids, settings)
-        self._ticker = Ticker(repository, self._reader, clock, ids, settings)
+        self._photos = PhotoReader(repository, images, parser, ids, settings.currency)
+        self._ticker = Ticker(repository, clock, ids, settings)
 
     def tick(self) -> list[OutboundMessage]:
-        """Deliver the outbox, nudge or expire idle drafts, and retry unread receipts; call it
-        every minute or so (SPEC 10.8)."""
+        """Deliver the outbox, nudge or expire idle drafts, prune old chat; call it every
+        minute (SPEC 10.8)."""
         return self._ticker.tick()
 
-    def handle(self, message: InboundMessage) -> list[OutboundMessage]:
+    def handle(self, message: InboundMessage) -> HandleOutcome:
         """Replies for this message (and any chat it affects); a repeat returns the same."""
-        message = cleaned(message)
+        message = _cleaned(message)
         now = self._clock.now()
-        prepared = self._prepare(message, now)
-        if prepared.done is not None:
-            return list(prepared.done)
-        if not prepared.react:
-            return []
-        uses_model = prepared.context is not None or message.image is not None
-        if prepared.over_limit and uses_model:
-            if is_aside(message):
-                return []
-            limit = NotAllowedError(OVER_LIMIT)
-            return self._commit(message, now=now, intent=Unknown(""), refusal=limit)[0]
-        intent, calls = prepared.intent or Unknown(""), 0
-        if prepared.context is not None:
-            try:
-                command = self._interpreter.interpret(message.text or "", prepared.context)
-            except LlmUnavailableError:
-                return [OutboundMessage(message.conversation, prepared.recipient, TRY_AGAIN)]
-            intent, calls = fit_command(command, message), 1
-        photo = None
-        if message.image is not None and isinstance(intent, StartSplit):
-            image_ref = self._images.save(message.image.data, message.image.mime_type)
-            photo = StoredImage(image_ref, message.image.mime_type)
-        replies, to_parse = self._commit(message, now=now, intent=intent, photo=photo, calls=calls)
-        source = Source(message.conversation, message.message_id)
-        return replies + self._reader.read_all(source, to_parse)
-
-    def _prepare(self, message: InboundMessage, now: datetime) -> _Prepared:
-        """Read-only: a repeat, whether to react at all, the daily limit, and what the model
-        may see. Group chatter is only read while a question this speaker may answer is open,
-        and a chat event only counts in a chat the bot already knows (SPEC 10.2)."""
+        deadline = now + timedelta(seconds=self._settings.message_seconds)
         with self._repository.unit_of_work() as uow:
             done = uow.processed.get(message.conversation, message.message_id)
             if done is not None:
-                return _Prepared(done.replies)
+                return HandleOutcome(done.replies)
             speaker = find_speaker(uow, message)
-            speaker_id = speaker.id if speaker else None
-            conversation = uow.conversations.get(message.conversation)
-            open_prompts = [
-                p
-                for p in (
-                    uow.prompts.for_conversation(conversation.key, [PromptStatus.OPEN])
-                    if conversation
-                    else ()
+            over_limit = speaker is not None and self._over_limit(uow, speaker.id, now)
+        if not _reacts(message):
+            return HandleOutcome(())
+        meter = Meter(self._repository, self._day(now), speaker.id if speaker else None)
+        photo = None
+        if message.image is not None and speaker is not None and not over_limit:
+            try:
+                photo = self._photos.read(
+                    message.conversation,
+                    message.message_id,
+                    speaker.id,
+                    message.image,
+                    now=now,
+                    meter=meter,
+                    timeout_seconds=self._call_timeout(deadline),
                 )
-                if p.asked_of in (None, speaker_id) and still_asked(p, now, self._settings)
-            ]
-            if message.event is not None:
-                react = conversation is not None
+            except LlmUnavailableError:
+                return _try_again(message, speaker.id)
+        try:
+            incoming = _Incoming(message, now, deadline, meter, photo, over_limit)
+            return HandleOutcome(self._turn(incoming))
+        except (LlmUnavailableError, StaleDraftError):
+            return _try_again(message, speaker.id if speaker else None)
+
+    def _turn(self, incoming: _Incoming) -> tuple[OutboundMessage, ...]:
+        """The locked transaction: arrival, the loop, the transcript, the record."""
+        settings, message, now = self._settings, incoming.message, incoming.now
+        with self._repository.unit_of_work(lock=message.conversation) as uow:
+            done = uow.processed.get(message.conversation, message.message_id)
+            if done is not None:
+                return done.replies
+            arrival = arrive(uow, self._ids, message, settings.default_region, now)
+            if arrival is None:
+                replies: tuple[OutboundMessage, ...] = (
+                    OutboundMessage(message.conversation, None, NEEDS_NUMBER),
+                )
             else:
-                react = not is_aside(message) or bool(open_prompts)
-            waiting = any(
-                p.kind is PromptKind.NEED_CONTACT and p.asked_of == speaker_id for p in open_prompts
-            )
-            intent = without_model(message, waiting_for_contact=waiting)
-            context = None
-            if react and intent is None:
-                context = interpret_context(
+                turn = Turn(
                     uow,
-                    speaker_id=speaker_id,
-                    conversation=conversation,
-                    kind=message.conversation_kind,
-                    today=local_date(now, self._settings.timezone),
-                    currency=self._settings.currency,
+                    self._ids,
+                    now,
+                    settings,
+                    arrival.speaker,
+                    arrival.conversation,
+                    message_id=message.message_id,
+                    contact=message.contact,
+                    canonicalizer=MeteredCanonicalizer(self._canonicalizer, incoming.meter),
                 )
-            over_limit = speaker_id is not None and self._calls_today(uow, speaker_id, now) >= (
-                self._settings.llm_calls_per_person_per_day
+                welcomed = arrival.first_personal_message
+                text = self._respond(turn, incoming, welcomed=welcomed)
+                if arrival.new_group:
+                    turn.shown.insert(0, Said(turn.conversation, _intro(turn)))
+                replies = self._record(turn, message, text, welcomed)
+            uow.processed.add(
+                ProcessedMessage(message.conversation, message.message_id, replies, now)
             )
-            personal = message.conversation_kind is ConversationKind.PERSONAL
-            return _Prepared(
-                None,
-                react=react,
-                over_limit=over_limit,
-                recipient=speaker_id if personal else None,
-                intent=intent,
-                context=context,
-            )
+            return replies
 
-    def _calls_today(self, uow: UnitOfWork, person_id: str, now: datetime) -> int:
-        usage = uow.llm_usage.get(person_id, local_date(now, self._settings.timezone))
-        return usage.calls if usage else 0
-
-    def _commit(
-        self,
-        message: InboundMessage,
-        *,
-        now: datetime,
-        intent: Intent,
-        photo: StoredImage | None = None,
-        calls: int = 0,
-        refusal: Refusal | None = None,
-    ) -> tuple[list[OutboundMessage], list[str]]:
-        """Handle the message in one transaction under the conversation lock. A refusal rolls
-        the handler's writes back; the message is then recorded with only the refusal."""
-        try:
-            with self._repository.unit_of_work(lock=message.conversation) as uow:
-                done = uow.processed.get(message.conversation, message.message_id)
-                if done is not None:
-                    return list(done.replies), []
-                turn = self._turn(uow, message, now)
-                if turn is None:
-                    replies = [OutboundMessage(message.conversation, None, NEEDS_NUMBER)]
-                    to_parse: list[str] = []
-                else:
-                    for _ in range(calls):
-                        uow.llm_usage.increment(turn.speaker.id, turn.today)
-                    if refusal is None:
-                        self._run(turn, intent, photo)
-                    else:
-                        _refuse(turn, refusal, intent, photo)
-                    replies, to_parse = turn.replies, turn.to_parse
-                uow.processed.add(
-                    ProcessedMessage(message.conversation, message.message_id, tuple(replies), now)
-                )
-                return list(replies), list(to_parse)
-        except _RefusedError as refused:
-            return self._commit(
-                message, now=now, intent=intent, photo=photo, calls=calls, refusal=refused.refusal
-            )
-
-    def _turn(self, uow: UnitOfWork, message: InboundMessage, now: datetime) -> Turn | None:
-        """The speaker and chat for this message (created if new), with any greeting."""
-        arrival = arrive(uow, self._ids, message, self._settings.default_region, now)
-        if arrival is None:
-            return None
-        turn = Turn(
-            uow,
-            self._ids,
-            now,
-            self._settings,
-            arrival.speaker,
-            arrival.conversation,
-            addressed=not is_aside(message),
+    def _respond(self, turn: Turn, incoming: _Incoming, *, welcomed: bool) -> str:
+        """The model's cleaned words; events and the daily limit need no model."""
+        event = incoming.message.event
+        if event is not None:
+            identity = turn.uow.identities.get(turn.conversation.key.channel, event.subject_ref)
+            if event.kind == "participant_left" and identity is not None and turn.in_group:
+                member_left(turn, identity.person_id)
+            return ""
+        if incoming.over_limit:
+            return OVER_LIMIT
+        turn_input = build_turn_input(turn, incoming.message, incoming.photo, welcomed)
+        result = run_loop(
+            turn,
+            self._agent,
+            turn_input,
+            clock=self._clock,
+            deadline=incoming.deadline,
+            count_call=incoming.meter.count,
         )
-        _greet(turn, arrival)
-        return turn
+        return clean_reply(result.text, turn.handles)
 
-    def _run(self, turn: Turn, intent: Intent, photo: StoredImage | None) -> None:
-        try:
-            if isinstance(intent, ChatEvent):
-                _participant_left(turn, intent)
-                return
-            check_amounts(intent, self._settings.max_amount_cents)
-            dispatch(turn, intent, photo)
-        except (NotAllowedError, NeedsClarificationError, InvalidAmountError) as refusal:
-            raise _RefusedError(refusal) from refusal
+    def _record(
+        self, turn: Turn, message: InboundMessage, text: str, welcomed: bool
+    ) -> tuple[OutboundMessage, ...]:
+        """The replies, with the inbound message and every outbound one in the transcripts.
+
+        In a group chat, a message the bot neither answered nor acted on isn't stored."""
+        said: list[Said] = []
+        if welcomed:
+            said.append(Said(turn.conversation, WELCOME.format(name=turn.speaker.display_name)))
+        blocks = [s.text for s in turn.shown]
+        main = "\n\n".join(part for part in (text, *blocks) if part)
+        if main:
+            refs = tuple(ref for s in turn.shown for ref in s.refs)
+            said.append(Said(turn.conversation, main, refs))
+        said += turn.elsewhere
+        personal = turn.conversation.kind is ConversationKind.PERSONAL
+        if personal or said or turn.acted:
+            transcript.append(
+                turn.uow,
+                turn.conversation.key,
+                sender_id=turn.speaker.id,
+                text=_inbound_text(message),
+                refs=(),
+                now=turn.now,
+            )
+        return tuple(send(turn.uow, said, turn.now, self._settings.chat_history_keep))
+
+    def _over_limit(self, uow: UnitOfWork, person_id: str, now: datetime) -> bool:
+        usage = uow.llm_usage.get(person_id, self._day(now))
+        return usage is not None and usage.calls >= self._settings.llm_calls_per_person_per_day
+
+    def _day(self, now: datetime) -> date:
+        return local_date(now, self._settings.timezone)
+
+    def _call_timeout(self, deadline: datetime) -> float:
+        left = (deadline - self._clock.now()).total_seconds()
+        return max(0.0, min(self._settings.llm_timeout_seconds, left))
 
 
-def _greet(turn: Turn, arrival: Arrival) -> None:
-    """A first personal message gets a welcome, help and what's waiting (A1); a new group
-    asks everyone else to join (A2)."""
-    if arrival.first_personal_message:
-        waiting = overall_text(turn.uow, turn.speaker.id, turn.settings.currency)
-        settled = "You're all settled up."
-        extra = "" if waiting == settled else f"\nWaiting for you:\n{waiting}"
-        turn.reply(f"Hi {turn.speaker.display_name}! {HELP}{extra}")
-    if arrival.new_group:
-        turn.reply(
-            f"Hi {turn.conversation.name}! {turn.speaker.display_name} is in. "
-            'Everyone else who wants to split bills here, reply "join".'
-        )
+def _intro(turn: Turn) -> str:
+    """A new group chat: the first person is in, everyone else joins explicitly (SPEC 10.3)."""
+    return (
+        f"Hi {turn.conversation.name}! {turn.speaker.display_name} is in. Everyone else who "
+        'wants to split bills here, say "join".'
+    )
 
 
-def _participant_left(turn: Turn, event: ChatEvent) -> None:
-    identity = turn.uow.identities.get(turn.conversation.key.channel, event.subject_ref)
-    if identity is not None and turn.in_group:
-        member_left(turn, identity.person_id)
+def _reacts(message: InboundMessage) -> bool:
+    """Personal chats: every message. Groups: messages addressed to the bot (a mention or a
+    reply to it), photos, contact cards and chat events (SPEC 10.2)."""
+    return (
+        message.conversation_kind is ConversationKind.PERSONAL
+        or message.addressed_to_bot
+        or message.reply_to_bot
+        or message.image is not None
+        or message.contact is not None
+        or message.event is not None
+    )
 
 
-def _refuse(turn: Turn, refusal: Refusal, intent: Intent, photo: StoredImage | None) -> None:
-    """A clarification becomes a prompt that keeps the command (and its photo); anything else
-    is a short reply, except to group chatter, which gets none."""
-    if isinstance(refusal, NeedsClarificationError) and not isinstance(intent, ChatEvent):
-        ask_who(turn, refusal, intent, photo)
-    elif turn.addressed:
-        turn.reply(str(refusal))
+def _try_again(message: InboundMessage, speaker_id: str | None) -> HandleOutcome:
+    """Nothing was recorded, so a later retry of this message runs it again (SPEC 12.2)."""
+    personal = message.conversation_kind is ConversationKind.PERSONAL
+    return HandleOutcome(
+        (OutboundMessage(message.conversation, speaker_id if personal else None, TRY_AGAIN),)
+    )
+
+
+def _inbound_text(message: InboundMessage) -> str:
+    parts = [message.text or ""]
+    if message.image is not None:
+        parts.append("[photo]")
+    if message.contact is not None:
+        parts.append(f"[contact card: {message.contact.name}]")
+    return " ".join(p for p in parts if p)
+
+
+def _cleaned(message: InboundMessage) -> InboundMessage:
+    """Postgres can't store NUL, and no chat text needs it."""
+
+    def strip(text: str | None) -> str | None:
+        return text.replace("\x00", "") if text is not None else None
+
+    contact = message.contact
+    return replace(
+        message,
+        text=strip(message.text),
+        sender_name=strip(message.sender_name) or "",
+        conversation_name=strip(message.conversation_name),
+        contact=replace(contact, name=strip(contact.name) or "", phone=strip(contact.phone) or "")
+        if contact
+        else None,
+    )

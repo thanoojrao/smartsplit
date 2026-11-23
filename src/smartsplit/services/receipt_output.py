@@ -11,12 +11,21 @@ from datetime import date
 from math import isfinite
 
 from smartsplit.domain.money import format_cents
-from smartsplit.ports.llm import ParsedLine, ParsedReceipt, ReceiptUnreadableError
+from smartsplit.ports.llm import NotAReceipt, ParsedLine, ParsedReceipt, ReceiptUnreadableError
 
 MAX_ABS_CENTS = 10**12
 """Far above any real receipt; a hallucinated 10**20 must not reach a BIGINT column."""
 
 MAX_QUANTITY = 10**6
+
+
+def read_model_output(
+    data: object, install_currency: str, max_lines: int
+) -> ParsedReceipt | NotAReceipt:
+    """`{"is_receipt": false}` means the photo isn't a receipt; anything else is validated."""
+    if isinstance(data, Mapping) and data.get("is_receipt") is False:
+        return NotAReceipt()
+    return receipt_from_model_output(data, install_currency, max_lines)
 
 
 def receipt_from_model_output(data: object, install_currency: str, max_lines: int) -> ParsedReceipt:

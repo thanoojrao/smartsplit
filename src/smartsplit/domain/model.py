@@ -11,6 +11,7 @@ from smartsplit.domain.enums import (
     ConversationKind,
     DraftState,
     MatchHow,
+    PhotoOutcome,
     RuleKind,
     RuleSource,
     SettlementKind,
@@ -86,7 +87,6 @@ class Conversation:
     name: str | None
     group_id: str | None
     person_id: str | None
-    last_listed_bill_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,11 +133,16 @@ class AnswerObservation:
 
 @dataclass(frozen=True, slots=True)
 class LlmUsage:
-    """Model calls per person per day (day in the install timezone)."""
+    """Model calls per day (in the install timezone), per person or for the whole install."""
 
-    person_id: str
+    counter: str
+    """A person id, or `INSTALL_COUNTER`."""
     day: date
     calls: int
+
+
+INSTALL_COUNTER = "install"
+"""The usage counter for every model call the install makes (SPEC 12.5)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,8 +179,32 @@ class Receipt:
 
 
 @dataclass(frozen=True, slots=True)
+class PhotoRead:
+    """One inbound photo, read once on arrival (SPEC 7); unique per (conversation, message)."""
+
+    conversation: ConversationKey
+    message_id: str
+    sender_id: str
+    outcome: PhotoOutcome
+    receipt_id: str | None
+    used_by_draft_id: str | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class DuplicateRef:
+    """A saved bill or another open draft that looks like the same receipt: one is set."""
+
+    bill_id: str | None
+    draft_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class BillDraft:
-    """A bill under review, with a working copy of the receipt that review edits change."""
+    """A bill under review, with a working copy of the receipt that review edits change.
+
+    `LineItem.position` is the number people see; it never shifts within a draft.
+    """
 
     id: str
     conversation: ConversationKey
@@ -183,19 +212,21 @@ class BillDraft:
     added_by: str
     payer_id: str
     receipt_id: str | None
-    image_ref: str | None
-    image_mime_type: str | None
     description: str
     purchased_at: date | None
     lines: tuple[LineItem, ...]
     tax_cents: Cents
     other_adjustments_cents: Cents
     total_cents: Cents
-    accepted_difference_cents: Cents
     participants: tuple[str, ...]
     overrides: tuple[tuple[str, Override], ...]
     owes_all_id: str | None
+    possible_duplicate_of: DuplicateRef | None
+    waiting_for: tuple[str, ...]
+    """Names said for this bill that aren't known people yet (`awaiting_people`)."""
     state: DraftState
+    version: int
+    """Goes up on every change, so a confirm can check the adder saw this split (SPEC 8.4)."""
     created_at: datetime
     last_activity_at: datetime
     reminded_at: datetime | None
