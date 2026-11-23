@@ -158,6 +158,18 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (M6) `KeywordInterpreter` (fakes) covers the USE_CASES phrases with ordered regexes; "Sam paid" while a draft is under review is a payer edit, otherwise a new split; weights or an exact part without a line name apply to a one-line bill only. Speaker convention: where CONTRACTS says None means the speaker, "I"/"me" become None; elsewhere names stay as said and services resolve "me". Why: tests and the CLI demo need deterministic commands.
 - (M6 review) The model sees the context by names only (no person or speaker ids); the message is JSON-escaped inside its tag; an `Unknown` call always keeps the original text; `AnswerPrompt.prompt_id` from the model is dropped; only network errors, 408/409/429 and 5xx are retried; enum/literal values match case-insensitively (the docs don't guarantee casing). Why: SPEC 12.3 and the documented structured-output behaviour.
 
+## M7 — orchestrator I
+
+- **Answers:** a bare "yes" with only line questions open is a confirm (only the adder; G4/G5). Any other open prompt (duplicate warning, restated action, who-with, which-person, need-contact, total, join) is a direct question and takes the answer first, newest first.
+- **Question batches:** line questions are numbered by their place in the batch ("2 no", "1: Sam and Raj"). A question stays in its batch after an answer, so a later answer replaces it (G3); the next batch opens when every question in the batch has an answer.
+- **Group chats:** a message not addressed to the bot is only read when a prompt is open there, and only counts if it is an answer; everything else (and `Unknown`) gets no reply. A photo is always a receipt to split; its caption says with whom.
+- **Refusals roll back:** a `NotAllowedError`, `NeedsClarificationError` or bad amount undoes the handler's writes; the message is then recorded with only the refusal (or the which-person / need-contact prompt). A model outage records nothing, so the gateway's retry works.
+- **Model calls are counted** in the turn's transaction (interpret: 1; a receipt: 1 + canonicalize calls, charged to the adder). A receipt the model couldn't read because it was down stays in `parsing` for `tick` to retry (M8).
+- **Rules about others** (stated or deleted) are restated with a `confirm_action`; rule effects carry version 0 (a "yes" re-applies exactly the rule shown). Your own rules apply at once.
+- **Privacy:** in a group, balances answers cover the group; the wider answer is DM'd only when the asker has something open elsewhere, and only if they have a personal chat.
+- **Small rules:** a typed personal bill with nobody named asks "who's this with?" like a photo; an edited line amount is no longer flagged as unclear; the speaker can be named by their own name; if the payer leaves, the adder pays; at most `max_queued_drafts` receipts wait; overall balances list the largest first.
+- **Tests:** `tests/integration/` drives the whole bot through `Orchestrator.handle` on the in-memory fakes, by use case; `test_on_postgres.py` runs a tour of every prompt and two simultaneous confirms on real Postgres.
+
 ## Checkpoint A review (2026-11-23)
 
 - (User) Unlinked negative lines (refunds) are matched by name and follow that item's rules; generic coupons that match nothing stay shared by everyone; discount-link treatment needs `discount_for` and a negative amount.

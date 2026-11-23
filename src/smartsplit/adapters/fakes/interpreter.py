@@ -60,8 +60,10 @@ from smartsplit.domain.commands import (
 from smartsplit.domain.edits import (
     AcceptDifference,
     AddLine,
+    AddParticipants,
     NotThisItem,
     RemoveLine,
+    RemoveParticipants,
     SetLineAmount,
     SetTotal,
     UnassignLine,
@@ -96,6 +98,14 @@ RULES: Sequence[Rule] = [
     (_rule(r"cancel"), lambda m, c: CancelDraft()),
     (_rule(r"(?:confirm|save(?: it)?|looks good|done)"), lambda m, c: ConfirmDraft()),
     (_rule(r"join"), lambda m, c: JoinGroup()),
+    (
+        _rule(r"add (.+?) to (?:the |this )bill"),
+        lambda m, c: Edit(AddParticipants(names(m[1]))),
+    ),
+    (
+        _rule(r"(?:remove|take) (.+?) (?:from|off) (?:the |this )bill"),
+        lambda m, c: Edit(RemoveParticipants(names(m[1]))),
+    ),
     (_rule(r"not received"), lambda m, c: NotReceived()),
     (_rule(r"undo(?: (?:the|my))?(?: last)? payment"), lambda m, c: UndoPayment()),
     (_rule(rf"square up with {NAME}"), lambda m, c: SquareUp(m[1])),

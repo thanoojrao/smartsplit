@@ -28,11 +28,11 @@ from smartsplit.services.command_checks import InvalidAmountError, check_amounts
 from smartsplit.services.context import interpret_context
 from smartsplit.services.dispatch import Photo, dispatch
 from smartsplit.services.drafting import lines_from_receipt
-from smartsplit.services.errors import NotAllowedError
+from smartsplit.services.errors import NeedsClarificationError, NotAllowedError
 from smartsplit.services.ledgers import overall_text
 from smartsplit.services.matching import load_match_inputs, match_lines
 from smartsplit.services.membership import member_left
-from smartsplit.services.names import MIN_PHONE_DIGITS, NeedsClarificationError
+from smartsplit.services.names import MIN_PHONE_DIGITS
 from smartsplit.services.receipt_flow import finish_parse, parse_failed
 from smartsplit.services.scopes import local_scope_for
 from smartsplit.services.speaker import Arrival, addressed, arrive, find_speaker

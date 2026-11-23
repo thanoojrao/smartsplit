@@ -11,9 +11,9 @@ from smartsplit.domain.model import BillDraft, Membership, Nickname, Person
 from smartsplit.domain.phone import mask_phone, normalize_phone
 from smartsplit.domain.prompts import EngineQuestionPayload, JoinGroupPayload
 from smartsplit.services.drafting import ACTIVE, present
-from smartsplit.services.errors import NotAllowedError
+from smartsplit.services.errors import NeedsClarificationError, NotAllowedError
 from smartsplit.services.lifecycle import finish, start_next
-from smartsplit.services.names import Directory, NeedsClarificationError
+from smartsplit.services.names import Directory
 from smartsplit.services.prompting import drop, open_prompt
 from smartsplit.services.review import save
 from smartsplit.services.speaker import current_member_ids, next_position

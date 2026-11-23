@@ -12,21 +12,12 @@ from smartsplit.domain.phone import normalize_phone
 from smartsplit.domain.values import PersonRef
 from smartsplit.ports.llm import NameablePerson
 from smartsplit.ports.repository import UnitOfWork
+from smartsplit.services.errors import NeedsClarificationError
 from smartsplit.services.speaker import current_member_ids
 
 SELF_WORDS = frozenset({"i", "me", "myself"})
 MIN_PHONE_DIGITS = 7
 """Fewer digits than this is a name with a number in it, not a phone number."""
-
-
-class NeedsClarificationError(Exception):
-    """The name can't be resolved yet; the orchestrator turns this into a prompt."""
-
-    def __init__(self, said: PersonRef, candidate_ids: tuple[str, ...]) -> None:
-        super().__init__(said)
-        self.said = said
-        self.candidate_ids = candidate_ids
-        """Empty: unknown, ask for a contact. Several: ask which one."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -21,10 +21,10 @@ from smartsplit.domain.prompts import (
     WhichPersonPayload,
 )
 from smartsplit.services.drafting import active_draft, present, split_of
-from smartsplit.services.errors import NotAllowedError
+from smartsplit.services.errors import NeedsClarificationError, NotAllowedError
 from smartsplit.services.lifecycle import finish, start_next
 from smartsplit.services.membership import join, person_with_phone
-from smartsplit.services.names import Directory, NeedsClarificationError
+from smartsplit.services.names import Directory
 from smartsplit.services.prompting import mark_answered, open_prompt
 from smartsplit.services.receipt_flow import answer_who_with
 from smartsplit.services.review import answer_question, save
