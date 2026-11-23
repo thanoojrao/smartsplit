@@ -4,12 +4,13 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 ## Next up
 
-The first build (M1–M9) is merged into `main` (PR #1, squash `e79da32`). **Revision 2 is proposed:**
-the bot becomes a conversation agent (SPEC §8, revised §1, §2, §4.5, §10, §12; CONTRACTS §4.3;
-USE_CASES section L). **Waiting for the user** to approve the spec and the decisions under DECISIONS
-"Open"; build nothing for M10 until then. After approval: M10, then M11, then CHECKPOINT C. Left as
-is, by the user's choice: the user's own name in `docs/USE_CASES.md` (top), `docs/USE_CASE_TRACE.md`
-and `LICENSE`.
+The first build (M1–M9) is merged into `main` (PR #1). **Revision 2 is approved and refined:** the bot
+is a conversation agent (SPEC §8), with the product pass folded in (one way to refer to things through
+the transcript's references, photos read on arrival, the gateway contract, cost caps that survive failed
+turns, confirmations enforced by code). Three points wait for the user (DECISIONS "Open"); the spec is
+written with the recommended answers, and only M10's draft queue, demo and payment-reversal parts depend
+on them. Next: M10, then M11, M12, CHECKPOINT C. Left as is, by the user's choice: the user's own name in
+`docs/USE_CASES.md` (top), `docs/USE_CASE_TRACE.md` and `LICENSE`.
 
 ## Milestones
 
@@ -29,11 +30,11 @@ and `LICENSE`.
 
 **CHECKPOINT B** — final: stop, push, open a PR, notify the user, and summarize.
 
-Revision 2 (SPEC §8: the conversation agent). Starts only after the user approves the revised spec
-and the decisions under DECISIONS "Open".
+Revision 2 (SPEC §8: the conversation agent; approved by the user).
 
-- [ ] M10 — Agent foundation, offline (SPEC §8, §10.1–10.4, §12.2–12.3, CONTRACTS §4.3): `AgentModel` port, chat transcript store + migration + pruning in `tick`, per-turn handles, tools over the existing services returning results + shown blocks, pending actions with the later-turn/right-person/version rule, the agent loop in `Orchestrator.handle` (lock and one transaction per turn, step and time limits, rollback on failure, usage counted per step), `KeywordAgent` and `ScriptedAgent` fakes; retire `CommandInterpreter.interpret`, the `answers` routing and the retired prompt kinds; integration tests re-expressed as state and shown-block checks, plus loop tests (multi-step, tool errors the model recovers from, rollback, injection)
-- [ ] M11 — Anthropic agent adapter (SPEC §8.6, §12.5): tool use loop on `claude-sonnet-5-5` with the cached prefix, system prompt, live scenarios for use cases L1–L7 and the main flows of C, D, G, H and I, usage table, README/CLI updates
+- [ ] M10 — Agent core, offline (SPEC §4.4–4.5, §8, §10.2–10.8, §12.3; CONTRACTS §1, §4.2, §5): `AgentModel` port and `ScriptedAgent`; tool argument dataclasses with generated schemas, handles and `Money` strings; tools over the existing services returning results + shown blocks; transcript with refs for every outbound message (replies, DMs, group posts, notifications, tick messages), compact storage, pruning; pending actions (later turn, right person, same chat, 30 min, version, supersede) and the `confirm_draft` rules; draft `version`, line numbers that never shift, one active draft per adder, `awaiting_people` for unknown names; the loop in `handle` (one locked transaction, tools-off last step, deadline, rollback); group-turn privacy; reply clean-up (handles → names, markdown, numbers); `smartsplit demo`. Retire the first build's interpretation stack: `domain/commands.py`, `CommandInterpreter`, `services/{intents,dispatch,routing,answers,context}.py`, `adapters/llm/{commands,command_tools}.py`, `adapters/fakes/{phrases,interpreter}.py`, the 7 old prompt kinds, `requested_reply`, the `parsing` state and its retries, `Conversation.last_listed_bill_ids`, question batches. Integration tests re-expressed as state, shown-block and transcript checks, plus loop tests (multi-step, tool errors the model recovers from, rollback, limits, injection)
+- [ ] M11 — Production flow (SPEC §7, §10.1–10.3, §10.8, §11, §12): photos read on arrival into `PhotoRead` (own transaction, reused on retry, `not_a_receipt` silent in groups, checks before the read, last-photo pickup); group gating (addressed, receipt photos, waited-on people for 10 minutes), mentions, quoted replies, `bot_added` intro and reply-to-join, `SMARTSPLIT_BOT_LINK`; usage counted in its own transactions, install-wide daily cap; message deadline and bounded lock wait (503 + `Retry-After`); `tick` with try-lock, `TickBatch` and ack; `/readyz`; per-turn log line; Dockerfile, compose app service, `tick` timer, backup and restore in the README
+- [ ] M12 — Anthropic agent adapter (SPEC §8.7, §12.5): tool use on `claude-sonnet-5-5` with the cached prefix, tools-off last step, per-call timeout from the deadline; system prompt (reply style, one question at most, defaults, untrusted data); live scenarios for L1–L5, L7, L11, L16 and the main flows of C, D, G, H and I, counting questions asked; usage table and cost per message; README/CLI updates
 
 **CHECKPOINT C** — stop, push, open a PR, notify the user, and summarize (including live results and cost per message).
 

@@ -229,6 +229,25 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - A learned rule is only undone by stating or deleting a rule; later `included` answers just stop a new streak. Why: simple and predictable; the summary shows learned rules.
 - (Live) Canonicalize maps a kind of a known item to its key ("Masala Chai" → "tea"), but not a product sharing only a word ("Milk Chocolate" is not "milk"); the interpreter prompt says a bare "yes" to a shown bill is ConfirmDraft. Why: the first live run missed both.
 
+## Revision 2 product pass (Claude, after the user's approval)
+
+- One way to refer to things: every bot message (reply, DM, group post, notification, tick message) is stored in its chat's transcript with `refs`; handles come from those refs. Replaces `last_listed_bill_ids`, numbered notification batches, who-with option lists and question batches. Why: four numbering schemes collapsed into one that also covers quoted replies.
+- Tool argument dataclasses replace the `Command` union; money arguments are decimal strings parsed by code. Why: commands used names, tools use handles; strings avoid cents/units mix-ups and floats.
+- Fewer tools: `choose_person` folds into `set_nickname`; `help` and separate `propose_*` tools are gone; `add_rule`/`delete_rule` decide themselves whether a "yes" is needed. Why: same behaviour, less surface for the model.
+- Photos are read on arrival and stored as `PhotoRead` in their own transaction; the `parsing` state and its retries go. A draft is created even while people are unknown (`awaiting_people`), and a photo sent on its own is picked up by the sender's next message within 10 minutes. Why: no lost photos, no double reads, WhatsApp's photo-then-caption habit.
+- `confirm_draft` refuses in the turn that created or changed the draft and on a version the adder didn't see; pending actions expire after 30 minutes, stay in their chat and are replaced by a newer one of the same kind. Why: nobody saves or confirms something they didn't see.
+- Group gating: addressed messages, receipt photos, and for 10 minutes after the bot posts, messages from the people it is waiting on. Why: bounded cost and no stray answers from chatter.
+- Group turns give the model only that group's data. Why: the model can't leak what it never sees.
+- Reaching the step limit is not a failure: the last call has no tools and the turn commits. Why: long requests keep their work.
+- Gateway contract: one message deadline (60 s, covering the photo read, lock wait and loop), lock wait 15 s then 503 + `Retry-After`, failures as a 200 "try again" that isn't recorded. LLM call timeout default 60 → 30 s. Why: a gateway needs fixed numbers; a 60 s single call can't fit in a 60 s message.
+- Usage is counted in its own transactions, with an install-wide daily cap (3000, warning at 80%); people aren't charged for group messages the bot only checked. Why: failed turns cost money too; a self-hoster needs a ceiling.
+- `tick` returns a `TickBatch` that the gateway acknowledges; unacknowledged batches come back. `tick` skips busy chats. Why: a lost response must not lose a payment notice; timed work must not queue behind turns.
+- `SMARTSPLIT_BOT_LINK` replaces `SMARTSPLIT_INVITE_TEMPLATE` (the invite text is fixed, with the link). Why: one setting serves invites and "message me 1:1 first".
+- No per-turn trace table: one structured log line per turn without content. Why: enough to debug, no new data to protect.
+- Deferred (not built): reopening a draft cancelled by mistake; reading payment screenshots.
+
 ## Open (waiting for the user)
 
-(nothing open)
+1. **One active draft per chat, or per adder?** Today one draft per conversation (your decision), so in a group Raj's receipt waits behind Sam's draft for up to 3 days. With handles the bot can tell several drafts apart. (a) One active draft per (chat, adder); each person's extra receipts queue behind their own. (b) Keep one per chat. **Recommend (a).**
+2. **Offline demo (K1).** The first build's keyword stand-in (~390 lines of regexes) would only exist to fake the model offline, and tests through it test regexes, not the agent. (a) Remove it: `smartsplit demo` plays a scripted conversation through the real tools and database with no key; `say` and the API need a key; tests use `ScriptedAgent`. (b) Keep the keyword stand-in for the CLI only, never in tests. **Recommend (a).**
+3. **"Not received" and "undo payment".** Today they apply at once. Your revision-2 rule is that money moves only on a later "yes" from the person asked. (a) Make both proposals that need that yes (one extra message, consistent and injection-proof). (b) Keep them immediate as an exception. **Recommend (a).**

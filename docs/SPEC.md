@@ -7,11 +7,15 @@ Raj", "Sam usually doesn't eat chips"). It asks when unsure, keeps its own
 ledger, and talks to people in group chats and in personal (1:1) chats. Later
 that chat is WhatsApp; in this build it is a CLI and an HTTP API.
 
-**Revision 2 (approved by the user after the first build):** the bot becomes a conversation **agent**: the model
-reads the recent chat and calls tools in a loop until it writes its reply (§8). Everything the tools
-do (engine, ledger, rules, drafts, payments, notifications) is unchanged from the first build; what
-changes is how a message becomes actions and replies (§2, §4.5, §8, §10.1–10.4, §12). The choices made
-for it are in DECISIONS.md ("Made by the user").
+**Revision 2 (approved by the user after the first build, refined in a product pass):** the bot is a
+conversation **agent**: the model reads the recent chat and calls tools in a loop until it writes its
+reply (§8). Engine, ledger, rules and matching are unchanged. What changes is how a message becomes
+actions and replies, and what a production deployment needs around that: one way to refer to things
+(the transcript's references, §8.6), photos read on arrival (§7), a gateway contract with explicit
+deadlines and failure codes (§12.2), and cost and abuse limits that survive failed turns (§12.5).
+The choices made for it are in DECISIONS.md. Three points wait for the user's answer (DECISIONS
+"Open"): one active draft per adder rather than per chat, the offline demo as a scripted replay, and
+"not received"/"undo payment" needing a "yes". This text is written with the recommended answer.
 
 This document is the source of truth. If the code and this spec disagree, the
 spec wins, unless DECISIONS.md records a change. `docs/USE_CASES.md` lists the
@@ -20,7 +24,7 @@ the pre-build review shaped it.
 
 ---
 
-## 1. Scope of this build (the first run)
+## 1. Scope of this build
 
 **In scope:** the core, end to end, with no WhatsApp:
 
@@ -29,12 +33,13 @@ the pre-build review shaped it.
 3. People and identity: phone numbers, chat identities, per-user nicknames
 4. Two kinds of bill context: **group** bills (all or some current members) and **personal splits** (added in a 1:1 chat with chosen people)
 5. Preference rules with scopes (everywhere, group, adder's notes), item matching and learning
-6. Receipt parsing from an image (Claude vision, behind an interface)
+6. Receipt parsing from an image (Claude vision, behind an interface), on arrival
 7. A conversation agent: the model reads the recent chat and the current state, and calls tools in a loop (Claude, behind an interface)
 8. Ledger: balances per context, overall balances across contexts, debt simplification, payments with allocation, square-up
-9. Conversation orchestrator: runs the agent turn and owns the state machine: bill flow, questions, review edits, confirm, cancel, expiry, editing saved bills, notifications, membership, payments, reminders, history, opt-out
-10. A CLI channel and a FastAPI HTTP API that drive the orchestrator, plus a `tick` entrypoint for timed work
-11. Basic safety for a self-hosted service: a shared API token, idempotent message handling, per-conversation serialization
+9. Conversation orchestrator: decides which messages reach the agent, runs the turn, and owns everything the model must not: drafts and their states, engine questions, pending actions and their confirmation rules, notifications, expiry, limits
+10. A CLI channel and a FastAPI HTTP API that drive the orchestrator, with the gateway contract a chat gateway builds against (§12.2), plus a `tick` entrypoint for timed work
+11. Running it in production: a container image, readiness check, timed `tick`, backups, per-turn operational logs (§12.6)
+12. Basic safety for a self-hosted service: a shared API token, idempotent message handling, per-conversation serialization, cost caps
 
 **Out of scope (do not build):** the WhatsApp/Baileys gateway, the Splitwise
 sync adapter, payment links, currency conversion, item categories, automatic
@@ -60,7 +65,7 @@ smartsplit/
     db/          SQLAlchemy models, repositories, Alembic migrations (implements ports.Repository)
     llm/         Anthropic-backed ReceiptParser, Canonicalizer and AgentModel (implements ports)
     files/       filesystem ImageStore (implements ports.ImageStore)
-    fakes/       in-memory/fake implementations of every port, used by tests and the CLI demo
+    fakes/       in-memory/fake implementations of every port, used by tests and `smartsplit demo`
   entrypoints/
     api/         FastAPI app (webhook-style inbound messages + REST reads + tick)
     cli/         Typer CLI channel
@@ -76,7 +81,8 @@ Rules:
   permissions, compute, store, and return results; they never call the model.
 - Services never send messages themselves. `handle` and `tick` return the `OutboundMessage`s to deliver,
   to any conversation (the current chat, a group chat, a personal chat). Messages to people's personal
-  chats that are subject to opt-out, caps and holds go through the `Notification` outbox (§10.8). So there
+  chats that are subject to opt-out, caps and holds go through the `Notification` outbox (§10.8). Every
+  message sent is also written to the transcript of the chat it goes to (§8.6). So there
   is no Channel port. Data shapes are in `docs/CONTRACTS.md`.
 
 ## 3. Conventions
@@ -100,7 +106,7 @@ Rules:
 |---|---|---|
 | `Person` | id, display_name, phone, phone_added_by, notifications_enabled, has_used_bot, created_at | `phone` is required and unique: it is the person's identity. `display_name` is their own name (from their chat profile once they use the bot). `notifications_enabled` is turned off by "stop". `has_used_bot` becomes true on their first personal message. |
 | `ChatIdentity` | channel, external_ref, person_id | How a person appears in one channel (`whatsapp` number, `whatsapp_lid`, `cli` handle). `(channel, external_ref)` is unique and maps to exactly one person. |
-| `Nickname` | owner_id, subject_id, name | What one person calls another ("Sam" for you, "Samuel" for Raj). Unique per (owner, normalized name). Others only ever see the name *they* gave someone, never the stored display name of a person they share no context with. |
+| `Nickname` | owner_id, subject_id, name | What one person calls another ("Sam" for you, "Samuel" for Raj). Unique per (owner, normalized name), so once the speaker says which Sam they mean, the bot remembers it as their nickname. Others only ever see the name *they* gave someone, never the stored display name of a person they share no context with. |
 
 ### 4.2 Where bills live
 
@@ -109,7 +115,7 @@ Rules:
 | `Group` | id, name, channel_ref (optional, unique) | `channel_ref` links the group to one group chat. |
 | `Membership` | group_id, person_id, position, joined_at, left_at (optional) | `position` orders members (rounding ties). *Current* while `left_at` is empty. Rejoining creates a new membership. |
 | `Context` | `GroupContext(group_id)` \| `PersonalContext()` | Every bill, receipt, draft and settlement has exactly one context. A personal split has no group; its people are the bill's participants. |
-| `Conversation` | key (channel, ref), kind (`group` \| `personal`), name, group_id or person_id, last_listed_bill_ids | One chat the bot is in. `last_listed_bill_ids` resolves "details 2" against the numbered list last shown there. |
+| `Conversation` | key (channel, ref), kind (`group` \| `personal`), name, group_id or person_id | One chat the bot is in. |
 
 ### 4.3 Items, matching and rules
 
@@ -118,28 +124,30 @@ Rules:
 | `Item` | key | Install-wide set of item keys (`"milk"`), so rules about an item apply everywhere. |
 | `ItemAlias` | match_scope, raw_name, item_key | Remembered match from a normalized receipt name to an item key. `match_scope` is `GroupScope(group_id)` or `NotesScope(owner_id)` (personal splits by that adder), so a wrong match only affects that place. |
 | `Rule` | id, subject_id, item_key, kind, scope, author_id, source, created_at | `kind`: `exclude` \| `soft_exclude` \| `only`. `scope`: `Everywhere` \| `GroupScope(group_id)` \| `NotesScope(owner_id)`. `source`: `stated` \| `learned`. At most one rule per (scope, subject, item_key). |
-| `LlmUsage` | person_id, day, calls | Counts model calls per person per day (`SMARTSPLIT_LLM_CALLS_PER_PERSON_PER_DAY`). |
 | `AnswerObservation` | scope, subject_id, item_key, outcome (`excluded` \| `sole_assignee` \| `included`), bill_id, observed_at | What a saved bill's answers showed about one person and one item; the input to learning (§6.5). |
 
 ### 4.4 Receipts, bills and payments
 
 | Entity | Key fields | Notes |
 |---|---|---|
+| `PhotoRead` | conversation, message_id, sender_id, outcome (`receipt` \| `not_a_receipt` \| `unreadable`), receipt_id (optional), used_by_draft_id (optional), created_at | One per inbound photo, written in its own transaction as soon as the photo is read (§7), so a retried or rolled-back message never reads it twice, and a photo sent on its own can be picked up by the next message (§10.4). |
 | `Receipt` | id, image_ref, mime_type, merchant, purchased_at, line_items, tax_cents, other_adjustments_cents, total_cents, warnings | The immutable parse record. `other_adjustments_cents` = tip + service charges − receipt-level discounts. Review edits happen on the draft's working copy. |
-| `LineItem` | id, position, name, quantity, amount_cents, taxed, confidence, canonical, discount_for, match_how, match_is_new | `amount_cents` is the line total (negative for discount/refund lines). `quantity` ≥ 1. `taxed`: `True`/`False`/`None` (receipt doesn't say). `confidence` 0–1. `canonical`: item key. `discount_for`: id of the line this discount reduces, if the parser could link it. `match_is_new` marks a first-time item match (shown once in the summary). |
+| `LineItem` | id, position, name, quantity, amount_cents, taxed, confidence, canonical, discount_for, match_how, match_is_new | `amount_cents` is the line total (negative for discount/refund lines). `quantity` ≥ 1. `taxed`: `True`/`False`/`None` (receipt doesn't say). `confidence` 0–1. `canonical`: item key. `discount_for`: id of the line this discount reduces, if the parser could link it. `match_is_new` marks a first-time item match (shown once in the summary). `position` is the line number people see; it never changes within a draft (a removed line leaves a gap, an added line takes the next number). |
 | `Bill` | id, context, origin conversation, receipt_id (optional), payer_id, added_by, description, purchased_at, participants (ordered), lines, tax_cents, other_adjustments_cents, total_cents, shares, reverses_id (optional), replaces_id (optional), edit_reason (optional), created_at | Append-only. An edit is a reversing bill (`reverses_id`) plus a new bill (`replaces_id`, `edit_reason`); a delete is only the reversing bill. Shares sum exactly to `total_cents`. |
-| `BillLine` | id, position, name, item_key, quantity, amount_cents (before tax folding), taxed, discount_for, assignees (person → weight) | The per-line split as saved; with the bill's tax and adjustments, "details" and edits can be rebuilt without re-running rules. |
+| `BillLine` | id, position, name, item_key, quantity, amount_cents (before tax folding), taxed, discount_for, assignees (person → weight) | The per-line split as saved; with the bill's tax and adjustments, details and edits can be rebuilt without re-running rules. |
 | `Settlement` | id, payment_id, context, from_id, to_id, amount_cents, kind (`payment` \| `square_up`), recorded_by, reverses_id (optional), created_at | One real payment is stored as one row per context it was allocated to, sharing `payment_id`. Reversal ("not received", "undo") writes negating rows. |
 
 ### 4.5 Conversation state
 
 | Entity | Key fields | Notes |
 |---|---|---|
-| `BillDraft` | id, conversation, context, added_by, payer_id, receipt_id, image_ref, description, purchased_at, working copy of lines / tax / other adjustments / total, accepted_difference_cents, participants, overrides, owes_all_id, state, created_at, last_activity_at, reminded_at | A bill under review; review edits change the working copy. `overrides`: line id → list of people, or {person: weight}, or exact amounts (§5.2). States in §10.4. At most one draft per conversation is active; up to `SMARTSPLIT_MAX_QUEUED_DRAFTS` wait as `queued`. |
-| `Prompt` | id, conversation, draft_id (optional), kind, typed payload, status (`pending` \| `open` \| `answered` \| `dropped`), asked_of (optional: only that person may answer), created_by, created_at, answers | What the bot is waiting for that code must track, so a restart resumes cleanly. Kinds: `engine_question` (item + member + reason) and `pending_action` (edit, delete, not mine, payment, overpayment, square-up, rule change: the exact effect, the version it was computed on, and who must confirm, §8.3). Clarifications the model asks itself ("which Sam?", "who's this with?", "join splits here?") are not prompts: the next turn sees them in the transcript. |
-| `ChatMessage` | conversation, seq, sender_id (optional: none for the bot), text, created_at | The chat transcript the agent reads (§8.5). Only text: photos and contact cards appear as "[photo]" and "[contact: name]". |
-| `Notification` | id, recipient_id, actor_id, kind, bill_ids, payment_id, args, created_at, sent_at (optional) | Outbox for messages to people's personal chats. Text is rendered when sent (so balances are current). Held while the person hasn't used the bot or has notifications off, except `requested_reply` (answers the person asked for, e.g. "sent you a DM"). |
+| `BillDraft` | id, conversation, context, added_by, payer_id, receipt_id (optional), description, purchased_at, working copy of lines / tax / other adjustments / total, participants, overrides, owes_all_id, possible_duplicate_of (optional bill or draft), state, version, created_at, last_activity_at, reminded_at | A bill under review. `version` goes up on every change, so a confirm can check that the adder saw the current split (§8.4). `overrides`: line id → list of people, or {person: weight}, or exact amounts (§5.2). States in §10.4. One active draft per (conversation, adder); up to `SMARTSPLIT_MAX_QUEUED_DRAFTS` more from the same adder wait as `queued`. |
+| `Prompt` | id, conversation, draft_id (optional), kind, typed payload, status (`open` \| `answered` \| `dropped`), asked_of (optional: only that person may answer), created_by, created_at, expires_at (optional), answers | What the bot is waiting for that code must track. Two kinds only: `engine_question` (line + member + reason, §5) and `pending_action` (§8.4: the tool and its arguments, the exact effect, the version it was computed on, who must confirm, where, and until when). Clarifications the model asks itself ("which Sam?", "who's this with?") are not prompts: the next turn sees them in the transcript. |
+| `ChatMessage` | conversation, seq, sender_id (optional: none for the bot), text, refs, created_at | The chat transcript (§8.6). `refs` lists, in display order, what a bot message showed: bills, the draft and its version, lines, questions, pending actions, people. `seq` comes from one database sequence. |
+| `Notification` | id, recipient_id, actor_id, kind, bill_ids, payment_id, args, created_at, sent_at (optional) | Outbox for messages to people's personal chats. Text is rendered when sent (so balances are current). Held while the person hasn't used the bot or has notifications off. |
+| `TickBatch` | id, messages, created_at, acked_at (optional) | What one `tick` returned, kept until the gateway acknowledges delivery (§10.8). |
 | `ProcessedMessage` | conversation, message_id, replies, processed_at | Idempotency: a repeated inbound `message_id` returns the stored replies and changes nothing. |
+| `LlmUsage` | counter (a person id, or `install`), day, calls | Model calls per day, per person and for the whole install (§12.5). Written in its own short transaction per call, so a rolled-back turn still counts. |
 
 Receipt invariant: `sum(line_items.amount_cents) + tax_cents + other_adjustments_cents == total_cents`.
 The parser must flag a receipt where this doesn't hold (in `warnings`), not silently fix it.
@@ -225,9 +233,10 @@ me 9000, Raj 9000") is one line with every person fixed; the amounts must add up
   unknown identity with a phone creates the person (name from the chat profile). An unknown
   identity *without* a phone (a WhatsApp hidden id) cannot create a person: the bot asks them to
   message it 1:1 first, which links the hidden id to their number.
-- Names in commands ("split with Sam") resolve, for the speaker, in this order: their nicknames,
-  then the names of people they share a current group or a past bill with. Several matches →
-  the bot asks which one. No match → the bot asks for a contact card or number.
+- Names the speaker uses ("split with Sam") resolve, for the speaker, in this order: their nicknames,
+  then the names of people they share a current group or a past bill with (`find_person`, §8.3).
+  Several matches → the bot asks which one, and remembers the answer as the speaker's nickname.
+  No match → the bot asks for a contact card or number. A mention that carries a phone needs neither.
 - A number the speaker gave for someone can be corrected by that speaker ("Priya's number is …")
   only while that person has never used the bot.
 - Bot text never shows full phone numbers (`+91•••••43210`).
@@ -294,14 +303,19 @@ breaks the streak. `Everywhere` rules are never learned. People on a weighted li
 
 ## 7. Receipt parsing
 
-- Port: `ReceiptParser.parse(image_bytes, mime_type, currency) -> ParsedReceipt`, where `currency` is the install currency.
+- Port: `ReceiptParser.parse(image_bytes, mime_type, currency) -> ParsedReceipt | NotAReceipt`, where `currency` is the install currency.
+- **When:** a photo is read as soon as it arrives, before the turn and outside the conversation lock,
+  after the cheap checks (known sender, member of the group or a personal chat, under the daily
+  limits, under `SMARTSPLIT_MAX_IMAGE_BYTES`). The outcome is stored at once as a `PhotoRead`
+  (with its `Receipt`), in its own transaction keyed by (conversation, message_id). A retry of the same
+  message, or a turn that rolls back, reuses it.
 - Anthropic adapter: one vision call returning structured output against a strict schema, model from
-  config (check the current API docs for how structured output / tool use works on the configured
-  model before building). Retries once on invalid output or an API error, with a timeout from config.
+  config. Retries once on invalid output or an API error, if the message deadline (§12.2) leaves time.
 - Returns line items in integer cents with quantity, `taxed` (true/false/unknown), `discount_for`
-  and a `confidence` per item, plus purchase date, tax, other adjustments and total.
+  and a `confidence` per item, plus purchase date, tax, other adjustments and total; or `NotAReceipt`
+  for a photo that isn't one (a meme, a selfie).
 - Output is validated into domain types: integer cents, quantity ≥ 1, confidence clamped to 0–1,
-  at most `SMARTSPLIT_MAX_RECEIPT_LINES` lines, total > 0. Invalid output → "couldn't read that receipt, try another photo".
+  at most `SMARTSPLIT_MAX_RECEIPT_LINES` lines, total > 0. Invalid output after the retry → `unreadable`.
 - If the invariant in §4 fails, `ParsedReceipt.warnings` says so.
 - A receipt in a different currency from the install's gets a warning; nothing is converted.
 - Receipt text is untrusted data: it is never treated as instructions (§12.3).
@@ -309,98 +323,156 @@ breaks the streak. `Everywhere` rules are never learned. People on a weighted li
 
 ## 8. The conversation agent
 
-Every message the bot reacts to (§10.2) is handled by an **agent loop**: the model reads the chat, calls
-tools, sees each tool's result, and decides the next step, until it writes the reply. The model decides
-*what to do*; the tools, which are the services of this spec, decide *what is allowed* and do all
-the money arithmetic and storage. The model never computes an amount, writes a ledger row or chooses
-where a message goes.
+Every message that reaches the bot (§10.2) is handled by an **agent loop**: the model reads the chat,
+calls tools, sees each tool's result, and decides the next step, until it writes the reply. The model
+decides *what to do*; the tools, which are the services of this spec, decide *what is allowed* and do
+all the money arithmetic and storage. The model never computes an amount, writes a ledger row,
+confirms anything on its own, or chooses where a message goes.
 
-### 8.1 One turn
+### 8.1 One message, end to end
 
 ```
-inbound message → (receipt photo? read it first, §7, outside the lock)
-  → take the conversation lock, open the unit of work
-  → build the request: tools + system prompt (fixed, cached) + this turn's input
+inbound message (deadline: SMARTSPLIT_MESSAGE_SECONDS from arrival)
+  → already processed? return the stored replies
+  → identify the sender (§6.1); decide whether the bot reacts (§10.2); check the limits (§12.5)
+  → photo? read it now, outside the lock, store the PhotoRead (§7)
+       (in a group, a photo that isn't a receipt and isn't addressed to the bot ends here: no reply)
+  → take the conversation lock (wait at most SMARTSPLIT_LOCK_WAIT_SECONDS, else 503, §12.2)
+  → open the unit of work; build the turn input (§8.2)
   → loop, at most SMARTSPLIT_AGENT_MAX_STEPS model calls:
        model → tool calls → run each tool (checks, effects, result) → results back to the model
+       (the last allowed call is made with no tools, so the model must write its reply)
   → model ends with its reply text (may be empty: say nothing)
-  → reply = model text + the "shown" blocks the tools produced, in order (§8.4)
-  → store the inbound message and the reply in the chat transcript, record ProcessedMessage, commit
+  → replies = welcome (first contact only) + model text + the shown blocks the tools produced (§8.5)
+  → append the inbound message and every outbound message to the transcripts (§8.6),
+    record ProcessedMessage, commit
 ```
 
-The input for one turn is one user message holding, as data:
-- `<state>`: the snapshot built fresh from the database: the chat (kind, name, today), the speaker, the
-  people the speaker can name, the group's members, the draft under review (numbered lines, shares,
-  open questions), pending confirmations, the bills last listed. Short **handles** stand for things
-  (`L3` a line, `Q1` a question, `B2` a listed bill, `A1` a pending action, `P2` a person); the
-  service maps handles back to ids for this turn only. No internal ids or phone numbers reach the model.
+The model's own tool calls and results are **not** kept between turns; only the visible chat (with its
+references) is. Every turn starts from the database's truth, so a restart or a long gap loses nothing.
+
+### 8.2 What the model sees
+
+The cached prefix is the system prompt and the tool definitions (fixed for the install). After it, one
+user message holds this turn's input, as data:
+
+- `<state>`: a compact snapshot built fresh from the database, only what nearly every turn needs:
+  - the chat (group or personal, its name), today's date, the speaker, whether the welcome was just shown;
+  - the people the speaker can name here: in a group, its current and past members; in a personal
+    chat, the speaker's ~20 most recent people (`find_person` reaches the rest);
+  - each active draft here: who added it, payer, people, per-person totals, total and any difference,
+    a possible duplicate, flagged lines, open questions; the full line list only when it has at most
+    15 lines (`get_bill` gives the rest); how many drafts are queued;
+  - open pending actions here, with who must confirm and until when.
 - `<recent_chat>`: the last `SMARTSPLIT_CHAT_HISTORY_MESSAGES` messages of this chat (default 10),
-  oldest first: speaker name, time, text, and the bot's replies (§8.5).
-- `<message>`: the new message (text, "[photo]", "[contact: Priya]", or an event).
+  oldest first: speaker name, time, text; bot messages with their references (§8.6).
+- `<message>`: the new message: its text (mentions shown as `@Name`), "[photo: receipt, Toit, ₹1,240,
+  12 lines]" or "[photo: not a receipt]" or "[photo: couldn't read it]", "[contact: Priya]", the quoted
+  bot message if the person replied to one, or an event ("Raj left the chat").
 
-The model's own tool calls and results are **not** kept between turns; only the visible chat is. So
-every turn starts from the database's truth, and a restart or a long gap loses nothing.
+**Handles.** Short handles stand for things: `P2` a person, `B3` a saved bill, `D1` a draft, `L4` line 4
+of a draft, `Q1` an open question, `A1` a pending action, `G1` a group, `T1` a payment. Line handles are the line numbers
+people see. The others are numbered per turn, in the order they appear in the input; tool results can
+add more (`add_person` returns the new person's handle), and those are valid for the rest of the turn.
+The service maps handles to ids and rejects any handle it didn't issue. No internal id or phone number
+ever reaches the model; in a group turn, nothing from another context does (§10.7).
 
-### 8.2 Tools
+### 8.3 Tools
 
-Each tool has a JSON schema, checks its own permissions (§6.2, §10, §12.3) and returns a result the
-model reads: `ok`, an error with a short reason the model can act on ("Priya isn't in Flat 4B",
-"two people called Sam: P4 (Flat 4B), P7 (Goa trip)"), the changed state, and any **shown** text.
+Each tool has a JSON schema generated from its argument dataclass, checks its own permissions (§6.2,
+§10, §12.3) and returns a result the model reads: `ok`, or a short reason the model can act on ("Priya
+isn't in Flat 4B", "two people called Sam: P4 (Flat 4B), P7 (Goa trip)"), the changed state, and any
+**shown** text. Arguments use handles for things and decimal strings in major units for money (`"800"`,
+`"12.50"`), which code parses into cents; a float, or more decimals than the currency has, is refused.
+Tools are deterministic code over the services; they are tested without the model.
 
 | Kind | Tools |
 |---|---|
-| Read (no effects) | `get_balances` (here, with someone, in a group, overall), `get_bill` (details of a draft or listed bill), `list_bills` (last N, this/last month, numbered for later reference), `list_rules` (about someone), `find_person` (names → candidates) |
-| Drafts | `start_receipt` (people, payer, "owes all"; the photo of this turn), `add_manual_bill`, `set_draft_people`, `edit_draft` (line amount, remove/add line, total, who shares a line, weights, exact parts, "that's not milk", payer, accept difference), `answer_question`, `file_into_group`, `confirm_draft`, `cancel_draft` |
-| People | `add_person` (name + number or the contact card of this turn), `join_group`, `member_left`, `set_nickname`, `choose_person` (store which "Sam" the speaker means), `correct_number` |
-| Rules | `add_rule`, `delete_rule` |
-| Need a "yes" (§8.3) | `propose_bill_change` (edit, delete, not mine), `propose_payment`, `propose_square_up`, `propose_rule_change` (about someone else, or deleting one), `confirm_pending`, `decline_pending` |
-| Direct | `not_received`, `undo_payment`, `remind`, `set_notifications`, `help` |
+| Read (no effects) | `get_balances` (here, with a person, a group, overall), `get_bill` (a draft or saved bill, line by line), `list_bills` (last N, a period, text such as "Toit", a person), `list_rules` (about a person), `find_person` (a name → candidates) |
+| Drafts | `start_receipt` (people or everyone-except, payer, "owes all"; the photo of this message, or this sender's last unused receipt photo here within 10 minutes), `add_manual_bill` (description, amount, people, payer, owes all, exact parts, date), `set_draft_people`, `edit_draft` (one change: line amount, remove line, add line, total, who shares a line with weights or exact parts, add or remove people, "that's not milk", payer), `answer_question`, `file_into_group`, `confirm_draft` (with `keep_duplicate`, `accept_difference`), `cancel_draft` |
+| People | `add_person` (a name with a number, this message's contact card, or a mention), `join_group`, `member_left`, `set_nickname` (also "I mean the Flat 4B Sam"), `correct_number` |
+| Rules | `add_rule`, `delete_rule`: applied at once when the speaker may change it alone (§6.2); otherwise a pending action |
+| Need a "yes" (§8.4) | `change_bill` (edit, delete, not mine), `record_payment`, `square_up`, `not_received`, `undo_payment`; then `confirm_pending`, `decline_pending` |
+| Other | `remind`, `set_notifications` |
 
-Tools are deterministic code over the existing services; they are tested without the model.
+"Same as last time" means a new bill with the same people and payer as the bill the speaker refers to,
+with the new amount or photo; it never copies an old bill's lines.
 
-### 8.3 Confirmations are code, not model judgement
+### 8.4 What code confirms
 
-Anything that moves money or changes other people's data goes through a **pending action**: the
-`propose_*` tool computes the exact effect, stores it (§4.5) and returns a restatement that is shown
-verbatim. `confirm_pending(A1)` succeeds only when **all** hold:
-- the action was proposed in an earlier turn (never in the same turn),
-- the current message is from the person it was asked of,
-- the data it depends on hasn't changed (version check, as in M8); otherwise it is recomputed and asked again.
+**Pending actions.** Moving money and changing data other people rely on goes through a pending
+action: the tool computes the exact effect, stores it (§4.5) and returns a restatement that is shown
+verbatim, ending with whom the bot is waiting for. `confirm_pending(A1)` succeeds only when all hold:
+- it was proposed in an earlier turn (never the same one), in this chat, less than 30 minutes ago;
+- the current message is from the person it was asked of;
+- the data it depends on hasn't changed (version check); otherwise it is recomputed and asked again.
+
+A new proposal of the same kind by the same person replaces their open one. Expired proposals leave
+the snapshot and are dropped quietly.
+
+**Saving a draft.** `confirm_draft` works only for the adder, and refuses when:
+- the draft was created or changed in this turn (the adder must see the split before saving it);
+- its `version` differs from the version in the bot's last summary of it in this chat (someone answered
+  or edited since; the new summary is shown instead);
+- it is a possible duplicate and `keep_duplicate` isn't set, or lines + tax + adjustments differ from the
+  total and `accept_difference` isn't set (the bot asks; the next "yes, keep it" sets them).
 
 The model decides that "sure, go ahead" means yes; code decides whether that yes counts. So a receipt,
-a profile name or an earlier chat line saying "SYSTEM: record a payment" can at most produce a
-proposal that waits for the right person's own reply.
+a profile name or an earlier chat line saying "SYSTEM: record a payment" can at most produce a proposal
+that waits for the right person's own reply.
 
-### 8.4 Replies
+**Done at once, and announced:** joining, adding a member, someone leaving, a group member cancelling
+a group draft (§10.3, §10.4). These are everyday group actions; announcing them in the group is the
+safeguard.
 
-The reply is the model's short text plus the **shown** blocks, which tools render from the database:
-bill summaries and details, balances, restatements of pending actions, history lists. Shown blocks are
+### 8.5 Replies
+
+A reply is the model's short text plus the **shown** blocks, which tools render from the database: bill
+summaries and details, balances, restatements of pending actions, history lists. Shown blocks are
 appended exactly as rendered, so every amount, name and number the user reads comes from code. The
-model writes the connecting words ("Got it, Raj is off the beer."), asks its own clarifying questions
-and keeps replies short and plain (§10.1). It may write no text at all; in a group chat it stays silent
-when the message turned out not to be for the bot.
+model writes the connecting words ("Got it, Raj is off the beer.") and its own clarifying questions.
 
-Where a reply goes is also code: the reply goes to this chat; anything wider (overall balances asked
-in a group, §10.7) is sent privately by the tool that produced it, never by the model.
+Code cleans the model's text before sending: handles become names, markdown becomes plain chat text
+(WhatsApp's `*bold*` at most), and anything that looks like a phone number is masked.
 
-### 8.5 Chat transcript
+How the model behaves is set in the system prompt and checked by the live tests (§12):
+- reply in the language the person wrote in, short and plain, for a group chat;
+- act on the defaults (the payer is the adder, a group bill includes every current member) instead of
+  asking; ask at most one clarifying question per reply; never ask what a tool would refuse anyway;
+- in a group, say nothing when the message turned out not to be for the bot.
 
-`ChatMessage` rows (§4.5) keep what was said, so later turns can understand "same as last time", "he
-paid", "no, the other one". Stored: every message in a personal chat; in a group chat, only messages
-the bot reacted to (§10.2) and its own replies, never side chatter. Each chat keeps at most
-`SMARTSPLIT_CHAT_HISTORY_KEEP` messages (default 50), and `tick` deletes messages older than
-`SMARTSPLIT_CHAT_HISTORY_DAYS` (default 30). Logs still never contain message text (§12.4).
+Where a reply goes is code: replies go to this chat; anything wider (overall balances asked in a group,
+§10.7) is sent privately by the tool that produced it, which returns only "sent privately" to the model.
 
-### 8.6 Ports and fakes
+### 8.6 Chat transcript and references
 
-- `AgentModel.step(request) -> ModelStep`: one model call; the request is tools, system prompt and the
-  message list for this turn (input, then earlier steps' tool calls and results); the step is either
-  tool calls or final text, plus token usage. The Anthropic adapter uses tool use with the fixed
-  tools and system prompt as the cached prefix (§12.5).
-- `ReceiptParser` (§7) and `Canonicalizer.canonicalize(name, known_keys)` (§6.4) are unchanged.
-- **Fakes:** `KeywordAgent` maps a message to one tool call with the keyword patterns of the first build,
-  then ends with an empty text, so tests and the offline demo see the shown blocks only.
-  `ScriptedAgent` plays a test's list of steps, for loops, retries and errors.
+`ChatMessage` rows (§4.5) keep what was said, so later turns understand "same as last time", "he paid",
+"no, the other one", "2", and replies to a notification.
+- **Stored:** every message in a personal chat; in a group chat, only messages the bot reacted to and
+  that it answered or acted on. **Every** message the bot sends is stored in the transcript of the chat
+  it goes to, whatever produced it: a reply, a group post from a personal chat, a DM from a group turn,
+  a notification, a reminder, a draft nudge or expiry.
+- **References:** a bot message stores `refs`: what it showed, in display order. The next turns give
+  those things handles, so "details on the second one", "not mine" under a notification, or "line 4 is
+  120" resolve to exactly what the person saw. A quoted reply (§10.1) points at the bot message it
+  quotes, and that message's references come first.
+- **Compact:** shown blocks are stored as their first lines plus their references (a 45-line details
+  block is not replayed ten times).
+- **Limits:** each chat keeps at most `SMARTSPLIT_CHAT_HISTORY_KEEP` messages (default 50), and `tick`
+  deletes messages older than `SMARTSPLIT_CHAT_HISTORY_DAYS` (default 30). Logs never contain message
+  text (§12.4).
+
+### 8.7 Ports and fakes
+
+- `AgentModel.step(request) -> ModelStep`: one model call; the request is tools (or none, for the last
+  allowed step), system prompt, the turn input and this turn's earlier steps with their results; the
+  step is either tool calls or final text, plus token usage. The Anthropic adapter uses tool use with
+  the fixed tools and system prompt as the cached prefix (§12.5).
+- `ReceiptParser` (§7) and `Canonicalizer.canonicalize(name, known_keys)` (§6.4) stay. If canonicalize
+  fails inside a turn, the line keeps its normalized name; the turn goes on.
+- **Fake:** `ScriptedAgent` plays a test's list of steps (tool calls, then text) and records what it was
+  sent, for flows, loops, tool errors, limits and injection tests. Integration tests drive tools through
+  it and check state, shown blocks and transcripts; the live tests (§12) check the real model.
 
 ## 9. Ledger
 
@@ -429,35 +501,51 @@ All pure, in `ledger`. Inputs are bills (payer, shares) and settlements per cont
 
 A channel-agnostic state machine in `services/`, driven by the agent turn (§8.1): the model chooses
 the tools, and the tools move the state machine. State lives in the DB, so a restart mid-flow resumes
-cleanly. Every state transition is covered by an integration test using the fakes (§8.6), and the
+cleanly. Every state transition is covered by an integration test using the fakes (§8.7), and the
 main conversations also by opt-in live tests with the real model.
 
 ### 10.1 Messages
 
-- Inbound: `InboundMessage(message_id, channel, conversation_ref, conversation_kind, sender_ref,
-  sender_phone (optional), sender_name, addressed_to_bot, reply_to_bot, text | image | contact | event)`.
-  `event` covers chat events from the gateway: `participant_left` (with the person's ref).
-- Outbound: `OutboundMessage(conversation_ref, text)`. Plain text that reads well in a chat app: short lines, no markdown tables.
-  The model's words plus code-rendered shown blocks (§8.4); every amount comes from code.
+- Inbound: `InboundMessage(message_id, channel, conversation_ref, conversation_kind, conversation_name,
+  sender_ref, sender_alt_ref, sender_phone (optional), sender_name, addressed_to_bot, reply_to_bot,
+  quoted_text (optional), mentions, text | image | contact | event)`.
+  - `mentions`: who the text mentions: their ref, name and phone when the gateway knows it. The text
+    carries them as `@<ref>`; code replaces each with `@Name` before the model sees it.
+  - `quoted_text`: the start of the message being replied to; code matches it to the bot's message in
+    the transcript (§8.6).
+  - `event`: `participant_left` (with the person's ref) or `bot_added` (the bot was added to a group).
+- Outbound: `OutboundMessage(conversation_ref, recipient_id, text)`. Plain text that reads well in a chat
+  app: short lines, no tables.
 
 ### 10.2 When the bot reacts
 
 - **Personal chats:** every message.
-- **Group chats:** only photos, messages addressed to the bot (a mention or a reply to the bot), and,
-  while the bot is waiting on someone there (an open question, a pending action, or a question it
-  asked in its last reply), messages from the people it is waiting on. Everything else is not sent to
-  the model, not stored, and gets no reply. The model may also decide a message wasn't for the bot
-  and reply with nothing.
+- **Group chats**, from a member or a non-member:
+  - a message addressed to the bot (a mention, or a reply to one of its messages);
+  - a photo that turns out to be a receipt (§7); other photos are ignored unless addressed;
+  - from members only: a message from someone the bot is **waiting on**, if the bot posted in this
+    chat in the last 10 minutes. Waiting on: the adder of an active draft here, the people its open
+    questions are about (the adder, for "who's this for?"), whoever a pending action here waits for,
+    and the person the bot last replied to here.
+  - events (`bot_added`, `participant_left`).
+- Everything else never reaches the model, is not stored, and gets no reply. A message that reached the
+  model only because its sender was waited on, and that the model answered with nothing and no effect,
+  is not stored either.
 
 ### 10.3 Onboarding and membership
 
-- **First personal message** from an unknown identity: create the person, reply with a short welcome and help.
-  Anything waiting for them (bills they're in, held notifications) is shown.
-- **First message to the bot in an unknown group chat:** create the group linked to that chat; the
-  sender joins; the bot asks others to reply "join".
-- **Joining is explicit:** "join", or a member adds someone ("add Priya" + contact or number). A
-  non-member who talks to the bot is asked whether they want to join; tools refuse anything else for
-  them until they do.
+- **First personal message** from an unknown identity: create the person. The reply starts with a short
+  fixed welcome (what the bot does, in two lines); anything waiting for them (bills they're in, held
+  notifications) is in the state, so the model can mention it.
+- **Added to a group** (`bot_added`), or the first message addressed to it in a group it doesn't know:
+  create the group linked to that chat, and post a short intro ending "reply to this message with
+  'join' to split bills here". Replies to that message are addressed to the bot, so joining needs no
+  mention. The person who added the bot or first spoke to it joins at once.
+- **Joining is explicit:** "join", or a member adds someone ("add @Priya", or "add Priya" with her
+  contact card or number). A mention that carries a phone is enough to add someone. A non-member who
+  talks to the bot is offered to join; tools refuse anything else for them until they do.
+- **Hidden ids:** someone the gateway knows only by a hidden id can't be created (§6.1); the bot asks
+  them to message it 1:1 first, with the one-tap link `SMARTSPLIT_BOT_LINK`.
 - **Leaving:** "X moved out" (by anyone), or a `participant_left` event, ends the membership. People
   who left never rejoin by posting; rejoining is explicit.
 - Every membership change is announced in the group. No confirmation is needed.
@@ -468,73 +556,76 @@ main conversations also by opt-in live tests with the real model.
 ### 10.4 Bill flow
 
 ```
-receipt or manual bill → choose participants → parse → (duplicate check) → match items → fold tax
-  → resolve rules → split_receipt → summary (+ prompts) → [review edits / answers → re-split]*
-  → confirm by the adder → write Bill + lines + observations → learn → notify → reply with balances
+photo read on arrival (§7) or a typed bill → choose participants → (duplicate check) → match items
+  → fold tax → resolve rules → split_receipt → summary (+ questions) → [edits / answers → re-split]*
+  → adder confirms on a later message → write Bill + lines + observations → learn → notify → balances
 ```
+
+**Starting**
+- A receipt photo with a caption ("split with Sam, he paid") starts a draft in one message. A photo
+  without a caption: in a group, the draft starts with everyone; in a personal chat, the bot asks who
+  it's with. A photo sent on its own followed by "split with Sam" works the same: `start_receipt` picks
+  up this sender's last unused receipt photo in the chat from the last 10 minutes.
+- The draft is created even when some named people are still unknown or ambiguous: it waits in
+  `awaiting_people` while the bot asks for a number or which one, so the photo is never lost.
+- In a group that has only one member so far, the summary says so and suggests asking others to join.
 
 **Participants**
 - Group: all current members by default, or a subset named by the adder ("me and Priya",
   "everyone except Raj"). Only current members can be included. Snapshotted when the draft is created.
-- Personal: the speaker plus the people named. If none are named, the draft waits in
-  `awaiting_people` and the agent asks who it's with, suggesting recent and frequent people and groups
-  (the tool returns them); the answer ("the usual", "Sam and Raj", "Flat 4B") goes to `set_draft_people`.
+- Personal: the speaker plus the people named. "Who's this with?" is the model's question; the state
+  lists the speaker's recent people and groups, and the answer ("the usual", "Sam and Raj", "Flat 4B")
+  goes to `set_draft_people` (a group name files it into that group).
 - **Payer:** in groups, the adder unless they say "Sam paid". In personal splits, always the adder.
 
 **Draft states**
 
 | State | Meaning | Leaves to |
 |---|---|---|
-| `queued` | waiting behind the active draft in this conversation (parsed only when it starts) | `awaiting_people` / `parsing` when the active draft is saved, cancelled or expired |
-| `awaiting_people` | personal split with nobody named yet | `parsing` on an answer |
-| `parsing` | receipt being read | `reviewing`; on failure the draft is cancelled with "couldn't read that, try again" |
-| `reviewing` | summary shown, prompts may be open, edits allowed | `saved` (adder confirms), `cancelled`, `expired` |
+| `queued` | waiting behind the adder's active draft in this chat (its receipt is already read) | `awaiting_people` / `reviewing` when the active draft is saved, cancelled or expires; its summary is posted then |
+| `awaiting_people` | people not named yet, or a named person not yet known or not yet chosen | `reviewing` |
+| `reviewing` | summary shown, questions may be open, edits allowed | `saved` (adder confirms), `cancelled`, `expired` |
 | `saved` / `cancelled` / `expired` | terminal | — |
 
 - **Summary (short):** each person's total, who was skipped and why, first-time item matches, flagged
-  low-confidence lines (below `SMARTSPLIT_MIN_LINE_CONFIDENCE`) and total warnings. "details" shows the
-  numbered full list; lines can be referred to by number or name. The reason is shown for group rules
-  and the adder's own notes; for someone's `Everywhere` rule the summary only says they were skipped.
+  low-confidence lines (below `SMARTSPLIT_MIN_LINE_CONFIDENCE`), a total difference, a possible
+  duplicate, and at most 3 open questions, worded by line ("Line 4, chips: is Sam in?"). The full line
+  list comes on request. The reason is shown for group rules and the adder's own notes; for someone's
+  `Everywhere` rule the summary only says they were skipped.
 - **Review edits:** "line 4 is 120", "remove the bag", "add water 40", "total is 1840", "Raj had none
-  of the wine", "2 for Sam, 1 for Raj", "that's not milk". After each edit the split is recomputed.
-  If lines + tax + adjustments still don't match the total, the summary shows the difference and the
-  adder either fixes a line or accepts it as an adjustment shared like tip.
-- **Questions:** up to 3 are asked in one message; the rest wait as `pending` prompts and the next batch
-  is asked once the current one is answered. Anyone in the bill's
-  context may answer. An answer changes the current assignment of that line (other open questions on
-  it stay open). If people answer differently, the latest answer wins. The adder can confirm with
-  questions still open; the split shown is used.
-- **Duplicates:** after parsing, if a saved bill (not reversed) or another open draft in the same group
-  (or between the same people) has the same total within 3 days, the summary says so ("looks like Sam
-  already added this") and the agent asks whether to keep it; `confirm_draft` refuses until the adder
-  has said to keep it (`edit_draft` with "keep duplicate") or cancels.
-- **Total mismatch:** `confirm_draft` refuses while lines + tax + adjustments differ from the total;
-  the agent asks the adder to fix a line or accept the difference.
-- **Confirm:** only the adder (`confirm_draft` checks the speaker; the model can't confirm for anyone).
-- **Cancel:** any current member (group) or the adder (personal) can cancel at any time; in groups the bot says who cancelled.
-- **Reminder and expiry:** after 24 hours without activity one reminder is posted in the draft's chat
-  (group chat for group drafts); after 3 days the draft expires with a short message there. Nothing is
-  saved until confirmed.
-- **Queued drafts** start when the active one is saved, cancelled or expires; their receipt is parsed
-  then, outside the conversation lock (§12.2).
+  of the wine", "2 for Sam, 1 for Raj", "that's not milk". After each change the split is recomputed and
+  the summary shown again.
+- **Questions:** anyone in the bill's context may answer. An answer changes the current assignment of
+  that line (other open questions on it stay open); if people answer differently, the latest answer
+  wins. The next open question is shown once one is answered. The adder can confirm with questions
+  still open; the split shown is used.
+- **Duplicates:** if a saved bill (not reversed) or another open draft in the same group (or between the
+  same people) has the same total within 3 days, the summary says so ("looks like Sam already added
+  this"); saving needs the adder's "keep it" (§8.4).
+- **Total mismatch:** while lines + tax + adjustments differ from the total, the summary shows the
+  difference; the adder fixes a line or accepts it, and it is then shared like tip (§8.4).
+- **Confirm:** only the adder, on a later message than the summary it confirms (§8.4).
+- **Cancel:** any current member (group) or the adder (personal) can cancel at any time; in groups the
+  bot says who cancelled. Cancelling starts the adder's next queued draft.
+- **Reminder and expiry:** after 24 hours without activity one reminder is posted in the draft's chat;
+  after 3 days the draft expires with a short message there. Nothing is saved until confirmed.
 - **Filing into a group** ("add to Flat 4B") from a personal chat: the speaker must be a current
   member; the draft's context becomes that group, rules are re-resolved with that group's rules and
   any new questions are asked in the personal chat; the adder confirms there; the saved bill's summary
-  is posted in the group. The group's own draft is not affected.
+  is posted in the group (and stored in its transcript).
 
 ### 10.5 After saving: notifications and edits
 
 - **Group bills:** the summary and new balances are posted in the group chat; no personal messages.
 - **Personal splits:** every other participant gets a notification: the bill, their share and their new
-  overall balance with the payer. Replies: `ok` (no reply needed), `details`, `not mine`, or an edit. Several bills to one
-  person within one `tick` interval become one message with numbered bills ("details 2").
-  Participants who have never used the bot are not messaged; the adder gets a forwardable invite text
-  (`SMARTSPLIT_INVITE_TEMPLATE`) on their *first* bill with that person only.
+  overall balance with the payer. They can reply in their own words: details, "not mine", an edit, or
+  nothing. Several bills to one person within one `tick` become one message listing each bill.
+  Participants who have never used the bot are not messaged; the adder gets a short forwardable invite
+  with `SMARTSPLIT_BOT_LINK` on their *first* bill with that person only.
 - **Editing or deleting a saved bill:** any participant can, optionally with a reason. The bot shows
-  the effect and asks the requester to confirm (a pending action, §8.3). It is stored as a reversing bill
-  (+ a new bill for an edit). Group bills: the change is posted in the group. Personal splits: every
-  participant is notified with their new share and the reason. "Last bill" means the speaker's own last
-  bill in this chat.
+  the effect and asks the requester to confirm (§8.4). It is stored as a reversing bill (+ a new bill for
+  an edit). Group bills: the change is posted in the group. Personal splits: every participant is
+  notified with their new share and the reason. "Last bill" means the speaker's own last bill in this chat.
 - **"Not mine":** an edit that removes the speaker from the bill and re-splits their lines among the
   rest; shown and confirmed like any edit.
 
@@ -542,111 +633,158 @@ receipt or manual bill → choose participants → parse → (duplicate check) �
 
 - **Recording:** either side can record ("paid Sam 500", "Raj paid me 500"). The bot restates it and
   asks to confirm. Allocation per §9. The other person is notified and can reply "not received", which
-  reverses it (both are told).
-- **Overpaying** (more than A owes B): the bot shows it and asks to confirm before recording the extra as a credit.
-- **"Undo last payment":** by whoever recorded it; reverses it; the other person is told.
+  reverses it once they confirm; both are told.
+- **Overpaying** (more than A owes B): the restatement shows the extra, recorded as a credit if confirmed.
+- **"Undo last payment":** by whoever recorded it, confirmed like any money move; the other person is told.
 - **"Square up with Sam":** shows the effect, asks to confirm, writes the square-up settlements (§9); both are told.
 
 ### 10.7 Balances, rules, history and privacy
 
-- In a group chat, answers only cover that group (its balances and who owes whom, its rules, its
-  bills). Overall balances, other groups, personal splits, everywhere rules and history are sent to the
-  asker's personal chat ("sent you a DM"), if they have used the bot.
+- In a group chat, everything the model sees and the bot says covers only that group (its balances and
+  who owes whom, its rules, its bills, its members). Overall balances, other groups, personal splits,
+  everywhere rules and history are sent to the asker's personal chat ("sent you a DM"), if they have
+  used the bot.
 - In a personal chat: overall balances with a per-context breakdown, rules, and history.
 - **History:** "what did I spend this month?" = the sum and list of your shares by purchase date;
-  "show last 5 bills".
+  "show last 5 bills"; "the Toit bill".
 
-### 10.8 Reminders, notifications and opt-out
+### 10.8 Reminders, notifications, opt-out and delivery
 
 - **Reminders:** manual only. "Remind Raj" sends Raj a friendly nudge with his balance, at most once per
   24 hours per (sender, Raj), and only if he has used the bot and has notifications on.
 - **Opt-out:** "stop" turns off notifications and reminders for you; "start" turns them back on.
 - **Caps:** at most `SMARTSPLIT_MAX_NOTIFICATIONS_PER_DAY` notifications per person per day (a day in
-  `SMARTSPLIT_TIMEZONE`; `requested_reply` doesn't count); extra ones wait.
-- **Delivery:** `tick(now)` claims unsent notifications (`FOR UPDATE SKIP LOCKED`), renders them with
-  current balances, marks them sent in the same transaction and returns them (at-most-once delivery).
-  It also sends draft reminders and expires drafts.
+  `SMARTSPLIT_TIMEZONE`); extra ones wait.
+- **Tick:** `tick(now)` sends due notifications (rendered with current balances), draft reminders and
+  expiries, starts queued drafts behind expired ones, and prunes the transcript. It skips any chat
+  whose lock is held (it is tried again next time), so it never waits behind a turn.
+- **Delivery:** what one `tick` returns is stored as a `TickBatch`. The gateway acknowledges it after
+  sending (`POST /v1/tick/{id}/ack`); a batch not acknowledged within 2 minutes is returned again by the
+  next `tick`, with the same id. So a lost response never loses a payment notice; a gateway that
+  crashes mid-send may send part of a batch twice.
 
 ## 11. Entrypoints
 
 - **CLI** (`smartsplit`): `person add <name> <phone>`, `group create <name>`, `member add <group> <person>`,
   `receipt add <image> --as <person> --in <group | personal>`, `say "<text>" --as <person> --in <group | personal>`,
-  `balances --as <person>`, `rules --about <person>`, `tick`. Use it to demo the full flow with the fake or the real LLM adapters (`--live`).
+  `balances --as <person>`, `rules --about <person>`, `tick`, `images prune`. `say` and `receipt add` use
+  the real model and need an API key. `smartsplit demo` plays a scripted conversation through the real
+  tools and database with no key (`ScriptedAgent`, recorded receipts), to show the flow offline.
   Messages addressed to other people's personal chats are printed with the recipient's name.
-- **API** (FastAPI): `POST /v1/messages` (an `InboundMessage` JSON → list of `OutboundMessage`),
-  `POST /v1/tick` (→ list of `OutboundMessage`), `GET /v1/groups/{id}/balances`,
-  `GET /v1/people/{id}/balances`, `GET /v1/people/{id}/rules`, `GET /healthz`.
+- **API** (FastAPI):
+  - `POST /v1/messages`: an `InboundMessage` → the replies (§12.2 for status codes);
+  - `POST /v1/tick` → `{batch_id, messages}`; `POST /v1/tick/{batch_id}/ack`;
+  - operator reads: `GET /v1/groups/{id}/balances`, `GET /v1/people/{id}/balances`, `GET /v1/people/{id}/rules`;
+  - `GET /healthz` (the process is up) and `GET /readyz` (the database answers and migrations are at head).
   Every `/v1/*` route requires `Authorization: Bearer <SMARTSPLIT_API_TOKEN>` (constant-time compare);
-  `/healthz` is open. The REST reads are for the operator, not end users. `POST /v1/messages` is the
-  endpoint the future WhatsApp gateway will call.
+  the health routes are open. The API needs an API key to start.
 
 ## 12. Operations and safety
 
 ### 12.1 Configuration
 
-`DATABASE_URL`, `SMARTSPLIT_API_TOKEN`, `SMARTSPLIT_CURRENCY`, `SMARTSPLIT_DEFAULT_REGION`, `SMARTSPLIT_TIMEZONE`,
-`SMARTSPLIT_LLM_MODEL`, `SMARTSPLIT_LLM_TIMEOUT_SECONDS`, `SMARTSPLIT_LLM_MAX_TOKENS`, `SMARTSPLIT_LLM_CALLS_PER_PERSON_PER_DAY`,
-`ANTHROPIC_API_KEY` (only for live runs), `SMARTSPLIT_FUZZY_THRESHOLD`, `SMARTSPLIT_MIN_LINE_CONFIDENCE`,
-`SMARTSPLIT_MAX_RECEIPT_LINES`, `SMARTSPLIT_MAX_AMOUNT_CENTS`, `SMARTSPLIT_MAX_IMAGE_BYTES`, `SMARTSPLIT_MAX_QUEUED_DRAFTS`,
-`SMARTSPLIT_MAX_NOTIFICATIONS_PER_DAY`, `SMARTSPLIT_INVITE_TEMPLATE` (operator-set text, e.g. a `wa.me` link), `SMARTSPLIT_IMAGE_DIR`,
-`SMARTSPLIT_AGENT_MAX_STEPS` (model calls per turn, default 6), `SMARTSPLIT_AGENT_TURN_SECONDS` (whole-turn deadline, default 60),
-`SMARTSPLIT_CHAT_HISTORY_MESSAGES` (recent messages per turn, default 10), `SMARTSPLIT_CHAT_HISTORY_KEEP` (default 50),
-`SMARTSPLIT_CHAT_HISTORY_DAYS` (default 30), `SMARTSPLIT_OFFLINE` (API on the offline fakes).
-`SMARTSPLIT_ANTHROPIC_API_KEY` is accepted for the key and wins over `ANTHROPIC_API_KEY`.
-Secrets are held as `SecretStr`. The API refuses to start without `SMARTSPLIT_API_TOKEN`.
+`DATABASE_URL`, `SMARTSPLIT_API_TOKEN`, `ANTHROPIC_API_KEY` (or `SMARTSPLIT_ANTHROPIC_API_KEY`, which wins:
+some hosts reserve the plain name), `SMARTSPLIT_CURRENCY`, `SMARTSPLIT_DEFAULT_REGION`, `SMARTSPLIT_TIMEZONE`,
+`SMARTSPLIT_BOT_LINK` (a one-tap link to the bot's chat, e.g. `wa.me`, used in invites and "message me 1:1"),
+`SMARTSPLIT_IMAGE_DIR`, and with defaults:
 
-### 12.2 Reliability
+| Setting | Default | What |
+|---|---|---|
+| `SMARTSPLIT_LLM_MODEL` | `claude-sonnet-5-5` | every model call |
+| `SMARTSPLIT_LLM_TIMEOUT_SECONDS` | 30 | one model call (capped by the time left for the message) |
+| `SMARTSPLIT_LLM_MAX_TOKENS` | 16000 | per call (room for a long receipt) |
+| `SMARTSPLIT_MESSAGE_SECONDS` | 60 | whole message: photo read, lock wait and agent loop |
+| `SMARTSPLIT_LOCK_WAIT_SECONDS` | 15 | waiting for a busy chat before answering 503 |
+| `SMARTSPLIT_AGENT_MAX_STEPS` | 6 | model calls per turn |
+| `SMARTSPLIT_LLM_CALLS_PER_PERSON_PER_DAY` | 150 | per person who addressed the bot |
+| `SMARTSPLIT_LLM_CALLS_PER_DAY` | 3000 | whole install; a warning is logged at 80% |
+| `SMARTSPLIT_CHAT_HISTORY_MESSAGES` / `_KEEP` / `_DAYS` | 10 / 50 / 30 | §8.6 |
+| `SMARTSPLIT_FUZZY_THRESHOLD`, `SMARTSPLIT_MIN_LINE_CONFIDENCE`, `SMARTSPLIT_MAX_RECEIPT_LINES`, `SMARTSPLIT_MAX_AMOUNT_CENTS`, `SMARTSPLIT_MAX_IMAGE_BYTES`, `SMARTSPLIT_MAX_QUEUED_DRAFTS`, `SMARTSPLIT_MAX_NOTIFICATIONS_PER_DAY` | 85, 0.6, 150, 100000000, 5000000, 3, 20 | §6.4, §7, §10 |
 
-- **Idempotency:** each inbound `message_id` is processed once (§4.5 `ProcessedMessage`), in the same transaction as its effects.
-- **Serialization:** messages for one conversation are handled one at a time (Postgres advisory lock on the
-  conversation ref). A whole agent turn is one transaction through the Repository's unit of work, with
-  the lock held across its model calls; a busy chat waits a few seconds. Draft state changes are
-  conditional on the expected current state.
-- **Model calls inside a turn:** if a model call fails, times out, the turn passes
-  `SMARTSPLIT_AGENT_TURN_SECONDS` or hits `SMARTSPLIT_AGENT_MAX_STEPS`, the transaction rolls back:
-  nothing the turn did is kept, the message isn't recorded (a retry starts over), and the bot replies
-  "couldn't do that, try again in a minute". Receipt photos are still read before the lock (§7, M7).
-- **Limits:** every model call (each loop step, receipt reads, canonicalize) counts toward
-  `SMARTSPLIT_LLM_CALLS_PER_PERSON_PER_DAY` for the speaker (default raised to 150 for the loop); over the
-  limit the bot says so, without calling the model, and waits until tomorrow.
+Secrets are held as `SecretStr`. The API refuses to start without `SMARTSPLIT_API_TOKEN` and an API key.
+
+### 12.2 The gateway contract and reliability
+
+`POST /v1/messages` answers within `SMARTSPLIT_MESSAGE_SECONDS` plus a few seconds:
+
+| Outcome | Response | Recorded? | Gateway does |
+|---|---|---|---|
+| Handled (including "nothing to say") | 200 with the replies, possibly none | yes | sends them |
+| Same `message_id` again | 200 with the stored replies | — | sends them (it may have lost the first response) |
+| Model down, deadline passed, or the turn failed | 200 with one "couldn't do that, try again in a minute" reply | no | sends it; doesn't retry |
+| Chat busy longer than `SMARTSPLIT_LOCK_WAIT_SECONDS` | 503 with `Retry-After` | no | retries the same message with backoff |
+| Over a daily limit | 200 with one short "limit reached for today" reply (once a day per person) | yes | sends it |
+| Bad token / bad request | 401 / 4xx | no | logs it |
+
+The gateway shows "typing…" while a request is in flight, uses an HTTP timeout above
+`SMARTSPLIT_MESSAGE_SECONDS`, and retries only on a network error or 503.
+
+- **Idempotency:** each inbound `message_id` is processed once (`ProcessedMessage`), in the same
+  transaction as its effects.
+- **Serialization:** messages for one chat are handled one at a time (Postgres advisory lock on the
+  chat, with a bounded wait). A whole turn is one transaction through the Repository's unit of work, with
+  the lock held across its model calls. Each model call's timeout is the smaller of
+  `SMARTSPLIT_LLM_TIMEOUT_SECONDS` and the time left. Draft changes are conditional on the expected
+  version.
+- **Failures inside a turn:** if a model call fails or the deadline passes, the transaction rolls back:
+  nothing the turn did is kept and the message isn't recorded. What survives a rollback: the photo read
+  (§7) and the usage counts (§12.5). Reaching `SMARTSPLIT_AGENT_MAX_STEPS` is not a failure: the last call
+  has no tools, the model says what it did, and the turn commits.
+- The database pool has at least as many connections as the API has workers, and idle-in-transaction
+  timeouts are longer than `SMARTSPLIT_MESSAGE_SECONDS`.
 
 ### 12.3 LLM safety
 
 - The model acts only through tools; every tool checks permissions for the *speaker of this turn*, and
-  resolves people only from the speaker's nameable list via handles (§8.1). Raw ids or numbers from the
-  model are rejected.
-- Moving money, deleting or changing others' data (payments, square-up, edit/delete/not-mine on a bill,
-  deleting a rule, rules about others) only ever creates a pending action; it takes effect on a later
-  message from the right person (§8.3). Membership changes are announced instead (§10.3).
+  takes people and things only as handles issued for this turn (§8.2). Raw ids or numbers are rejected.
+- Money and other people's data change only through the confirmations of §8.4.
 - Untrusted text (chat messages, the transcript, profile names, receipt text, tool results that echo it)
   is passed to the model as data inside tags, never as instructions; the system prompt says so.
-- Amounts and balances the user reads are rendered by code (§8.4).
-
-### 12.5 Cost
-
-- The tools and system prompt are fixed and come first, so they are the cached prefix (5-minute cache);
-  the per-turn input (state, recent chat, message) and the loop's steps follow it.
-- Each model call logs its token usage (counts only, §12.4); the live tests print a usage table.
-- Expected: 2–4 model calls for a typical message (one call for "yes"), about $0.005–0.01 per message
-  on Claude Sonnet 5.5 with the cache warm. `SMARTSPLIT_AGENT_MAX_STEPS` and the daily per-person limit
-  bound the worst case.
+- Amounts and balances the user reads are rendered by code (§8.5).
 
 ### 12.4 Data and logging
 
 - Logs never contain message bodies, images, prompts or full phone numbers.
-- The chat transcript (§8.5) is stored in the database with the limits there, and is part of "forget me" (§13).
-- Receipt images are stored under `SMARTSPLIT_IMAGE_DIR` (`image_ref` is a file name), with a CLI command to prune old ones.
+- One log line per turn, for debugging without content: a hash of the chat, the outcome (replied,
+  silent, failed, deadline, busy), steps, tool names with ok or error, tokens per kind, latency.
+- The chat transcript (§8.6) is stored in the database with the limits there, and is part of "forget
+  me" (§13).
+- Receipt images are stored under `SMARTSPLIT_IMAGE_DIR` (`image_ref` is a file name), with a CLI command
+  to prune old ones.
 - Request bodies and images are size-limited (`SMARTSPLIT_MAX_IMAGE_BYTES`).
-- `docker-compose.yml` binds Postgres to `127.0.0.1` only.
+
+### 12.5 Cost and limits
+
+- The tools and system prompt are fixed and come first, so they are the cached prefix (5-minute cache);
+  the per-turn input and the loop's steps follow it.
+- Every model call (loop steps, photo reads, canonicalize) is counted in its own short transaction, so
+  failed turns count too: against the install's daily total always, and against the speaker's daily
+  limit when they addressed the bot (a person isn't charged for group messages the bot only checked).
+  Over either limit the bot says so once, without calling the model, until tomorrow (install timezone).
+- Expected: 2–4 model calls for a typical message (one for "yes"), about $0.005–0.01 per message on
+  Claude Sonnet 5.5 with the cache warm, plus one vision call per receipt. Each call logs its token
+  usage (counts only); the live tests print a usage table with the cost.
+
+### 12.6 Deploying and running it
+
+- A container image for the API (and CLI), and a `docker-compose.yml` with Postgres (bound to
+  `127.0.0.1`) and the app. Migrations run at start, under a lock.
+- `tick` must run every minute (a compose service with a loop, a cron line or a systemd timer, in the
+  README); without it, notifications aren't sent and drafts never expire.
+- Backups: `pg_dump` of the database plus the image directory; the ledger is the source of truth. The
+  README gives the commands and a restore check.
 
 ## 13. Future (design for it, don't build it)
 
-- The WhatsApp gateway is a separate small Node service using Baileys. It turns WhatsApp events into `POST /v1/messages`, calls `POST /v1/tick` on a timer, and sends the replies. The bot runs on a dedicated number, never a personal one.
+- The WhatsApp gateway is a separate small Node service using Baileys, built against §12.2: it turns
+  WhatsApp events into `POST /v1/messages` (with mentions, quoted text, `bot_added` and
+  `participant_left`), shows "typing…", calls `POST /v1/tick` every minute and acknowledges each batch,
+  and sends the replies. The bot runs on a dedicated number, never a personal one.
 - **Forget me:** an operator CLI command and a chat command that delete a person's identities, nicknames,
   rules (about or by them), their chat messages and images, and replace their name and phone with "Former member", keeping
   ledger rows so other people's balances stay correct.
 - A Splitwise sync adapter would mirror confirmed `Bill`s out.
-- Payment links: UPI and Venmo deep links in balance replies.
+- Payment links: UPI and Venmo deep links in balance replies; reading a payment screenshot as a payment.
 - Item categories ("no alcohol" covers beer and wine).
 - Automatic reminders and a weekly summary.
 - Currency conversion.
