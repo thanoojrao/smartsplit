@@ -16,6 +16,7 @@ dependencies = [
     "anthropic>=0.40",
     "typer>=0.12",
     "rapidfuzz>=3.9",
+    "phonenumbers>=8.13",
 ]
 
 [project.scripts]

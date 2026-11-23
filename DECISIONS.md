@@ -83,6 +83,22 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - (User-approved) CI on GitHub Actions runs scripts/check.sh against Postgres and fails if frozen files change; a SessionStart "compact" hook reminds the agent to re-read the docs; CLAUDE.md names the working branch. Why: independent enforcement of the gate and the frozen files.
 - Milestone boundaries are recorded as commit hashes in the PROGRESS log, not git tags. Why: this environment can't push tags.
 
+## Contracts review (2026-11-23)
+
+- (User) Learning may upgrade a stated `soft_exclude` to a learned `exclude`/`only`; stated `exclude`/`only` are never overridden by learning.
+- (User) Someone who moves out is removed from open drafts in that group; the draft is re-split and shown again.
+- (User) Draft reminders and expiry notices go to the draft's chat (the group chat for group bills).
+- Messages and the `Command` union live in `domain` (with typed prompt payloads and effects), so entities like `ProcessedMessage` and `Prompt` can reference them without breaking the layers. Why: import-linter.
+- Value objects hold no dicts: per-person data is tuples of `Share`/`Weight`/`ExactAmount`. Why: frozen dataclasses with dicts are unhashable and still mutable.
+- `BillDraft` holds a working copy of the receipt for review edits; `Receipt` stays the immutable parse record; `Bill` stores tax and adjustments and `BillLine` keeps position, quantity, taxed and discount link. Why: edits and "details" must rebuild exactly.
+- `confirm_action` prompts store the command and its exact effect plus a version; "yes" applies it only if nothing changed. Why: what is restated is what happens (SPEC §12.3), and it survives restarts.
+- One `Edit(target, op, reason)` command with typed ops replaces EditDraft/EditBill; `AnswerPrompt` has typed slots (yes, choice, people); `Acknowledge` for "ok"; `AddPerson` covers adding members in groups. Why: unambiguous for both the model and the regex fake.
+- `handle`/`tick` return messages to any conversation; the Notification outbox is only for personal-chat messages subject to holds and caps; `requested_reply` kind for "sent you a DM". Why: filing into groups, group reminders and DM answers need it.
+- New `ImageStore` port with a filesystem adapter (`adapters/files`). Why: services may not do file I/O; queued drafts must reload their image.
+- `ConversationKey(channel, ref)` everywhere; `InboundMessage` gains `conversation_name` and `sender_alt_ref`. Why: group names come from the chat; linking a WhatsApp hidden id to a number.
+- Duplicate check runs after parsing and includes other open drafts. Queued drafts are parsed after the first transaction commits (and `tick` retries stuck ones). Why: needs the total; no model calls inside the lock.
+- Added `phonenumbers` dependency (pure E.164 parsing). Why: see the identity decision above.
+
 ## Open (waiting for the user)
 
 (none)

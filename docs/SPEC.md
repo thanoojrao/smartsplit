@@ -48,11 +48,12 @@ smartsplit/
   domain/        pure dataclasses, enums, money and phone helpers. Imports nothing from smartsplit.
   engine/        split engine, tax folding, amount→weight conversion, rule resolution, name matching. Pure. Imports only domain.
   ledger/        balances, debt simplification, payment allocation, square-up. Pure. Imports only domain.
-  ports/         Protocol interfaces: ReceiptParser, CommandInterpreter, Repository (with unit of work), Clock, IdGenerator.
+  ports/         Protocol interfaces: ReceiptParser, CommandInterpreter, Repository (with unit of work), ImageStore, Clock, IdGenerator.
   services/      orchestrator + use-cases. Imports domain, engine, ledger, ports. Never adapters.
   adapters/
     db/          SQLAlchemy models, repositories, Alembic migrations (implements ports.Repository)
     llm/         Anthropic-backed ReceiptParser + CommandInterpreter (implements ports)
+    files/       filesystem ImageStore (implements ports.ImageStore)
     fakes/       in-memory/fake implementations of every port, used by tests and the CLI demo
   entrypoints/
     api/         FastAPI app (webhook-style inbound messages + REST reads + tick)
@@ -65,9 +66,10 @@ Rules:
 - Only `adapters/llm` imports `anthropic`. Only `adapters/db` imports `sqlalchemy`/`alembic`/`psycopg`. `fastapi` and `typer` only in their entrypoints.
 - `services` depends on ports (Protocols), and gets concrete adapters and settings injected at the entrypoint.
 - Wiring happens in one composition root per entrypoint.
-- Services never send messages themselves. Every use-case returns the `OutboundMessage`s it wants
-  delivered to the current chat, and queues messages for other people's personal chats in the
-  `Notification` outbox (§10.8). So there is no Channel port.
+- Services never send messages themselves. `handle` and `tick` return the `OutboundMessage`s to deliver,
+  to any conversation (the current chat, a group chat, a personal chat). Messages to people's personal
+  chats that are subject to opt-out, caps and holds go through the `Notification` outbox (§10.8). So there
+  is no Channel port. Data shapes are in `docs/CONTRACTS.md`.
 
 ## 3. Conventions
 
@@ -88,7 +90,7 @@ Rules:
 
 | Entity | Key fields | Notes |
 |---|---|---|
-| `Person` | id, display_name, phone, notifications_enabled, has_used_bot, created_at | `phone` is required and unique: it is the person's identity. `display_name` is their own name (from their chat profile once they use the bot). `notifications_enabled` is turned off by "stop". `has_used_bot` becomes true on their first personal message. |
+| `Person` | id, display_name, phone, phone_added_by, notifications_enabled, has_used_bot, created_at | `phone` is required and unique: it is the person's identity. `display_name` is their own name (from their chat profile once they use the bot). `notifications_enabled` is turned off by "stop". `has_used_bot` becomes true on their first personal message. |
 | `ChatIdentity` | channel, external_ref, person_id | How a person appears in one channel (`whatsapp` number, `whatsapp_lid`, `cli` handle). `(channel, external_ref)` is unique and maps to exactly one person. |
 | `Nickname` | owner_id, subject_id, name | What one person calls another ("Sam" for you, "Samuel" for Raj). Unique per (owner, normalized name). Others only ever see the name *they* gave someone, never the stored display name of a person they share no context with. |
 
@@ -99,7 +101,7 @@ Rules:
 | `Group` | id, name, channel_ref (optional, unique) | `channel_ref` links the group to one group chat. |
 | `Membership` | group_id, person_id, position, joined_at, left_at (optional) | `position` orders members (rounding ties). *Current* while `left_at` is empty. Rejoining creates a new membership. |
 | `Context` | `GroupContext(group_id)` \| `PersonalContext()` | Every bill, receipt, draft and settlement has exactly one context. A personal split has no group; its people are the bill's participants. |
-| `Conversation` | channel, ref, kind (`group` \| `personal`), group_id or person_id | One chat the bot is in. |
+| `Conversation` | key (channel, ref), kind (`group` \| `personal`), name, group_id or person_id, last_listed_bill_ids | One chat the bot is in. `last_listed_bill_ids` resolves "details 2" against the numbered list last shown there. |
 
 ### 4.3 Items, matching and rules
 
@@ -108,26 +110,27 @@ Rules:
 | `Item` | key | Install-wide set of item keys (`"milk"`), so rules about an item apply everywhere. |
 | `ItemAlias` | match_scope, raw_name, item_key | Remembered match from a normalized receipt name to an item key. `match_scope` is `GroupScope(group_id)` or `NotesScope(owner_id)` (personal splits by that adder), so a wrong match only affects that place. |
 | `Rule` | id, subject_id, item_key, kind, scope, author_id, source, created_at | `kind`: `exclude` \| `soft_exclude` \| `only`. `scope`: `Everywhere` \| `GroupScope(group_id)` \| `NotesScope(owner_id)`. `source`: `stated` \| `learned`. At most one rule per (scope, subject, item_key). |
+| `LlmUsage` | person_id, day, calls | Counts model calls per person per day (`SMARTSPLIT_LLM_CALLS_PER_PERSON_PER_DAY`). |
 | `AnswerObservation` | scope, subject_id, item_key, outcome (`excluded` \| `sole_assignee` \| `included`), bill_id, observed_at | What a saved bill's answers showed about one person and one item; the input to learning (§6.5). |
 
 ### 4.4 Receipts, bills and payments
 
 | Entity | Key fields | Notes |
 |---|---|---|
-| `Receipt` | id, context, merchant, purchased_at, line_items, tax_cents, other_adjustments_cents, total_cents, image_ref, warnings | `other_adjustments_cents` = tip + service charges − receipt-level discounts. |
-| `LineItem` | id, name, quantity, amount_cents, taxed, confidence, canonical, discount_for | `amount_cents` is the line total (negative for discount/refund lines). `quantity` ≥ 1. `taxed`: `True`/`False`/`None` (receipt doesn't say). `confidence` 0–1. `canonical`: item key. `discount_for`: id of the line this discount reduces, if the parser could link it. |
-| `Bill` | id, context, receipt_id (optional), payer_id, added_by, description, purchased_at, participants (ordered), lines, total_cents, shares {person_id: cents}, reverses_id (optional), replaces_id (optional), edit_reason (optional), created_at | Append-only. An edit is a reversing bill (`reverses_id`) plus a new bill (`replaces_id`, `edit_reason`); a delete is only the reversing bill. Shares sum exactly to `total_cents`. |
-| `BillLine` | name, item_key, amount_cents, assignees {person_id: weight} | The per-line split as saved, so "details" and edits can be rebuilt without re-running rules. |
+| `Receipt` | id, image_ref, mime_type, merchant, purchased_at, line_items, tax_cents, other_adjustments_cents, total_cents, warnings | The immutable parse record. `other_adjustments_cents` = tip + service charges − receipt-level discounts. Review edits happen on the draft's working copy. |
+| `LineItem` | id, position, name, quantity, amount_cents, taxed, confidence, canonical, discount_for, match_how, match_is_new | `amount_cents` is the line total (negative for discount/refund lines). `quantity` ≥ 1. `taxed`: `True`/`False`/`None` (receipt doesn't say). `confidence` 0–1. `canonical`: item key. `discount_for`: id of the line this discount reduces, if the parser could link it. `match_is_new` marks a first-time item match (shown once in the summary). |
+| `Bill` | id, context, origin conversation, receipt_id (optional), payer_id, added_by, description, purchased_at, participants (ordered), lines, tax_cents, other_adjustments_cents, total_cents, shares, reverses_id (optional), replaces_id (optional), edit_reason (optional), created_at | Append-only. An edit is a reversing bill (`reverses_id`) plus a new bill (`replaces_id`, `edit_reason`); a delete is only the reversing bill. Shares sum exactly to `total_cents`. |
+| `BillLine` | id, position, name, item_key, quantity, amount_cents (before tax folding), taxed, discount_for, assignees (person → weight) | The per-line split as saved; with the bill's tax and adjustments, "details" and edits can be rebuilt without re-running rules. |
 | `Settlement` | id, payment_id, context, from_id, to_id, amount_cents, kind (`payment` \| `square_up`), recorded_by, reverses_id (optional), created_at | One real payment is stored as one row per context it was allocated to, sharing `payment_id`. Reversal ("not received", "undo") writes negating rows. |
 
 ### 4.5 Conversation state
 
 | Entity | Key fields | Notes |
 |---|---|---|
-| `BillDraft` | id, conversation_ref, context, added_by, payer_id, receipt_id or manual lines, participants, overrides, state, created_at, last_activity_at, reminded_at | A bill under review. `overrides`: line id → list of people, or {person: weight}, or exact amounts (§5.2). States in §10.4. At most one draft per conversation is active; up to `SMARTSPLIT_MAX_QUEUED_DRAFTS` wait as `queued`. |
-| `Prompt` | id, conversation_ref, draft_id (optional), kind, payload, status (`open` \| `answered` \| `dropped`), answers [(person_id, answer, at)] | Anything the bot is waiting for a reply to, so a restart resumes cleanly. Kinds: `engine_question` (item + member + reason), `who_with`, `which_person`, `need_contact`, `confirm_total`, `confirm_line`, `confirm_action` (edit, delete, payment, overpayment, square-up, rule change), `join_group`, `duplicate_warning`. |
-| `Notification` | id, person_id, kind, bill_ids, payload, created_at, sent_at (optional) | Outbox for messages to people's personal chats. Text is rendered when sent (so balances are current). Held while the person hasn't used the bot or has notifications off (except kinds the person asked for). |
-| `ProcessedMessage` | channel, message_id, replies, processed_at | Idempotency: a repeated inbound `message_id` returns the stored replies and changes nothing. |
+| `BillDraft` | id, conversation, context, added_by, payer_id, receipt_id, image_ref, description, purchased_at, working copy of lines / tax / other adjustments / total, accepted_difference_cents, participants, overrides, owes_all_id, state, created_at, last_activity_at, reminded_at | A bill under review; review edits change the working copy. `overrides`: line id → list of people, or {person: weight}, or exact amounts (§5.2). States in §10.4. At most one draft per conversation is active; up to `SMARTSPLIT_MAX_QUEUED_DRAFTS` wait as `queued`. |
+| `Prompt` | id, conversation, draft_id (optional), kind, typed payload, status (`pending` \| `open` \| `answered` \| `dropped`), asked_of (optional: only that person may answer), created_by, created_at, answers | Anything the bot is waiting for a reply to, so a restart resumes cleanly. Kinds: `engine_question` (item + member + reason), `who_with`, `which_person`, `need_contact`, `confirm_total`, `confirm_line`, `confirm_action` (edit, delete, payment, overpayment, square-up, rule change), `join_group`, `duplicate_warning`. A `confirm_action` stores the command and its exact effect; "yes" applies that effect only if the data hasn't changed since, otherwise it is recomputed and asked again. |
+| `Notification` | id, recipient_id, actor_id, kind, bill_ids, payment_id, args, created_at, sent_at (optional) | Outbox for messages to people's personal chats. Text is rendered when sent (so balances are current). Held while the person hasn't used the bot or has notifications off, except `requested_reply` (answers the person asked for, e.g. "sent you a DM"). |
+| `ProcessedMessage` | conversation, message_id, replies, processed_at | Idempotency: a repeated inbound `message_id` returns the stored replies and changes nothing. |
 
 Receipt invariant: `sum(line_items.amount_cents) + tax_cents + other_adjustments_cents == total_cents`.
 The parser must flag a receipt where this doesn't hold (in `warnings`), not silently fix it.
@@ -230,7 +233,8 @@ me 9000, Raj 9000") is one line with every person fixed; the amounts must add up
 - There are three rule kinds only. "Raj drinks milk now" deletes the rule for (Raj, milk) in that scope.
   A group cannot override someone's everywhere rule, but can include them on a specific bill by answering or editing.
 - A new stated rule replaces any rule for the same (scope, subject, item key). A learned rule can
-  replace a learned rule but never a stated one.
+  replace a learned rule or a stated `soft_exclude` (consistent answers settle a "usually"), but never a
+  stated `exclude` or `only`.
 - When a membership ends, that group's rules about the person stop applying (they are kept, and apply again if they rejoin).
 - "What rules are about me?" lists every rule with you as subject (scope and author included) — in a
   group chat only that group's rules are shown, and the full list goes to your personal chat (§10.7).
@@ -253,9 +257,11 @@ matcher in `engine` and the `CommandInterpreter.canonicalize` port:
 3. otherwise ask the LLM `canonicalize(name, known_keys)`.
 
 A match from step 2 or 3 is stored as an `ItemAlias` in that match scope and shown in the summary the
-first time ("OAT MLK → milk?"). "That's not milk" replaces the alias in that scope.
+first time ("OAT MLK → milk?"). "That's not milk" removes the alias in that scope, and the line's key
+becomes its own normalized name (or the item the speaker names instead).
 A discount line linked by the parser (`discount_for`) gets the key of the line it reduces, so it is
-shared by the same people; unlinked discounts are shared by everyone.
+shared by the same people, and follows that line's answers and edits unless it has its own; unlinked
+discounts are shared by everyone.
 
 ### 6.5 Learning
 
@@ -361,12 +367,13 @@ resumes cleanly. Every state transition is covered by an integration test using 
   who left never rejoin by posting; rejoining is explicit.
 - Every membership change is announced in the group. No confirmation is needed.
 - A leaver is not in new bills; their balance stays until settled and they can still see it.
-  Their open prompts in that group's drafts are dropped. If the adder of a draft leaves, the draft is cancelled.
+  In that group's open drafts they are removed from the participants, their prompts are dropped, and the
+  draft is re-split and its summary shown again. If the adder of a draft leaves, the draft is cancelled.
 
 ### 10.4 Bill flow
 
 ```
-receipt or manual bill → choose participants → (duplicate check) → parse → match items → fold tax
+receipt or manual bill → choose participants → parse → (duplicate check) → match items → fold tax
   → resolve rules → split_receipt → summary (+ prompts) → [review edits / answers → re-split]*
   → confirm by the adder → write Bill + lines + observations → learn → notify → reply with balances
 ```
@@ -396,16 +403,20 @@ receipt or manual bill → choose participants → (duplicate check) → parse �
   of the wine", "2 for Sam, 1 for Raj", "that's not milk". After each edit the split is recomputed.
   If lines + tax + adjustments still don't match the total, the summary shows the difference and the
   adder either fixes a line or accepts it as an adjustment shared like tip.
-- **Questions:** up to 3 are asked in one message, the rest in later batches. Anyone in the bill's
+- **Questions:** up to 3 are asked in one message; the rest wait as `pending` prompts and the next batch
+  is asked once the current one is answered. Anyone in the bill's
   context may answer. An answer changes the current assignment of that line (other open questions on
   it stay open). If people answer differently, the latest answer wins. The adder can confirm with
   questions still open; the split shown is used.
-- **Duplicates:** if a bill in the same group (or between the same people) has the same total within
-  3 days, a `duplicate_warning` asks to continue or cancel.
+- **Duplicates:** after parsing, if a saved bill (not reversed) or another open draft in the same group
+  (or between the same people) has the same total within 3 days, a `duplicate_warning` asks to continue or cancel.
 - **Confirm:** only the adder.
 - **Cancel:** any current member (group) or the adder (personal) can cancel at any time; in groups the bot says who cancelled.
-- **Reminder and expiry:** after 24 hours without activity the adder gets one reminder; after 3 days
-  the draft expires with a short message. Nothing is saved until confirmed.
+- **Reminder and expiry:** after 24 hours without activity one reminder is posted in the draft's chat
+  (group chat for group drafts); after 3 days the draft expires with a short message there. Nothing is
+  saved until confirmed.
+- **Queued drafts** start when the active one is saved, cancelled or expires; their receipt is parsed
+  then, outside the conversation lock (§12.2).
 - **Filing into a group** ("add to Flat 4B") from a personal chat: the speaker must be a current
   member; the draft's context becomes that group, rules are re-resolved with that group's rules and
   any new questions are asked in the personal chat; the adder confirms there; the saved bill's summary
@@ -415,7 +426,7 @@ receipt or manual bill → choose participants → (duplicate check) → parse �
 
 - **Group bills:** the summary and new balances are posted in the group chat; no personal messages.
 - **Personal splits:** every other participant gets a notification: the bill, their share and their new
-  overall balance with the payer. Replies: `ok`, `details`, `not mine`, or an edit. Several bills to one
+  overall balance with the payer. Replies: `ok` (no reply needed), `details`, `not mine`, or an edit. Several bills to one
   person within one `tick` interval become one message with numbered bills ("details 2").
   Participants who have never used the bot are not messaged; the adder gets a forwardable invite text
   (`SMARTSPLIT_INVITE_TEMPLATE`) on their *first* bill with that person only.
@@ -450,7 +461,8 @@ receipt or manual bill → choose participants → (duplicate check) → parse �
 - **Reminders:** manual only. "Remind Raj" sends Raj a friendly nudge with his balance, at most once per
   24 hours per (sender, Raj), and only if he has used the bot and has notifications on.
 - **Opt-out:** "stop" turns off notifications and reminders for you; "start" turns them back on.
-- **Caps:** at most `SMARTSPLIT_MAX_NOTIFICATIONS_PER_DAY` messages per person per day; extra ones wait.
+- **Caps:** at most `SMARTSPLIT_MAX_NOTIFICATIONS_PER_DAY` notifications per person per day (a day in
+  `SMARTSPLIT_TIMEZONE`; `requested_reply` doesn't count); extra ones wait.
 - **Delivery:** `tick(now)` claims unsent notifications (`FOR UPDATE SKIP LOCKED`), renders them with
   current balances, marks them sent in the same transaction and returns them (at-most-once delivery).
   It also sends draft reminders and expires drafts.
@@ -462,7 +474,7 @@ receipt or manual bill → choose participants → (duplicate check) → parse �
   `balances --as <person>`, `rules --about <person>`, `tick`. Use it to demo the full flow with the fake or the real LLM adapters (`--live`).
   Messages addressed to other people's personal chats are printed with the recipient's name.
 - **API** (FastAPI): `POST /v1/messages` (an `InboundMessage` JSON → list of `OutboundMessage`),
-  `POST /v1/tick` (→ list of `OutboundMessage` addressed to personal chats), `GET /v1/groups/{id}/balances`,
+  `POST /v1/tick` (→ list of `OutboundMessage`), `GET /v1/groups/{id}/balances`,
   `GET /v1/people/{id}/balances`, `GET /v1/people/{id}/rules`, `GET /healthz`.
   Every `/v1/*` route requires `Authorization: Bearer <SMARTSPLIT_API_TOKEN>` (constant-time compare);
   `/healthz` is open. The REST reads are for the operator, not end users. `POST /v1/messages` is the
@@ -486,7 +498,8 @@ Secrets are held as `SecretStr`. The API refuses to start without `SMARTSPLIT_AP
   conversation ref); each message is one transaction through the Repository's unit of work. Draft state
   changes are conditional on the expected current state.
 - **LLM calls** happen before taking the lock and opening the transaction; on timeout or error the bot replies
-  "couldn't do that, try again in a minute" and nothing changes.
+  "couldn't do that, try again in a minute" and nothing changes. Calls are counted per person per day
+  (`LlmUsage`); over the limit the bot says so and waits until tomorrow.
 
 ### 12.3 LLM safety
 
