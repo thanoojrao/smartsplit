@@ -24,11 +24,15 @@ def cleaned(message: InboundMessage) -> InboundMessage:
     def strip(text: str | None) -> str | None:
         return text.replace("\x00", "") if text is not None else None
 
+    contact = message.contact
     return replace(
         message,
         text=strip(message.text),
         sender_name=strip(message.sender_name) or "",
         conversation_name=strip(message.conversation_name),
+        contact=replace(contact, name=strip(contact.name) or "", phone=strip(contact.phone) or "")
+        if contact
+        else None,
     )
 
 

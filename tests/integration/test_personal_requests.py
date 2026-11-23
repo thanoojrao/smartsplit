@@ -18,7 +18,7 @@ def test_remind_sends_a_nudge_at_most_once_a_day() -> None:
     assert world.say(YOU, FLAT, "remind Raj") == "OK, I'll remind Raj."
     world.tick()
     assert world.in_chat(None, RAJ) == (
-        "A friendly nudge from Thanoo: Overall you owe Thanoo ₹1,500.00."
+        "A friendly nudge from Thanoo.\nOverall you owe Thanoo ₹1,500.00."
     )
     assert world.say(YOU, FLAT, "remind Raj") == "I already reminded Raj today."
     world.clock.advance(timedelta(hours=25))
@@ -32,7 +32,7 @@ def test_no_reminder_to_someone_who_stopped_or_owes_nothing() -> None:
     assert world.say(YOU, FLAT, "remind Raj") == (
         "Raj doesn't get messages from me, so I can't remind them."
     )
-    assert world.say(RAJ, FLAT, "remind Thanoo") == "Thanoo doesn't owe you anything."
+    assert world.say(RAJ, FLAT, "remind Thanoo") == "I can only remind people who owe you overall."
 
 
 def test_what_did_i_spend_this_month() -> None:
@@ -73,3 +73,17 @@ def test_stop_and_start() -> None:
     assert world.say(RAJ, None, "stop") == 'OK, I won\'t message you. Say "start" to undo.'
     assert world.say(RAJ, None, "start") == "OK, you'll hear from me again."
     assert world.say(YOU, FLAT, "remind Raj") == "OK, I'll remind Raj."
+
+
+def test_last_month_counts_bills_bought_last_month() -> None:
+    world = World()
+    raj_owes_you(world)
+    world.clock.advance(timedelta(days=15))
+    world.say(YOU, FLAT, "chai 200, split all")
+    world.say(YOU, FLAT, "yes")
+    assert world.say(YOU, None, "what did I spend last month") == (
+        "You spent ₹1,500.00 last month.\n1. rent (21 Nov): ₹1,500.00"
+    )
+    assert world.say(YOU, None, "what did I spend this month").startswith(
+        "You spent ₹100.00 this month."
+    )

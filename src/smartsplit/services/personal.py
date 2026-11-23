@@ -5,14 +5,13 @@ from datetime import date, timedelta
 
 from smartsplit.domain.commands import Remind, ShowHistory
 from smartsplit.domain.enums import NotificationKind
-from smartsplit.domain.model import Bill
 from smartsplit.services.bill_changes import is_live
 from smartsplit.services.errors import NotAllowedError
-from smartsplit.services.ledgers import between_net
+from smartsplit.services.ledgers import between_net, share_of
 from smartsplit.services.names import Directory
 from smartsplit.services.notifications import notify, remember_listed
 from smartsplit.services.queries import send_privately
-from smartsplit.services.text import money, name_for
+from smartsplit.services.text import day_label, money, name_for
 from smartsplit.services.turn import Turn
 
 HISTORY_DEFAULT = 5
@@ -29,7 +28,8 @@ def remind(turn: Turn, command: Remind, directory: Directory) -> None:
     if not person.has_used_bot or not person.notifications_enabled:
         raise NotAllowedError(f"{name} doesn't get messages from me, so I can't remind them.")
     if between_net(turn.uow, turn.speaker.id, other) <= 0:
-        raise NotAllowedError(f"{name} doesn't owe you anything.")
+        # said in a group too, so it mustn't reveal balances from elsewhere
+        raise NotAllowedError("I can only remind people who owe you overall.")
     since = turn.now - turn.settings.remind_once_per
     kind = NotificationKind.REMINDER
     if turn.uow.notifications.exists_since(turn.speaker.id, other, kind, since):
@@ -55,15 +55,21 @@ def show_history(turn: Turn, command: ShowHistory) -> None:
     if command.period is not None:
         start, end = _month(turn.today, command.period)
         chosen = [b for b in bills if start <= b.purchased_at < end and is_live(turn, b)]
-        total = sum(_share(b, me) for b in chosen)
+        total = sum(share_of(b, me) for b in chosen)
         heading = f"You spent {money(total, currency)} {command.period.replace('_', ' ')}."
     else:
         live = [b for b in bills if is_live(turn, b)]
         chosen = live[-(command.last_n or HISTORY_DEFAULT) :][::-1]
-        heading = f"Your last {len(chosen)} bills:" if chosen else "No bills yet."
+        count = len(chosen)
+        heading = (
+            "No bills yet."
+            if not chosen
+            else "Your last bill:"
+            if count == 1
+            else f"Your last {count} bills:"
+        )
     rows = [
-        f"{n}. {b.description} ({b.purchased_at.day} {b.purchased_at:%b}): "
-        f"{money(_share(b, me), currency)}"
+        f"{n}. {b.description} ({day_label(b.purchased_at)}): {money(share_of(b, me), currency)}"
         for n, b in enumerate(chosen, 1)
     ]
     text = "\n".join([heading, *rows])
@@ -75,10 +81,6 @@ def show_history(turn: Turn, command: ShowHistory) -> None:
         chat = turn.uow.conversations.get(turn.conversation.key)
     if chat is not None:
         remember_listed(turn.uow, chat, [b.id for b in chosen])
-
-
-def _share(bill: Bill, person_id: str) -> int:
-    return sum(s.cents for s in bill.shares if s.person_id == person_id)
 
 
 def _month(today: date, period: str) -> tuple[date, date]:

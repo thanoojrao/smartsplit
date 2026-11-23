@@ -11,11 +11,12 @@ from smartsplit.domain.enums import NotificationKind
 from smartsplit.domain.model import Bill, Conversation
 from smartsplit.domain.prompts import Notification, NotificationArgs
 from smartsplit.ports.repository import UnitOfWork
-from smartsplit.services.ledgers import between_net
-from smartsplit.services.text import money, name_for
+from smartsplit.services.ledgers import between_net, share_of
+from smartsplit.services.text import day_label, money, name_for
 from smartsplit.services.turn import Turn
 
 REPLY_HINT = 'Reply "ok", "details", "not mine", or tell me what to fix.'
+MANY_HINT = 'Reply "details 2", "not mine 2", or "ok".'
 
 
 def notify(
@@ -79,76 +80,86 @@ def invites_for(turn: Turn, bill: Bill) -> list[str]:
 def render(
     uow: UnitOfWork, recipient_id: str, batch: Sequence[Notification], currency: str
 ) -> tuple[str, tuple[str, ...]]:
-    """One message for everything claimed for one person, and the bills it lists in order."""
+    """One message for everything claimed for one person, and the bills it numbers, in
+    order ("details 2"). Each person's overall balance is said once, at the end."""
     added = [n for n in batch if n.kind is NotificationKind.BILL_ADDED]
     others = [n for n in batch if n.kind is not NotificationKind.BILL_ADDED]
     parts: list[str] = []
     listed: list[str] = []
     if added:
-        text, ids = _bills_added(uow, recipient_id, added, currency)
+        text, listed = _bills_added(uow, recipient_id, added, currency)
         parts.append(text)
-        listed += ids
-    for notification in others:
-        parts.append(_one(uow, recipient_id, notification, currency))
-        listed += notification.bill_ids
-    return "\n\n".join(parts), tuple(listed)
+    parts += [_one(uow, recipient_id, n, currency) for n in others]
+    if not listed:
+        listed = [i for n in others for i in n.bill_ids]
+    actors = dict.fromkeys(n.actor_id for n in batch)
+    parts += [_overall(uow, recipient_id, actor, currency) for actor in actors]
+    if added:
+        parts.append(REPLY_HINT if len(listed) == 1 else MANY_HINT)
+    elif any(n.kind is NotificationKind.PAYMENT_RECORDED for n in others):
+        parts.append('Reply "not received" if a payment didn\'t happen.')
+    return "\n".join(parts), tuple(listed)
 
 
 def _bills_added(
     uow: UnitOfWork, me: str, added: Sequence[Notification], currency: str
 ) -> tuple[str, list[str]]:
     bills = [b for n in added for b in [uow.bills.get(n.bill_ids[0])] if b is not None]
-    actors = list(dict.fromkeys(b.added_by for b in bills))
     if len(bills) == 1:
         bill = bills[0]
         who = name_for(uow, me, bill.added_by)
-        lines = [
-            f"{who} added {bill.description} ({_day(bill)}): your share is "
-            f"{money(_share(bill, me), currency)}.",
-        ]
-    else:
-        who = ", ".join(name_for(uow, me, a) for a in actors)
-        lines = [f"{who} added {len(bills)} bills:"]
-        lines += [
-            f"{n}. {b.description} ({_day(b)}): your share {money(_share(b, me), currency)}"
-            for n, b in enumerate(bills, 1)
-        ]
-    lines += [_overall(uow, me, actor, currency) for actor in actors]
-    lines.append(REPLY_HINT if len(bills) == 1 else 'Reply "details 2", "not mine 2", or "ok".')
+        share = money(share_of(bill, me), currency)
+        day = day_label(bill.purchased_at)
+        return f"{who} added {bill.description} ({day}): your share is {share}.", [bill.id]
+    actors = dict.fromkeys(b.added_by for b in bills)
+    lines = [f"{', '.join(name_for(uow, me, a) for a in actors)} added {len(bills)} bills:"]
+    lines += [
+        f"{n}. {b.description} ({day_label(b.purchased_at)}): your share "
+        f"{money(share_of(b, me), currency)}"
+        for n, b in enumerate(bills, 1)
+    ]
     return "\n".join(lines), [b.id for b in bills]
 
 
 def _one(uow: UnitOfWork, me: str, notification: Notification, currency: str) -> str:
+    """One non-bill message; the overall balance is added once by `render`."""
     actor = name_for(uow, me, notification.actor_id)
     args = notification.text_args
     amount = money(args.amount_cents or 0, currency)
     because = f" ({args.reason})" if args.reason else ""
-    overall = _overall(uow, me, notification.actor_id, currency)
     match notification.kind:
         case NotificationKind.BILL_CHANGED:
-            bill = uow.bills.get(notification.bill_ids[0]) if notification.bill_ids else None
-            if bill is None or bill.reverses_id is not None:
-                what = "a bill you were in" if bill is None else bill.description
-                text = f"{actor} deleted {what}{because}."
-            else:
-                share = money(_share(bill, me), currency)
-                text = f"{actor} changed {bill.description}{because}: your share is now {share}."
-            return f"{text}\n{overall}"
+            return _bill_changed(uow, me, notification, currency)
         case NotificationKind.PAYMENT_RECORDED:
             rows = uow.settlements.for_payment(notification.payment_id or "")
             if rows and rows[0].from_id == me:
-                what = f"{actor} recorded that you paid them {amount}."
-            else:
-                what = f"{actor} says they paid you {amount}."
-            return f'{what}\n{overall}\nReply "not received" if it didn\'t happen.'
+                return f"{actor} recorded that you paid them {amount}."
+            return f"{actor} says they paid you {amount}."
         case NotificationKind.PAYMENT_REVERSED:
             return f"{actor} undid the {amount} payment between you two{because}."
-        case NotificationKind.SQUARE_UP:
-            return f"{actor} squared up with you.\n{overall}"
-        case NotificationKind.REMINDER:
-            return f"A friendly nudge from {actor}: {overall}"
+        case NotificationKind.SQUARE_UP | NotificationKind.REMINDER:
+            return _SIMPLE[notification.kind].format(actor=actor)
         case NotificationKind.BILL_ADDED | NotificationKind.REQUESTED_REPLY:
+            # bills added are rendered together by `render`; a requested reply carries text
             return args.body or ""
+
+
+_SIMPLE = {
+    NotificationKind.SQUARE_UP: "{actor} squared up with you.",
+    NotificationKind.REMINDER: "A friendly nudge from {actor}.",
+}
+
+
+def _bill_changed(uow: UnitOfWork, me: str, notification: Notification, currency: str) -> str:
+    actor = name_for(uow, me, notification.actor_id)
+    reason = notification.text_args.reason
+    because = f" ({reason})" if reason else ""
+    bill = uow.bills.get(notification.bill_ids[0]) if notification.bill_ids else None
+    if bill is None or bill.reverses_id is not None:
+        what = "a bill you were in" if bill is None else bill.description
+        return f"{actor} deleted {what}{because}."
+    share = money(share_of(bill, me), currency)
+    return f"{actor} changed {bill.description}{because}: your share is now {share}."
 
 
 def _overall(uow: UnitOfWork, me: str, other: str, currency: str) -> str:
@@ -159,14 +170,6 @@ def _overall(uow: UnitOfWork, me: str, other: str, currency: str) -> str:
     if net < 0:
         return f"Overall you owe {name} {money(-net, currency)}."
     return f"You and {name} are settled up."
-
-
-def _share(bill: Bill, person_id: str) -> int:
-    return sum(s.cents for s in bill.shares if s.person_id == person_id)
-
-
-def _day(bill: Bill) -> str:
-    return f"{bill.purchased_at.day} {bill.purchased_at:%b}"
 
 
 def remember_listed(uow: UnitOfWork, chat: Conversation, bill_ids: Sequence[str]) -> None:

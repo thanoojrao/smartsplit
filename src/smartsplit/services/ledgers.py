@@ -1,5 +1,6 @@
 """Reading ledgers from the repository and putting balances into words (SPEC 9, 10.7)."""
 
+from smartsplit.domain.model import Bill
 from smartsplit.domain.values import Context, GroupContext, PersonalContext
 from smartsplit.ledger import (
     ContextLedger,
@@ -115,3 +116,8 @@ def has_balances_elsewhere(uow: UnitOfWork, person_id: str, here: Context) -> bo
 def between_net(uow: UnitOfWork, person_id: str, other_id: str) -> int:
     """What `other_id` owes `person_id` overall (< 0: the other way round)."""
     return overall_between(person_id, other_id, ledgers_for(uow, person_id)).net_cents
+
+
+def share_of(bill: Bill, person_id: str) -> int:
+    """What one person owes for one bill (0 if they aren't in it)."""
+    return sum(s.cents for s in bill.shares if s.person_id == person_id)

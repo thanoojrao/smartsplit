@@ -8,7 +8,7 @@ overrides, so rules that changed since don't silently re-split the bill.
 from dataclasses import replace
 
 from smartsplit.domain.commands import Command
-from smartsplit.domain.edits import EditOp
+from smartsplit.domain.edits import AddLine, EditOp, RemoveLine, SetLineAmount
 from smartsplit.domain.enums import DraftState, MatchHow, NotificationKind, PromptKind
 from smartsplit.domain.model import Bill, BillDraft, BillLine, LineItem
 from smartsplit.domain.prompts import BillChangeEffect, ConfirmActionPayload
@@ -31,7 +31,7 @@ from smartsplit.services.notifications import tell_participants
 from smartsplit.services.prompting import open_prompt
 from smartsplit.services.review import apply_edit
 from smartsplit.services.saving import bill_from_draft
-from smartsplit.services.text import money, name_for
+from smartsplit.services.text import day_label, money, name_for
 from smartsplit.services.turn import Turn
 
 BILL_VERSION = 0
@@ -40,7 +40,8 @@ BILL_VERSION = 0
 
 def find_bill(turn: Turn, ref: BillRef | None) -> Bill:
     """ "last bill" is the speaker's own last bill in this chat; "2" is the second of the
-    bills last listed here; a name is the latest live bill here with that description."""
+    bills last listed here; a name is the latest live bill with that description among the
+    group's bills (in a group chat) or the speaker's own (in their chat)."""
     chat = turn.uow.conversations.get(turn.conversation.key) or turn.conversation
     match ref:
         case NumberedBill(n):
@@ -57,7 +58,7 @@ def find_bill(turn: Turn, ref: BillRef | None) -> Bill:
             bill = mine[-1] if mine else None
         case NamedBill(text):
             wanted = text.strip().casefold()
-            named = [b for b in _bills_here(turn) if b.description.casefold() == wanted]
+            named = [b for b in _visible_bills(turn) if b.description.casefold() == wanted]
             bill = named[-1] if named else None
     if bill is None or not is_live(turn, bill):
         raise NotAllowedError("I can't find that bill.")
@@ -68,13 +69,18 @@ def find_bill(turn: Turn, ref: BillRef | None) -> Bill:
 
 def _bills_here(turn: Turn) -> list[Bill]:
     """Live bills that came from this chat, oldest first."""
+    return [b for b in _visible_bills(turn) if b.origin == turn.conversation.key]
+
+
+def _visible_bills(turn: Turn) -> list[Bill]:
+    """Live bills this chat may talk about, wherever they were added, oldest first."""
     group_id = turn.conversation.group_id
     seen = (
         turn.uow.bills.for_context(GroupContext(group_id))
         if group_id
         else turn.uow.bills.for_participant(turn.speaker.id)
     )
-    return [b for b in seen if b.origin == turn.conversation.key and is_live(turn, b)]
+    return [b for b in seen if is_live(turn, b)]
 
 
 def is_live(turn: Turn, bill: Bill) -> bool:
@@ -93,11 +99,17 @@ def propose_edit(
     directory: Directory,
     reason: str | None,
 ) -> None:
+    """A line edit moves the total with it ("add water 300" makes the bill 300 more); a new
+    total on its own is shared like a tip. The restatement shows both."""
     draft = apply_edit(turn, as_draft(turn, bill), op, directory)
+    if isinstance(op, AddLine | RemoveLine | SetLineAmount):
+        difference = split_of(turn, draft).difference_cents
+        draft = replace(draft, total_cents=draft.total_cents - difference)
     _propose(turn, command, bill, _rebuilt(turn, bill, draft, reason))
 
 
 def propose_delete(turn: Turn, command: Command, bill: Bill) -> None:
+    """Restate the deletion; a "yes" writes only the reversal."""
     total = money(bill.total_cents, turn.settings.currency)
     _ask(turn, command, BillChangeEffect(bill.id, None), f"Delete {bill.description} ({total})?")
 
@@ -109,7 +121,9 @@ def propose_not_mine(turn: Turn, command: Command, bill: Bill) -> None:
     if me not in bill.participants:
         raise NotAllowedError("You're not in that bill.")
     if me == bill.payer_id:
-        raise NotAllowedError('You paid for that one. Say "delete last bill" to remove it.')
+        raise NotAllowedError(
+            "You paid for that one, so it stays yours. It can be deleted instead."
+        )
     rest = tuple(p for p in bill.participants if p != me)
     draft = as_draft(turn, bill)
     overrides: list[tuple[str, Override]] = []
@@ -201,6 +215,11 @@ def _propose(turn: Turn, command: Command, bill: Bill, new: Bill) -> None:
     ]
     if not changes:
         raise NotAllowedError("That doesn't change anyone's share.")
+    if new.total_cents != bill.total_cents:
+        changes.insert(
+            0,
+            f"total {money(bill.total_cents, currency)} → {money(new.total_cents, currency)}",
+        )
     question = f"Change {bill.description}: {', '.join(changes)}?"
     _ask(turn, command, BillChangeEffect(bill.id, new), question)
 
@@ -262,10 +281,10 @@ def reversal_of(turn: Turn, bill: Bill) -> Bill:
 
 
 def bill_details(turn: Turn, bill: Bill) -> str:
-    """Every line with who shared it, then each person's share."""
+    """Every line with who shared it, tax and other adjustments, then each person's share."""
     currency = turn.settings.currency
     rows = [
-        f"{bill.description} ({bill.purchased_at.day} {bill.purchased_at:%b}), paid by "
+        f"{bill.description} ({day_label(bill.purchased_at)}), paid by "
         f"{_name(turn, bill.payer_id)}, {money(bill.total_cents, currency)}"
     ]
     rows += [
@@ -273,6 +292,10 @@ def bill_details(turn: Turn, bill: Bill) -> str:
         + ", ".join(_name(turn, w.person_id) for w in line.assignees)
         for line in bill.lines
     ]
+    if bill.tax_cents:
+        rows.append(f"Tax {money(bill.tax_cents, currency)}")
+    if bill.other_adjustments_cents:
+        rows.append(f"Tip, charges and discounts {money(bill.other_adjustments_cents, currency)}")
     rows += [f"{_name(turn, s.person_id)}: {money(s.cents, currency)}" for s in bill.shares]
     return "\n".join(rows)
 

@@ -4,6 +4,7 @@
 from datetime import timedelta
 
 from smartsplit.domain.enums import DraftState
+from smartsplit.services.turn import OrchestratorSettings
 from tests.integration.test_reliability import DownInterpreter
 from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, World, flat, receipt
 
@@ -174,3 +175,62 @@ def test_join_prompts_lapse_after_a_day() -> None:
     world.clock.advance(timedelta(days=1, minutes=1))
     assert world.say(SAM, FLAT, "yes", addressed=False) == ""
     assert world.say(SAM, FLAT, "balances") == 'Sam, join splits here? Say "join".'
+
+
+def test_an_outage_retry_is_quiet_and_gives_up_after_three_days() -> None:
+    working = World()
+    flat(working, YOU, SAM)
+    down = World(
+        clock=working.clock,
+        repository=working.repository,
+        images=working.images,
+        interpreter=DownInterpreter(),
+    )
+    down.say(YOU, FLAT, image=receipt("restaurant_tip"))
+    for _ in range(3):
+        down.clock.advance(timedelta(minutes=3))
+        assert down.tick() == ""
+    down.clock.advance(timedelta(days=3))
+    assert down.tick() == "Couldn't read that receipt, try another photo."
+    assert drafts(down) == [DraftState.CANCELLED]
+
+
+def test_a_mixed_batch_numbers_only_the_new_bills_and_says_the_balance_once() -> None:
+    world = World()
+    friends(world)
+    world.say(YOU, None, "chai 100 with Sam")
+    world.say(YOU, None, "yes")
+    world.tick()
+    world.say(YOU, None, "lunch 300 with Sam")
+    world.say(YOU, None, "yes")
+    world.say(SAM, None, "Thanoo paid me 50")
+    world.say(SAM, None, "yes")
+    world.say(YOU, None, "taxi 200 with Sam")
+    world.say(YOU, None, "yes")
+    message = world.tick()
+    assert message.count("Overall you owe Thanoo") == 1
+    assert "Thanoo added 2 bills:" in message
+    assert "lunch" in world.say(SAM, None, "details 1")
+
+
+def test_an_idle_who_with_question_is_reminded_as_such() -> None:
+    world = World()
+    world.say(YOU, None, "help")
+    world.say(YOU, None, "taxi 600")
+    world.clock.advance(timedelta(hours=25))
+    assert world.tick() == "Still waiting on the taxi bill. Thanoo, who's it with?"
+
+
+def test_the_daily_cap_resets_at_local_midnight() -> None:
+    # T0 is 17:30 in Asia/Kolkata; local midnight comes 6.5 hours later
+    world = World(settings=OrchestratorSettings(max_notifications_per_day=1))
+    friends(world)
+    for bill in ("chai 100 with Sam", "lunch 300 with Sam"):
+        world.say(YOU, None, bill)
+        world.say(YOU, None, "yes")
+        world.tick()
+    assert "lunch" not in world.in_chat(None, SAM)
+    world.clock.advance(timedelta(hours=6))
+    assert world.tick() == ""
+    world.clock.advance(timedelta(hours=1))
+    assert "lunch" in world.tick()

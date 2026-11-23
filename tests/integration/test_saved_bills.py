@@ -120,3 +120,35 @@ def test_only_people_in_a_bill_can_change_it() -> None:
     refused = world.say(RAJ, FLAT, "edit the taxi bill: Sam wasn't there")
     assert refused == "Only people in that bill can change it."
     assert world.say(YOU, None, "delete bill 9") == "I haven't listed a bill 9 here."
+
+
+def test_a_reply_to_the_notification_edits_that_bill() -> None:
+    # SPEC 10.5: "Reply ok, details, not mine, or tell me what to fix"
+    world = World()
+    saved_toit(world)
+    asked = world.say(RAJ, None, "Sam wasn't there")
+    assert asked.startswith("Change Toit:")
+    assert world.say(RAJ, None, "edit the Toit bill: Sam wasn't there").startswith("Change Toit:")
+
+
+def test_a_line_edit_on_a_saved_bill_moves_its_total() -> None:
+    world = World()
+    flat(world, YOU, SAM)
+    world.say(YOU, FLAT, "rent 3000, split all")
+    world.say(YOU, FLAT, "yes")
+    asked = world.say(YOU, FLAT, "last bill: add water 300")
+    assert asked == (
+        "Change rent: total ₹3,000.00 → ₹3,300.00, Thanoo ₹1,500.00 → ₹1,650.00, "
+        'Sam ₹1,500.00 → ₹1,650.00? Say "yes" to confirm.'
+    )
+    world.say(YOU, FLAT, "yes")
+    world.say(YOU, FLAT, "last bill: line 1 is 3100")
+    assert world.say(YOU, FLAT, "yes") == "Changed rent.\nSam owes Thanoo ₹1,700.00"
+
+
+def test_details_of_a_saved_bill_show_tax_and_tip() -> None:
+    world = World()
+    saved_toit(world)
+    world.say(YOU, None, "show last 1 bills")
+    details = world.say(YOU, None, "details 1")
+    assert "Tax ₹89.00\nTip, charges and discounts ₹178.00" in details

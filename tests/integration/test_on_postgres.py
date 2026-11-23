@@ -78,4 +78,6 @@ def test_a_tour_of_m8_on_postgres(clean_pg: Engine) -> None:
     assert world.say(YOU, FLAT, "delete last bill").startswith("Delete rent")
     assert world.say(YOU, FLAT, "yes").startswith("Deleted rent.")
     world.tick()
-    assert "show last" not in world.say(YOU, None, "show last 5 bills")
+    assert world.say(YOU, None, "show last 5 bills") == (
+        "Your last bill:\n1. lunch (21 Nov): ₹200.00"
+    )

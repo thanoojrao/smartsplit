@@ -254,6 +254,7 @@ def _aimed(text: str, target: BillRef, reason: str | None, context: InterpretCon
 
 
 def interpret_text(text: str, context: InterpretContext) -> Command:
+    """The first phrase that matches, or `Unknown`; also used for edits aimed at a bill."""
     plain = text.replace("\u2019", "'").replace("\u2018", "'")  # phone keyboards' quotes
     for pattern, build in RULES:
         match = pattern.match(plain)

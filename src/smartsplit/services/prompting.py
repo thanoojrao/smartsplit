@@ -59,5 +59,5 @@ def still_asked(prompt: Prompt, now: datetime, settings: OrchestratorSettings) -
     """A "join splits here?" lapses after a day, so it can't keep the bot reading chatter."""
     return not (
         prompt.kind is PromptKind.JOIN_GROUP
-        and now - prompt.created_at >= settings.draft_reminder_after
+        and now - prompt.created_at >= settings.join_prompt_lasts
     )

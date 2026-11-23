@@ -30,6 +30,7 @@ class OrchestratorSettings:
     draft_reminder_after: timedelta = timedelta(hours=24)
     draft_expires_after: timedelta = timedelta(days=3)
     remind_once_per: timedelta = timedelta(hours=24)
+    join_prompt_lasts: timedelta = timedelta(hours=24)
     notifications_per_tick: int = 200
 
 

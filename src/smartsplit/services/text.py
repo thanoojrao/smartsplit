@@ -1,5 +1,7 @@
 """Plain chat text: money, names, help (SPEC section 10.1: short lines, no tables)."""
 
+from datetime import date
+
 from smartsplit.domain.money import format_cents
 from smartsplit.domain.phone import mask_phone
 from smartsplit.ports.repository import UnitOfWork
@@ -47,3 +49,8 @@ def join_names(names: list[str]) -> str:
     if len(names) <= 1:
         return "".join(names)
     return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def day_label(day: date) -> str:
+    """ "21 Nov": short, and the same on every platform."""
+    return f"{day.day} {day:%b}"

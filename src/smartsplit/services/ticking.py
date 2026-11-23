@@ -29,6 +29,8 @@ read in progress isn't doubled, short enough that a model outage passes quickly.
 
 @dataclass(frozen=True, slots=True)
 class Ticker:
+    """Everything `Orchestrator.tick` does, in order: deliver, nudge or expire, re-read."""
+
     repository: Repository
     reader: ReceiptReader
     clock: Clock
@@ -36,6 +38,7 @@ class Ticker:
     settings: OrchestratorSettings
 
     def tick(self) -> list[OutboundMessage]:
+        """Messages for any chat; safe to run often, and from more than one process."""
         now = self.clock.now()
         replies = self.deliver(now)
         replies += self.idle_drafts(now)
@@ -96,10 +99,13 @@ class Ticker:
                 start_next(turn, draft)
             elif draft.reminded_at is None or draft.reminded_at < draft.last_activity_at:
                 uow.drafts.update(replace(draft, reminded_at=now), expected_state=draft.state)
-                who = uow.people.get(draft.added_by)
-                name = who.display_name if who else "whoever added it"
-                turn.reply(
-                    f'Still waiting on the {draft.description} bill. {name}, say "yes" to save '
-                    'it, or "cancel".'
-                )
+                turn.reply(_nudge(draft, adder.display_name))
             return turn.replies, turn.to_parse
+
+
+def _nudge(draft: BillDraft, adder: str) -> str:
+    """The one reminder, worded for what the draft waits for."""
+    if draft.state is DraftState.AWAITING_PEOPLE:
+        return f"Still waiting on the {draft.description} bill. {adder}, who's it with?"
+    waiting = f"Still waiting on the {draft.description} bill."
+    return f'{waiting} {adder}, say "yes" to save it, or "cancel".'

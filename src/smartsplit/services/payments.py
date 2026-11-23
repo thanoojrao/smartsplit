@@ -17,11 +17,16 @@ from smartsplit.domain.values import Context, GroupContext, PersonalContext
 from smartsplit.ledger import allocate_payment, square_up
 from smartsplit.ports.repository import UnitOfWork
 from smartsplit.services.errors import NotAllowedError
-from smartsplit.services.ledgers import between_text, context_name, ledgers_for
+from smartsplit.services.ledgers import (
+    between_text,
+    context_name,
+    group_balances_text,
+    ledgers_for,
+)
 from smartsplit.services.names import Directory
 from smartsplit.services.notifications import notify
 from smartsplit.services.prompting import open_prompt
-from smartsplit.services.queries import group_named
+from smartsplit.services.queries import group_named, send_privately
 from smartsplit.services.text import money, name_for
 from smartsplit.services.turn import Turn
 
@@ -29,9 +34,13 @@ PERSONAL_WORDS = frozenset({"personal", "personal splits", "me", "us"})
 
 
 def ledger_version(uow: UnitOfWork, people: Sequence[str]) -> int:
-    """Grows with every bill or settlement any of these people is in."""
+    """Grows with every bill or settlement that can move what these people owe each other:
+    everything in each group either is in (a group's pair amounts come from the plan over all
+    its members) and their own personal splits."""
     return sum(
-        len(uow.bills.for_participant(p)) + len(uow.settlements.for_person(p)) for p in people
+        len(ledger.bills) + len(ledger.settlements)
+        for person in people
+        for ledger in ledgers_for(uow, person)
     )
 
 
@@ -104,9 +113,10 @@ def propose_square_up(turn: Turn, command: SquareUp, directory: Directory) -> No
         for context, t in moves
     )
     groups = [context_name(turn.uow, c) for c, _ in moves if isinstance(c, GroupContext)]
+    where = "every group between you" if turn.in_group else ", ".join(groups)
     text = (
-        f"Square up with {_name(turn, other)}: {', '.join(groups)} cleared, and what's left "
-        "moves to your personal splits. No money changes hands."
+        f"Square up with {_name(turn, other)}: {where} cleared, and what's left moves to your "
+        "personal splits. No money changes hands."
     )
     _ask(turn, command, PaymentEffect(rows, 0), (me, other), text)
 
@@ -133,7 +143,8 @@ def apply_payment(turn: Turn, payload: ConfirmActionPayload, effect: PaymentEffe
         payment_id=first.payment_id,
         args=NotificationArgs(amount_cents=total),
     )
-    turn.reply(f"{done}\n{between_text(turn.uow, turn.speaker.id, other, turn.settings.currency)}")
+    turn.reply(done)
+    _balances_after(turn, other)
 
 
 def not_received(turn: Turn) -> None:
@@ -196,10 +207,19 @@ def _reverse(turn: Turn, rows: tuple[Settlement, ...], why: str) -> None:
         args=NotificationArgs(reason=why, amount_cents=total),
     )
     currency = turn.settings.currency
-    turn.reply(
-        f"Undid the {money(total, currency)} payment between you and {_name(turn, other)}.\n"
-        f"{between_text(turn.uow, turn.speaker.id, other, currency)}"
-    )
+    turn.reply(f"Undid the {money(total, currency)} payment between you and {_name(turn, other)}.")
+    _balances_after(turn, other)
+
+
+def _balances_after(turn: Turn, other: str) -> None:
+    """In a group chat only that group's balances are shown; the overall goes privately."""
+    currency = turn.settings.currency
+    wider = between_text(turn.uow, turn.speaker.id, other, currency)
+    if turn.conversation.group_id is None:
+        turn.reply(wider)
+        return
+    turn.reply(group_balances_text(turn.uow, turn.conversation.group_id, currency))
+    send_privately(turn, wider)
 
 
 def _named_context(turn: Turn, said: str | None) -> Context | None:
