@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from typing import Any
 
 import anthropic
@@ -9,12 +10,12 @@ from anthropic.types import Message, OutputConfigParam, TextBlockParam, ToolPara
 
 from smartsplit.adapters.llm.command_tools import command_tools
 from smartsplit.domain import normalize_item_name
-from smartsplit.domain.codec import decode, encode
-from smartsplit.domain.commands import Command, Unknown
+from smartsplit.domain.codec import decode
+from smartsplit.domain.commands import AnswerPrompt, Command, Unknown
 from smartsplit.ports.llm import InterpretContext, LlmUnavailableError
 
-_ATTEMPTS = 2
-"""An API error gets one more attempt; after that the bot says "try again in a minute"."""
+_RETRYABLE = frozenset({408, 409, 429})
+_SERVER_ERRORS = 500
 
 SYSTEM_PROMPT = """You turn one chat message to an expense-splitting bot into one tool call.
 
@@ -54,8 +55,9 @@ class AnthropicCommandInterpreter:
 
     def interpret(self, text: str, context: InterpretContext) -> Command:
         """The one command the message asks for; anything unclear or invalid is Unknown."""
-        data = json.dumps(encode(context), ensure_ascii=False)
-        prompt = f"<context>{data}</context>\n<message>{text}</message>"
+        data = json.dumps(model_view(context), ensure_ascii=False)
+        message = json.dumps(text, ensure_ascii=False)
+        prompt = f"<context>{data}</context>\n<message>{message}</message>"
         response = self._call(
             lambda: self._client.messages.create(
                 model=self._model,
@@ -96,14 +98,37 @@ class AnthropicCommandInterpreter:
         return cleaned or normalize_item_name(name)
 
     def _call(self, request: Callable[[], Message]) -> Message:
-        """Run the request with one retry on API errors."""
-        failure: Exception = LlmUnavailableError("no attempt made")
-        for _ in range(_ATTEMPTS):
-            try:
-                return request()
-            except (anthropic.APIConnectionError, anthropic.APIStatusError) as error:
-                failure = LlmUnavailableError(type(error).__name__)
-        raise failure
+        """One retry, but only for errors that can pass (network, 408/409/429, 5xx); a setup
+        problem (any other 4xx) fails at once."""
+        try:
+            return request()
+        except (anthropic.APIConnectionError, anthropic.APIStatusError) as error:
+            if not _retryable(error):
+                raise LlmUnavailableError(type(error).__name__) from error
+        try:
+            return request()
+        except anthropic.APIError as error:
+            raise LlmUnavailableError(type(error).__name__) from error
+
+
+def _retryable(error: anthropic.APIError) -> bool:
+    if isinstance(error, anthropic.APIStatusError):
+        return error.status_code in _RETRYABLE or error.status_code >= _SERVER_ERRORS
+    return True
+
+
+def model_view(context: InterpretContext) -> dict[str, Any]:
+    """What the model may see: names and text only, never internal ids (SPEC 12.3)."""
+    return {
+        "chat": context.conversation_kind.value,
+        "chat_name": context.conversation_name,
+        "today": context.today.isoformat(),
+        "people_the_speaker_can_name": [list(p.names) for p in context.nameable],
+        "group_members": list(context.group_member_names),
+        "groups": list(context.group_names),
+        "open_questions": list(context.open_prompts),
+        "bill_under_review": list(context.draft_lines),
+    }
 
 
 def _cached(text: str) -> list[TextBlockParam]:
@@ -117,9 +142,13 @@ def _command(response: Message, text: str) -> Command:
     call = next((block for block in response.content if block.type == "tool_use"), None)
     if call is None or not isinstance(call.input, dict):
         return Unknown(text)
-    tagged: dict[str, Any] = {"type": call.name, **call.input}
+    if call.name == Unknown.__name__:
+        return Unknown(text)  # always the message as sent, never the model's paraphrase
+    tagged: dict[str, Any] = {**call.input, "type": call.name}
     try:
         command: Command = decode(tagged, Command)
     except (ValueError, TypeError, KeyError):
         return Unknown(text)
+    if isinstance(command, AnswerPrompt):
+        return replace(command, prompt_id=None)  # the model never sees prompt ids
     return command

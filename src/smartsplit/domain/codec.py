@@ -45,9 +45,7 @@ def _decode(data: Json, hint: Any) -> Any:
     if origin in (Union, types.UnionType):
         return _decode_union(data, get_args(hint))
     if origin is Literal:
-        if data not in get_args(hint):
-            raise ValueError(f"{data!r} is not one of {get_args(hint)}")
-        return data
+        return _choose(data, get_args(hint))
     if origin is tuple:
         return _decode_tuple(data, get_args(hint))
     if hint is type(None):
@@ -71,8 +69,8 @@ def _decode_union(data: Json, options: tuple[Any, ...]) -> Any:
                 return _decode_class(data, leaf)
         raise ValueError(f"no union member named {data.get('type')!r}")
     for leaf in leaves:
-        if get_origin(leaf) is Literal and data in get_args(leaf):
-            return data
+        if get_origin(leaf) is Literal and _matches(data, get_args(leaf)):
+            return _choose(data, get_args(leaf))
         if type(data) is leaf:
             return data
     for leaf in leaves:
@@ -121,7 +119,7 @@ def _decode_class(data: Json, cls: type) -> Any:
             raise ValueError(f"expected a {cls.__name__}")
         return cls(**{f.name: _decode_field(data, f) for f in dataclasses.fields(cls)})
     if issubclass(cls, Enum):
-        return cls(data)
+        return cls(_choose(data, tuple(member.value for member in cls)))
     if cls is datetime:
         return datetime.fromisoformat(cast(str, data))
     if cls is date:
@@ -131,3 +129,22 @@ def _decode_class(data: Json, cls: type) -> Any:
     if cls in (bool, int, str) and type(data) is cls:
         return data
     raise ValueError(f"expected {cls.__name__}, got {data!r}")
+
+
+def _matches(data: object, options: tuple[Any, ...]) -> bool:
+    return any(_same(data, option) for option in options)
+
+
+def _choose(data: object, options: tuple[Any, ...]) -> Any:
+    """The option equal to `data`, ignoring case for text: model output doesn't guarantee the
+    casing of enum values ("Soft_exclude")."""
+    for option in options:
+        if _same(data, option):
+            return option
+    raise ValueError(f"{data!r} is not one of {options}")
+
+
+def _same(data: object, option: object) -> bool:
+    if isinstance(data, str) and isinstance(option, str):
+        return data.casefold() == option.casefold()
+    return data == option

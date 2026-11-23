@@ -1,11 +1,13 @@
 """The keyword interpreter: the phrases from USE_CASES map to the right commands (SPEC 8)."""
 
+from dataclasses import replace
 from datetime import date
 
 import pytest
 
-from smartsplit.adapters.fakes.interpreter import KeywordInterpreter, cents, line_ref, names
+from smartsplit.adapters.fakes.interpreter import KeywordInterpreter
 from smartsplit.adapters.fakes.llm import FakeCanonicalizer
+from smartsplit.adapters.fakes.phrases import cents, line_ref, names
 from smartsplit.domain.commands import (
     Acknowledge,
     AddManualBill,
@@ -151,6 +153,13 @@ CASES: list[tuple[str, Command]] = [
             ),
         ),
     ),
+    ("what do I owe?", ShowBalances()),
+    ("what rules are about me?", ListRules(None)),
+    ("electricity 1800, split all", AddManualBill("electricity", 180000, everyone=True)),
+    ("Sam owes me all of it", StartSplit(owes_all="Sam")),
+    ("everyone except Raj", AnswerPrompt(excluding=("Raj",))),
+    ("with Sam and Raj", AnswerPrompt(people=("Sam", "Raj"))),
+    ("me and Priya", AnswerPrompt(people=("me", "Priya"))),
     ("lol who took my charger", Unknown("lol who took my charger")),
 ]
 
@@ -158,6 +167,33 @@ CASES: list[tuple[str, Command]] = [
 @pytest.mark.parametrize(("text", "expected"), CASES)
 def test_phrases(text: str, expected: Command) -> None:
     assert KeywordInterpreter().interpret(text, context()) == expected
+
+
+REVIEW_CASES: list[tuple[str, Command]] = [
+    ("2 yogurts for Sam, 1 for Raj", Edit(AssignLine("yogurts", weights=(("Sam", 2), ("Raj", 1))))),
+    ("2 for Sam, 1 for Raj", Edit(AssignLine(1, weights=(("Sam", 2), ("Raj", 1))))),
+    ("70/30 for Sam and Raj", Edit(AssignLine(1, weights=(("Sam", 70), ("Raj", 30))))),
+    (
+        "70/30 for Sam and Raj on the cab",
+        Edit(AssignLine("cab", weights=(("Sam", 70), ("Raj", 30)))),
+    ),
+    ("Sam\u2019s part was ₹100", Edit(AssignLine(1, exact=(ExactAmount("Sam", 10000),)))),
+    ("that\u2019s not milk", Edit(NotThisItem("milk"))),
+]
+
+
+@pytest.mark.parametrize(("text", "expected"), REVIEW_CASES)
+def test_review_phrases_on_a_one_line_bill(text: str, expected: Command) -> None:
+    # Without a line name, weights and exact parts apply to the only line (E7, E8, G6).
+    assert KeywordInterpreter().interpret(text, context(reviewing=True)) == expected
+
+
+def test_without_a_line_name_a_longer_bill_needs_one() -> None:
+    longer = replace(context(), draft_lines=("1. Milk 60.00", "2. Bread 40.00"))
+
+    assert KeywordInterpreter().interpret("2 for Sam, 1 for Raj", longer) == Unknown(
+        "2 for Sam, 1 for Raj"
+    )
 
 
 def test_sam_paid_during_review_changes_the_payer() -> None:

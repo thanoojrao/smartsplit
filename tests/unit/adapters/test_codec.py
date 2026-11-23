@@ -16,7 +16,7 @@ from smartsplit.domain.commands import (
     ShowHistory,
 )
 from smartsplit.domain.edits import AcceptDifference, AssignLine, UnassignLine
-from smartsplit.domain.enums import MatchHow, QuestionReason
+from smartsplit.domain.enums import MatchHow, QuestionReason, RuleKind
 from smartsplit.domain.model import LineItem
 from smartsplit.domain.prompts import (
     BillChangeEffect,
@@ -114,3 +114,11 @@ def test_unknown_types_are_refused() -> None:
         encode(object())
     with pytest.raises(TypeError):
         decode(1, list[int])
+
+
+def test_enum_and_literal_values_ignore_case() -> None:
+    # Model output doesn't guarantee the casing of enum values.
+    assert decode("Soft_Exclude", RuleKind) is RuleKind.SOFT_EXCLUDE
+    assert decode("This_Month", Literal["this_month", "last_month"] | None) == "this_month"
+    with pytest.raises(ValueError):
+        decode("sometimes", RuleKind)

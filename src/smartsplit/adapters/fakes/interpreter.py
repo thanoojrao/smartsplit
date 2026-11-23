@@ -1,14 +1,30 @@
 """Keyword/regex CommandInterpreter: good enough for tests and the CLI demo (SPEC section 8).
 
-Patterns are tried in order; the first match wins. Names are kept as written ("Sam"); "I",
-"me" and "myself" mean the speaker. Amounts like "500", "₹1,200.50" become integer cents.
+Patterns are tried in order; the first match wins. Amounts like "500", "₹1,200.50" become
+integer cents. Speaker convention: where CONTRACTS says None means the speaker (a rule's
+subject, MemberLeft, ListRules), "I"/"me" become None; everywhere else names are kept as said,
+"me" included, and the services resolve "me" to the speaker.
 """
 
 import re
 from collections.abc import Callable, Sequence
-from decimal import Decimal, InvalidOperation
 
 from smartsplit.adapters.fakes.llm import FakeCanonicalizer
+from smartsplit.adapters.fakes.phrases import (
+    AMOUNT,
+    NAME,
+    NAMED_AMOUNT,
+    PHONE,
+    cents,
+    line_ref,
+    manual,
+    names,
+    part,
+    percent,
+    person,
+    split,
+    weights,
+)
 from smartsplit.domain.commands import (
     Acknowledge,
     AddManualBill,
@@ -44,89 +60,21 @@ from smartsplit.domain.commands import (
 from smartsplit.domain.edits import (
     AcceptDifference,
     AddLine,
-    AssignLine,
     NotThisItem,
     RemoveLine,
     SetLineAmount,
-    SetPayer,
     SetTotal,
     UnassignLine,
 )
 from smartsplit.domain.enums import RuleKind
-from smartsplit.domain.values import ExactAmount, LastBill, LineRef, NumberedBill
+from smartsplit.domain.values import LastBill, NumberedBill
 from smartsplit.ports.llm import InterpretContext
-
-AMOUNT = r"(?:₹|rs\.?\s*|\$)?(\d[\d,]*(?:\.\d{1,2})?)"
-NAMED_AMOUNT = r"(?:₹|rs\.?\s*|\$)?(?P<amount>\d[\d,]*(?:\.\d{1,2})?)"
-NAME = r"([A-Za-z][\w'-]*)"
-PHONE = r"(\+?[\d][\d\s-]{6,}\d)"
-SELF = {"i", "me", "myself"}
 
 type Rule = tuple[re.Pattern[str], Callable[[re.Match[str], InterpretContext], Command]]
 
 
-def cents(text: str) -> int:
-    """ "1,200.50" → 120050. Commas are thousands separators."""
-    try:
-        value = Decimal(text.replace(",", ""))
-    except InvalidOperation as error:
-        raise ValueError(f"not an amount: {text!r}") from error
-    return int(value * 100)
-
-
-def person(name: str) -> str | None:
-    """None for the speaker, otherwise the name as written."""
-    return None if name.lower() in SELF else name
-
-
-def names(text: str) -> tuple[str, ...]:
-    """ "Sam, Raj and Priya" → ("Sam", "Raj", "Priya"); "me" stays as said."""
-    parts = re.split(r",\s*|\s+and\s+|\s*&\s*", text.strip())
-    return tuple(part.strip() for part in parts if part.strip())
-
-
-def line_ref(text: str) -> LineRef:
-    """ "line 4" or "4" → 4; anything else is a name ("the wine" → "wine")."""
-    cleaned = re.sub(r"^(?:line\s+|the\s+)", "", text.strip(), flags=re.IGNORECASE)
-    return int(cleaned) if cleaned.isdigit() else cleaned
-
-
 def _rule(pattern: str) -> re.Pattern[str]:
     return re.compile(rf"^\s*{pattern}\s*[.!?]*\s*$", re.IGNORECASE)
-
-
-def _split(match: re.Match[str], context: InterpretContext) -> Command:
-    if context.draft_lines and match["payer"] and not match["with"]:
-        return Edit(SetPayer(match["payer"]))
-    who = match["with"] or ""
-    everyone = bool(re.match(r"everyone\b", who, re.IGNORECASE))
-    excluding = re.search(r"except\s+(.+)$", who, re.IGNORECASE)
-    return StartSplit(
-        people=() if everyone or not who else names(who),
-        everyone=everyone,
-        excluding=names(excluding[1]) if excluding else (),
-        payer=match["payer"] or None,
-        owes_all=match["owes_all"] or None,
-    )
-
-
-def _manual(match: re.Match[str], _: InterpretContext) -> Command:
-    exact = tuple(
-        ExactAmount(name, cents(amount))
-        for name, amount in re.findall(rf"{NAME}\s+{AMOUNT}", match["exact"] or "")
-    )
-    who = match["with"] or ""
-    return AddManualBill(
-        description=match["desc"].strip(),
-        amount=cents(match["amount"]),
-        people=tuple(e.person for e in exact) or (names(who) if who else ()),
-        exact=exact,
-    )
-
-
-def _weights(match: re.Match[str], _: InterpretContext) -> Command:
-    pairs = re.findall(rf"(\d+)\s+for\s+{NAME}", match["pairs"])
-    return Edit(AssignLine(line_ref(match["line"]), weights=tuple((n, int(w)) for w, n in pairs)))
 
 
 RULES: Sequence[Rule] = [
@@ -159,9 +107,19 @@ RULES: Sequence[Rule] = [
         lambda m, c: ShowHistory(period="this_month" if m[1].lower() == "this" else "last_month"),
     ),
     (_rule(r"(?:show )?(?:my )?last (\d+) bills"), lambda m, c: ShowHistory(last_n=int(m[1]))),
+    (_rule(r"(?:what do i owe|who owes what)"), lambda m, c: ShowBalances()),
     (
         _rule(rf"(?:what do i owe|balance with|what does) {NAME}(?: owe(?: me)?)?"),
         lambda m, c: ShowBalances(with_person=m[1]),
+    ),
+    (_rule(rf"what rules are about {NAME}"), lambda m, c: ListRules(person(m[1]))),
+    (
+        _rule(rf"{NAME} owes (?:me )?all(?: of it)?"),
+        lambda m, c: StartSplit(owes_all=m[1]),
+    ),
+    (
+        _rule(rf"(?P<desc>[a-z][a-z ]*?) {NAMED_AMOUNT},? split (?:all|everyone|between everyone)"),
+        lambda m, c: AddManualBill(m["desc"].strip(), cents(m["amount"]), everyone=True),
     ),
     (_rule(r"balances?(?: in (.+))?"), lambda m, c: ShowBalances(group_name=m[1])),
     (
@@ -212,11 +170,18 @@ RULES: Sequence[Rule] = [
         _rule(rf"{NAME} had none of (.+)"),
         lambda m, c: Edit(UnassignLine(line_ref(m[2]), (m[1],))),
     ),
+    (_rule(rf"(?P<who>[A-Za-z]\w*)'s part(?: of (?P<line>.+?))? was {NAMED_AMOUNT}"), part),
     (
-        _rule(rf"{NAME}'s part of (.+) was {AMOUNT}"),
-        lambda m, c: Edit(AssignLine(line_ref(m[2]), exact=(ExactAmount(m[1], cents(m[3])),))),
+        _rule(
+            r"(?P<pairs>(?:\d+ (?:\w+ )?for \w+(?:,\s*|\s+and\s+)?)+)"
+            r"(?: (?:on|of) (?P<line>.+))?"
+        ),
+        weights,
     ),
-    (_rule(r"(?P<pairs>(?:\d+ for \w+(?:,\s*|\s+and\s+)?)+) (?:on|of) (?P<line>.+)"), _weights),
+    (
+        _rule(r"(?P<first>\d+)/(?P<second>\d+) for (?P<people>.+?)(?: on (?P<line>.+))?"),
+        percent,
+    ),
     (_rule(rf"add (.+?) {AMOUNT}"), lambda m, c: Edit(AddLine(m[1], cents(m[2])))),
     (_rule(rf"add {NAME}"), lambda m, c: AddPerson(m[1])),
     (
@@ -224,15 +189,24 @@ RULES: Sequence[Rule] = [
             r"split(?: this)?(?: with (?P<with>.+?))?(?:,?\s*(?P<payer>\w+) paid)?"
             r"(?:,?\s*(?P<owes_all>\w+) owes all(?: of it)?)?"
         ),
-        _split,
+        split,
     ),
-    (_rule(r"(?P<payer>\w+) paid(?P<with>)(?P<owes_all>)"), _split),
+    (_rule(r"(?P<payer>\w+) paid(?P<with>)(?P<owes_all>)"), split),
+    (
+        _rule(r"(?:with )?everyone except (.+)"),
+        lambda m, c: AnswerPrompt(excluding=names(m[1])),
+    ),
+    (_rule(r"with (.+)"), lambda m, c: AnswerPrompt(people=names(m[1]))),
+    (
+        _rule(r"((?:\w+,\s*)*\w+\s+and\s+\w+)"),
+        lambda m, c: AnswerPrompt(people=names(m[1])),
+    ),
     (
         _rule(
             rf"(?P<desc>[a-z][a-z ]*?) {NAMED_AMOUNT}"
             r"(?::\s*(?P<exact>.+)|\s+(?:with\s+)?(?P<with>.+))?"
         ),
-        _manual,
+        manual,
     ),
 ]
 
@@ -244,8 +218,9 @@ class KeywordInterpreter:
         self._canonical = canonical or FakeCanonicalizer()
 
     def interpret(self, text: str, context: InterpretContext) -> Command:
+        plain = text.replace("\u2019", "'").replace("\u2018", "'")  # phone keyboards' quotes
         for pattern, build in RULES:
-            match = pattern.match(text)
+            match = pattern.match(plain)
             if match:
                 try:
                     return build(match, context)

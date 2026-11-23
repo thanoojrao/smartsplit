@@ -1,11 +1,18 @@
-"""One strict tool per command (SPEC section 8): names, descriptions and input schemas."""
+"""One tool per command (SPEC section 8): names, descriptions and input schemas.
+
+The tools are not `strict`: strict structured output allows at most 20 strict tools and 16
+union-typed parameters per request, and there are 29 commands. The schemas still guide the
+model, and every call is decoded and checked; anything that doesn't decode is Unknown.
+"""
 
 from typing import get_args
 
 from anthropic.types import ToolParam
 
 from smartsplit.adapters.llm.tool_schemas import object_schema
-from smartsplit.domain.commands import Command
+from smartsplit.domain.commands import Command, Unknown
+
+_NO_INPUT = {"type": "object", "properties": {}, "required": [], "additionalProperties": False}
 
 COMMAND_CLASSES: tuple[type, ...] = get_args(Command.__value__)
 
@@ -49,7 +56,7 @@ DESCRIPTIONS: dict[str, str] = {
     "bills' (last_n).",
     "Notifications": "'stop' (on false) or 'start' (on true) notifications and reminders.",
     "Help": "The speaker asks what the bot can do.",
-    "Unknown": "Anything else, or not clearly meant for the bot. text: the message.",
+    "Unknown": "Anything else, or not clearly meant for the bot.",
 }
 
 
@@ -62,6 +69,6 @@ def _tool(cls: type) -> ToolParam:
     return {
         "name": cls.__name__,
         "description": DESCRIPTIONS[cls.__name__],
-        "strict": True,
-        "input_schema": object_schema(cls, tagged=False),
+        # Unknown always carries the original message, so the model fills in nothing.
+        "input_schema": _NO_INPUT if cls is Unknown else object_schema(cls, tagged=False),
     }
