@@ -9,6 +9,7 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - Stack: Python 3.12+, FastAPI, SQLAlchemy 2 + Alembic, Postgres, uv. Why: user's preference.
 - First build = the core engine with no WhatsApp (SPEC §1).
 - Open source, self-hosted by others.
+- (After the first build) The bot is a conversation **agent**: the model reads the recent chat and the current state and calls tools in a loop, seeing each result, until it writes its reply (SPEC revision 2, §8). Why: the user expects a context-aware assistant, not a one-command translator.
 - (Checkpoint B, M4 question) Square-up clears each group fully and keeps the rows netting to zero (option a): nobody's real money changes, and when a group's greedy plan reshuffles, the personal-splits amount afterwards can differ slightly from the overall shown before; the confirm step restates the exact effect. Why: the books stay exact.
 - (Vision review) Two ways to add bills: in a group chat (scoped to that group, like a Splitwise group) and in a personal 1:1 chat with the bot (split with people the user picks). Why: matches how people actually split.
 - (Vision review) Overall balance per person across all groups and personal splits, with a per-group breakdown ("you owe Sam 50: Trip owes 80, Flat 4B owed 20, personal 10"). Why: one answer to "what do I owe X?".
@@ -229,4 +230,30 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 
 ## Open (waiting for the user)
 
-(nothing open)
+Revision 2 (the agent, SPEC §8). Each has a recommended default, already written into the spec; say
+which to change.
+
+1. **Locking and transactions.** (a, recommended) A whole turn is one transaction with the chat's lock
+   held across its model calls: simple and atomic, a failure undoes everything, a busy chat waits a few
+   seconds. (b) Each tool call commits on its own: no waiting, but a failure halfway leaves part of
+   what the message asked for done.
+2. **What the transcript keeps.** (a, recommended) Personal chats: everything; group chats: only messages
+   the bot reacted to and its replies; at most 50 per chat and 30 days. (b) All group messages too, for
+   more context, at the cost of privacy, noise and an easier way to plant instructions. (c) Shorter or
+   longer limits.
+3. **Who writes the reply.** (a, recommended) The model writes the words; amounts, balances, bill
+   summaries and confirmations are code-rendered blocks appended exactly. (b) The model writes all of
+   it, using tool results: more natural, but any figure could be mistyped.
+4. **Confirmations.** (a, recommended) Money and other people's data change only on a *later* message
+   from the person asked, and only if nothing changed meanwhile (§8.3). (b) Let the model confirm
+   within the same turn when the message itself says so ("pay Sam 500, yes I'm sure"): one message
+   fewer, but a planted instruction could then act in one go.
+5. **Questions the model asks itself.** (a, recommended) "Which Sam?", "who's this with?", "join splits
+   here?", duplicates and total mismatches are handled by the model in conversation; code only blocks
+   `confirm_draft` until a duplicate or mismatch is addressed. Line questions about rules stay
+   code-tracked (numbered, batched). (b) Keep all of them as code-tracked prompts as in the first build.
+6. **Limits.** (a, recommended) At most 6 model calls and 60 seconds per message; the daily per-person
+   limit rises from 50 to 150 calls (each loop step counts). (b) Other numbers.
+7. **Model.** (a, recommended) Claude Sonnet 5.5 for everything, as now. (b) Haiku 5.5 for the agent
+   loop and Sonnet 5.5 for receipts: about 20× cheaper per step, but needs the live scenarios to show
+   it understands the chat as well; can be tried later without a spec change.

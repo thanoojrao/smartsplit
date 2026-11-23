@@ -385,10 +385,40 @@ class InterpretContext:
     draft_lines: tuple[str, ...]                                    # "1. Milk ₹60", ...
 ```
 
+## 4.3 Agent model (revision 2, SPEC §8)
+
+Replaces `CommandInterpreter.interpret` (the commands of §1.7 stay as the tools' argument shapes).
+`Canonicalizer.canonicalize(name, known_keys) -> str` is kept as its own port.
+
+```python
+class ToolSpec:   name: str, description: str, input_schema: Mapping[str, object]
+class ToolCall:   id: str, name: str, arguments: Mapping[str, object]
+class ToolResult: call_id: str, ok: bool, data: Mapping[str, object], error: str | None,
+                  shown: tuple[str, ...]          # code-rendered text appended to the reply (SPEC §8.4)
+class ModelUsage: input_tokens, cache_read_tokens, cache_write_tokens, output_tokens: int
+class ModelStep:  tool_calls: tuple[ToolCall, ...], text: str | None, usage: ModelUsage
+                  # no tool calls → the turn ends; `text` (may be empty) is the model's part of the reply
+class AgentRequest:
+    system: str; tools: tuple[ToolSpec, ...]
+    turn_input: str                               # <state>…</state><recent_chat>…</recent_chat><message>…</message>
+    history: tuple[tuple[ModelStep, tuple[ToolResult, ...]], ...]   # this turn's earlier steps only
+
+class AgentModel(Protocol):
+    def step(self, request: AgentRequest) -> ModelStep: ...   # raises LlmUnavailableError
+```
+
+- `ChatMessage(conversation: ConversationKey, seq: int, sender_id: str | None, text: str, created_at)`
+  and `ChatStore`: `append`, `recent(key, limit)`, `prune(key, keep)`, `delete_older_than(before) -> int`.
+- `PromptKind` keeps `engine_question` and adds `pending_action` (payload: the command, its exact
+  effect, the version it was computed on, `asked_of`, the turn it was proposed in); the other kinds of
+  §1.5 are retired with the first build's `answers` routing.
+- Handles (`L3`, `Q1`, `B2`, `A1`, `P2`) are per-turn strings; the service keeps the handle → id map
+  for the turn and rejects any handle it didn't issue.
+
 ## 5. Orchestrator (`smartsplit.services`)
 
 ```python
-class Orchestrator:
+class Orchestrator:   # unchanged interface in revision 2; `handle` runs one agent turn (SPEC §8.1)
     def handle(self, message: InboundMessage) -> list[OutboundMessage]: ...
     def tick(self) -> list[OutboundMessage]: ...  # uses Clock.now()
 ```

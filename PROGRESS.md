@@ -4,15 +4,12 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 ## Next up
 
-M1–M9 done: **CHECKPOINT B** reached; PR #1 is open and green, waiting on the user's review.
-Live model checks done (2026-11-23): run 1 passed 2/5 (a bare "yes" to a shown bill came back
-Unknown; "Cappuccino" didn't map to the known "coffee" key, so Raj's coffee rule asked nothing).
-Prompts fixed in `91d9cd1`; run 2 passed 5/5, 40 calls, about $0.09, interpret cache reads
-working. Next: the user's review of PR #1, then merge. To recheck the model later:
-`SMARTSPLIT_LIVE_LLM=1 uv run pytest tests/live -v` (key in `SMARTSPLIT_ANTHROPIC_API_KEY`,
-never print it).
-Left as is for now, by the user's choice: the user's own name still appears as the example
-person in `docs/USE_CASES.md`, `docs/USE_CASE_TRACE.md` and `LICENSE`.
+The first build (M1–M9) is merged into `main` (PR #1, squash `e79da32`). **Revision 2 is proposed:**
+the bot becomes a conversation agent (SPEC §8, revised §1, §2, §4.5, §10, §12; CONTRACTS §4.3;
+USE_CASES section L). **Waiting for the user** to approve the spec and the decisions under DECISIONS
+"Open"; build nothing for M10 until then. After approval: M10, then M11, then CHECKPOINT C. Left as
+is, by the user's choice: the user's own name in `docs/USE_CASES.md` (top), `docs/USE_CASE_TRACE.md`
+and `LICENSE`.
 
 ## Milestones
 
@@ -31,6 +28,14 @@ person in `docs/USE_CASES.md`, `docs/USE_CASE_TRACE.md` and `LICENSE`.
 - [x] M9 — CLI + FastAPI entrypoints (SPEC §11) incl. API token, README "try it" walkthrough with the fake adapters
 
 **CHECKPOINT B** — final: stop, push, open a PR, notify the user, and summarize.
+
+Revision 2 (SPEC §8: the conversation agent). Starts only after the user approves the revised spec
+and the decisions under DECISIONS "Open".
+
+- [ ] M10 — Agent foundation, offline (SPEC §8, §10.1–10.4, §12.2–12.3, CONTRACTS §4.3): `AgentModel` port, chat transcript store + migration + pruning in `tick`, per-turn handles, tools over the existing services returning results + shown blocks, pending actions with the later-turn/right-person/version rule, the agent loop in `Orchestrator.handle` (lock and one transaction per turn, step and time limits, rollback on failure, usage counted per step), `KeywordAgent` and `ScriptedAgent` fakes; retire `CommandInterpreter.interpret`, the `answers` routing and the retired prompt kinds; integration tests re-expressed as state and shown-block checks, plus loop tests (multi-step, tool errors the model recovers from, rollback, injection)
+- [ ] M11 — Anthropic agent adapter (SPEC §8.6, §12.5): tool use loop on `claude-sonnet-5-5` with the cached prefix, system prompt, live scenarios for use cases L1–L7 and the main flows of C, D, G, H and I, usage table, README/CLI updates
+
+**CHECKPOINT C** — stop, push, open a PR, notify the user, and summarize (including live results and cost per message).
 
 ## Log
 
