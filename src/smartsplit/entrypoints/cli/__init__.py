@@ -14,9 +14,11 @@ from typing import Annotated
 
 import typer
 
+from smartsplit.config import Settings
 from smartsplit.domain.enums import ConversationKind
 from smartsplit.domain.messages import ImageAttachment, InboundMessage, OutboundMessage
 from smartsplit.domain.values import ConversationKey
+from smartsplit.entrypoints.wiring import build
 from smartsplit.ports.repository import Repository
 from smartsplit.services import Orchestrator
 from smartsplit.services.reports import person_report, rules_report
@@ -211,3 +213,13 @@ def _show_rules(bot: Bot, name: str) -> None:
         typer.echo("No rules.")
     for rule in report:
         typer.echo(f"{rule.item}: {rule.kind.value} ({rule.scope}, {rule.source.value})")
+
+
+def _connect(live: bool) -> Bot:
+    """The real thing: settings from the environment, Postgres, files, and the model if live."""
+    built = build(Settings(), live=live)
+    return Bot(built.orchestrator, built.repository, built.settings.currency)
+
+
+app = make_cli(_connect)
+"""The `smartsplit` console script."""

@@ -131,12 +131,15 @@ name = "Only the LLM adapter talks to Anthropic"
 type = "forbidden"
 source_modules = ["smartsplit.adapters.db", "smartsplit.adapters.fakes", "smartsplit.entrypoints"]
 forbidden_modules = ["anthropic"]
+# Direct imports only: the composition roots in entrypoints import the adapters (user, M9).
+allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "Only the DB adapter talks to the database"
 type = "forbidden"
 source_modules = ["smartsplit.adapters.llm", "smartsplit.adapters.fakes", "smartsplit.entrypoints"]
 forbidden_modules = ["sqlalchemy", "alembic", "psycopg"]
+allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "Web and CLI frameworks stay in their entrypoints"
