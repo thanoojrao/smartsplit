@@ -46,7 +46,8 @@ def test_the_cli_flow() -> None:
     assert added.startswith("[you]\n  Hi Alex! I split bills")
     run(cli, "person", "add", "Sam", "+919876500002")
     created = run(cli, "group", "create", "Flat 4B", "--as", "Alex")
-    assert created.startswith("[Flat 4B]\n  Hi Flat 4B! Alex is in.")
+    assert created.startswith("[Flat 4B]\n  Hi Flat 4B! I split bills")
+    assert 'reply to this message with "join"' in created
     world.agent.queue(call("join_group"))
     assert run(cli, "member", "add", "Flat 4B", "Sam") == "[Flat 4B]\n  Sam joined Flat 4B.\n"
     world.agent.queue(call("start_receipt"))

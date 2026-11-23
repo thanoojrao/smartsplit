@@ -313,5 +313,6 @@ def test_an_unaddressed_group_photo_is_not_charged_to_the_sender() -> None:
     flat(world, YOU, SAM)
     me = world.person(YOU).id
     before = world.model_calls(me)
-    world.say(YOU, FLAT, None, say(""), image=receipt("not_a_receipt"), addressed=False)
+    world.say(YOU, FLAT, None, image=receipt("not_a_receipt"), addressed=False)
     assert world.model_calls(me) == before
+    assert world.model_calls("install") > 0

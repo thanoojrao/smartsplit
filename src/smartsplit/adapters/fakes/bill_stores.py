@@ -8,7 +8,13 @@ from smartsplit.adapters.fakes.base import insert, replace_existing, require_ref
 from smartsplit.adapters.fakes.people_stores import PeopleStore
 from smartsplit.domain.enums import DraftState, NotificationKind, PhotoOutcome, PromptStatus
 from smartsplit.domain.model import Bill, BillDraft, PhotoRead, Receipt, Settlement
-from smartsplit.domain.prompts import ChatMessage, Notification, ProcessedMessage, Prompt
+from smartsplit.domain.prompts import (
+    ChatMessage,
+    Notification,
+    ProcessedMessage,
+    Prompt,
+    TickBatch,
+)
 from smartsplit.domain.values import Context, ConversationKey
 from smartsplit.ports.errors import DuplicateKeyError, StaleDraftError
 from smartsplit.ports.repository import ACTIVE_DRAFT_STATES, IDLE_DRAFT_STATES, OPEN_DRAFT_STATES
@@ -258,3 +264,28 @@ class ChatStore:
         old = [m for m in self.records if m.created_at < before]
         self.records = [m for m in self.records if m.created_at >= before]
         return len(old)
+
+
+class TickBatchStore:
+    def __init__(self) -> None:
+        self.records: dict[str, TickBatch] = {}
+
+    def add(self, batch: TickBatch) -> None:
+        insert(self.records, batch.id, batch)
+
+    def unacked_before(self, when: datetime) -> tuple[TickBatch, ...]:
+        found = [b for b in self.records.values() if b.acked_at is None and b.created_at < when]
+        return tuple(sorted(found, key=lambda b: b.created_at))
+
+    def ack(self, batch_id: str, at: datetime) -> bool:
+        batch = self.records.get(batch_id)
+        if batch is None:
+            return False
+        if batch.acked_at is None:
+            self.records[batch_id] = replace(batch, acked_at=at)
+        return True
+
+    def delete_acked_before(self, when: datetime) -> None:
+        self.records = {
+            k: b for k, b in self.records.items() if b.acked_at is None or b.created_at >= when
+        }

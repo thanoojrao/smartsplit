@@ -1,6 +1,7 @@
 """The HTTP API around an orchestrator on the in-memory fakes (SPEC section 11, K3-K4)."""
 
 import base64
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -14,8 +15,16 @@ TOKEN = "s3cret-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
-def client(world: World, max_image_bytes: int = 5_000_000) -> TestClient:
-    app = create_app(world.bot, world.repository, api_token=TOKEN, max_image_bytes=max_image_bytes)
+def client(
+    world: World, max_image_bytes: int = 5_000_000, ready: Callable[[], bool] = lambda: True
+) -> TestClient:
+    app = create_app(
+        world.bot,
+        world.repository,
+        api_token=TOKEN,
+        max_image_bytes=max_image_bytes,
+        ready=ready,
+    )
     return TestClient(app)
 
 
@@ -44,14 +53,16 @@ def test_health_is_open_and_everything_else_needs_the_token() -> None:
     assert wrong.status_code == 401
     assert wrong.headers["WWW-Authenticate"] == "Bearer"
     assert api.get("/v1/people/x/rules").status_code == 401
-    assert api.post("/v1/tick", headers=AUTH).json() == []
+    assert api.post("/v1/tick", headers=AUTH).json()["messages"] == []
 
 
 def test_the_api_refuses_to_start_without_a_token() -> None:
     world = World()
     for token in ("", "   "):
         with pytest.raises(ValueError, match="SMARTSPLIT_API_TOKEN"):
-            create_app(world.bot, world.repository, api_token=token, max_image_bytes=1)
+            create_app(
+                world.bot, world.repository, api_token=token, max_image_bytes=1, ready=lambda: True
+            )
 
 
 def test_a_message_goes_through_the_orchestrator_and_retries_return_the_same() -> None:
@@ -62,7 +73,7 @@ def test_a_message_goes_through_the_orchestrator_and_retries_return_the_same() -
     replies = first.json()
     assert replies[0]["conversation"] == {"channel": "whatsapp", "ref": "1203630@g.us"}
     assert replies[0]["recipient_id"] is None
-    assert replies[0]["text"].startswith("Hi Flat 4B! Alex is in.")
+    assert replies[0]["text"].startswith("Hi Flat 4B! I split bills")
     assert api.post("/v1/messages", headers=AUTH, json=message("help")).json() == replies
 
 

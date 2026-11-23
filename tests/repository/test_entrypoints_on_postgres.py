@@ -50,4 +50,8 @@ def test_the_api_factory(environment: None, monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "not-a-real-key")
     api = TestClient(from_environment())
     assert api.get("/healthz").json() == {"status": "ok"}
-    assert api.post("/v1/tick", headers={"Authorization": "Bearer t0ken"}).json() == []
+    assert api.get("/readyz").json() == {"status": "ready"}
+    auth = {"Authorization": "Bearer t0ken"}
+    batch = api.post("/v1/tick", headers=auth).json()
+    assert batch["messages"] == []
+    assert api.post(f"/v1/tick/{batch['batch_id']}/ack", headers=auth).status_code == 204

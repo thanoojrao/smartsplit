@@ -19,6 +19,7 @@ from smartsplit.domain.prompts import (
     Prompt,
     PromptAnswer,
     PromptPayload,
+    TickBatch,
 )
 from smartsplit.domain.values import Context, ConversationKey, Override
 from smartsplit.ports.errors import StaleDraftError
@@ -403,3 +404,43 @@ class ChatStore(Store):
     def delete_older_than(self, before: datetime) -> int:
         c = t.chat_messages.c
         return self._execute(delete(t.chat_messages).where(c.created_at < before)).rowcount
+
+
+def _tick_batch(row: Row[tuple[object, ...]]) -> TickBatch:
+    m = row._mapping
+    messages = decode(m["messages"], tuple[OutboundMessage, ...])
+    return TickBatch(m["id"], messages, m["created_at"], m["acked_at"])
+
+
+class TickBatchStore(Store):
+    def add(self, batch: TickBatch) -> None:
+        self._execute(
+            insert(t.tick_batches).values(
+                id=batch.id,
+                messages=encode(batch.messages),
+                created_at=batch.created_at,
+                acked_at=batch.acked_at,
+            )
+        )
+
+    def unacked_before(self, when: datetime) -> tuple[TickBatch, ...]:
+        c = t.tick_batches.c
+        rows = self._execute(
+            select(t.tick_batches)
+            .where(c.acked_at.is_(None), c.created_at < when)
+            .order_by(c.created_at, c.seq)
+        )
+        return tuple(_tick_batch(r) for r in rows)
+
+    def ack(self, batch_id: str, at: datetime) -> bool:
+        c = t.tick_batches.c
+        if self._execute(select(c.id).where(c.id == batch_id)).first() is None:
+            return False
+        self._execute(
+            update(t.tick_batches).where(c.id == batch_id, c.acked_at.is_(None)).values(acked_at=at)
+        )
+        return True
+
+    def delete_acked_before(self, when: datetime) -> None:
+        c = t.tick_batches.c
+        self._execute(delete(t.tick_batches).where(c.acked_at.is_not(None), c.created_at < when))

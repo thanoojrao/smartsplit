@@ -32,6 +32,7 @@ class InMemoryUnitOfWork:
     settlements: b.SettlementStore = field(default_factory=b.SettlementStore)
     chat: b.ChatStore = field(default_factory=b.ChatStore)
     notifications: b.NotificationStore = field(init=False)
+    tick_batches: b.TickBatchStore = field(default_factory=b.TickBatchStore)
     processed: b.ProcessedStore = field(default_factory=b.ProcessedStore)
     llm_usage: r.LlmUsageStore = field(default_factory=r.LlmUsageStore)
 
@@ -65,8 +66,15 @@ class InMemoryRepository:
         self._working: InMemoryUnitOfWork | None = None
 
     @contextmanager
-    def unit_of_work(self, lock: ConversationKey | None = None) -> Iterator[InMemoryUnitOfWork]:
-        """Nested units of work would silently lose writes here, so they are refused."""
+    def unit_of_work(
+        self,
+        lock: ConversationKey | None = None,
+        *,
+        lock_wait_seconds: float | None = None,
+        try_lock: bool = False,
+    ) -> Iterator[InMemoryUnitOfWork]:
+        """Nested units of work would silently lose writes here, so they are refused. One
+        thread at a time, so a lock is always free (the wait and try-lock never fail)."""
         if self._open:
             raise RuntimeError("a unit of work is already open")
         self._open = True

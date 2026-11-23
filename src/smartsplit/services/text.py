@@ -15,8 +15,8 @@ WELCOME = (
 )
 
 TRY_AGAIN = "Couldn't do that, try again in a minute."
-OVER_LIMIT = "That's all I can do for you today. Try again tomorrow."
-NEEDS_NUMBER = "Message me 1:1 first, so I can link this chat to your number."
+OVER_LIMIT = "Limit reached for today, sorry. I can help again tomorrow."
+NEEDS_NUMBER = "Message me 1:1 first, so I can link this chat to your number: {link}"
 
 
 def money(cents: int, currency: str) -> str:

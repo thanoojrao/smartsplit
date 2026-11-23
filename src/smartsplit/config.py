@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     llm_model: str = "claude-sonnet-5-5"
     llm_timeout_seconds: float = Field(default=30, gt=0)
     message_seconds: float = Field(default=60, gt=0)
+    lock_wait_seconds: float = Field(default=15, gt=0)
     """The whole message: photo read, lock wait and agent loop (SPEC 12.2)."""
     agent_max_steps: int = Field(default=6, ge=1, le=20)
     llm_max_tokens: int = Field(default=16000, gt=0)

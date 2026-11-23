@@ -31,6 +31,8 @@ class OrchestratorSettings:
     llm_calls_per_day: int = 3000
     llm_timeout_seconds: float = 30
     message_seconds: float = 60
+    lock_wait_seconds: float = 15
+    max_image_bytes: int = 5_000_000
     agent_max_steps: int = 6
     chat_history_messages: int = 10
     chat_history_keep: int = 50

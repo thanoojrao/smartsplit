@@ -11,13 +11,14 @@ from html import escape
 from zoneinfo import ZoneInfo
 
 from smartsplit.domain.enums import DraftState, PhotoOutcome
-from smartsplit.domain.messages import InboundMessage
+from smartsplit.domain.messages import InboundMessage, Mention
 from smartsplit.domain.model import BillDraft, PhotoRead
 from smartsplit.domain.prompts import ChatMessage, ChatRef, PendingActionPayload
 from smartsplit.ports.repository import OPEN_DRAFT_STATES
 from smartsplit.services.drafting import open_questions, split_of
 from smartsplit.services.names import known_people
 from smartsplit.services.pending import open_actions
+from smartsplit.services.replies import with_names
 from smartsplit.services.speaker import current_member_ids
 from smartsplit.services.summary import Renderer
 from smartsplit.services.text import money, name_for
@@ -28,13 +29,23 @@ FULL_LINES_UP_TO = 15
 
 
 def build_turn_input(
-    turn: Turn, message: InboundMessage, photo: PhotoRead | None, welcomed: bool
+    turn: Turn,
+    message: InboundMessage,
+    photo: PhotoRead | None,
+    *,
+    welcomed: bool,
+    mentions: Sequence[tuple[Mention, str | None]] = (),
+    quoted: ChatMessage | None = None,
 ) -> str:
-    """The turn's user message: state, recent chat and the new message, each in its tag."""
+    """The turn's user message: state, recent chat and the new message, each in its tag.
+
+    What a quoted bot message showed gets the first handles, so "yes" to an older summary
+    means exactly that one (SPEC 8.6)."""
     turn.handles.speaker_id = turn.speaker.id
+    replying_to = _quote(turn, quoted)
     state = _state(turn, welcomed)
     chat = _recent_chat(turn)
-    said = _message(turn, message, photo)
+    said = _message(turn, message, photo, mentions, replying_to)
     return (
         f"<state>\n{state}\n</state>\n"
         f"<recent_chat>\n{chat}\n</recent_chat>\n"
@@ -223,8 +234,30 @@ def _ref_label(turn: Turn, ref: ChatRef) -> str | None:
             return "the payment" if ref.kind == "payment" else "that line"
 
 
-def _message(turn: Turn, message: InboundMessage, photo: PhotoRead | None) -> str:
-    parts = [f"{_person(turn, turn.speaker.id)}: {_text(message.text or '')}"]
+def _quote(turn: Turn, quoted: ChatMessage | None) -> str:
+    if quoted is None:
+        return ""
+    shown = _refs(turn, quoted.refs)
+    start = _text(quoted.text.split("\n", 1)[0])
+    return f'[replying to the bot\'s message "{start}"{f" (showed {shown})" if shown else ""}]'
+
+
+def _mention(turn: Turn, mention: Mention, person_id: str | None) -> str:
+    if person_id is None:
+        return f"[@{_text(mention.name)}: someone I don't know, no number given]"
+    return f"[@{_text(mention.name)} is {_person(turn, person_id)}]"
+
+
+def _message(
+    turn: Turn,
+    message: InboundMessage,
+    photo: PhotoRead | None,
+    mentions: Sequence[tuple[Mention, str | None]],
+    replying_to: str,
+) -> str:
+    parts = [replying_to] if replying_to else []
+    parts.append(f"{_person(turn, turn.speaker.id)}: {_text(with_names(message))}")
+    parts += [_mention(turn, mention, person_id) for mention, person_id in mentions]
     if message.image is not None:
         parts.append(_photo_note(turn, photo))
     if message.contact is not None:

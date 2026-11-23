@@ -14,7 +14,7 @@ from smartsplit.domain.enums import DraftState
 from smartsplit.domain.messages import OutboundMessage
 from smartsplit.domain.model import BillDraft
 from smartsplit.domain.prompts import ChatRef, Notification
-from smartsplit.ports.errors import StaleDraftError
+from smartsplit.ports.errors import ChatBusyError, StaleDraftError
 from smartsplit.ports.repository import Repository
 from smartsplit.ports.system import Clock, IdGenerator
 from smartsplit.services.lifecycle import finish, start_next
@@ -75,12 +75,12 @@ class Ticker:
         for draft in due:
             try:
                 out += self._idle(draft, now)
-            except StaleDraftError:
-                continue  # someone answered meanwhile
+            except (StaleDraftError, ChatBusyError):
+                continue  # someone answered meanwhile, or is talking now: next tick
         return out
 
     def _idle(self, seen: BillDraft, now: datetime) -> list[OutboundMessage]:
-        with self.repository.unit_of_work(lock=seen.conversation) as uow:
+        with self.repository.unit_of_work(lock=seen.conversation, try_lock=True) as uow:
             draft = uow.drafts.get(seen.id)
             chat = uow.conversations.get(seen.conversation)
             adder = uow.people.get(seen.added_by)

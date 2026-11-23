@@ -27,7 +27,13 @@ from smartsplit.domain.model import (
     Rule,
     Settlement,
 )
-from smartsplit.domain.prompts import ChatMessage, Notification, ProcessedMessage, Prompt
+from smartsplit.domain.prompts import (
+    ChatMessage,
+    Notification,
+    ProcessedMessage,
+    Prompt,
+    TickBatch,
+)
 from smartsplit.domain.values import Context, ConversationKey, LocalScope, RuleScope
 
 
@@ -270,6 +276,21 @@ class NotificationStore(Protocol):
         ...
 
 
+class TickBatchStore(Protocol):
+    def add(self, batch: TickBatch) -> None: ...
+    def unacked_before(self, when: datetime) -> tuple[TickBatch, ...]:
+        """Batches not acknowledged that were created before `when`, oldest first."""
+        ...
+
+    def ack(self, batch_id: str, at: datetime) -> bool:
+        """Mark it delivered; False if there is no such batch."""
+        ...
+
+    def delete_acked_before(self, when: datetime) -> None:
+        """Forget delivered batches created before `when`."""
+        ...
+
+
 class ProcessedStore(Protocol):
     def get(self, key: ConversationKey, message_id: str) -> ProcessedMessage | None: ...
     def add(self, processed: ProcessedMessage) -> None: ...
@@ -345,6 +366,9 @@ class UnitOfWork(Protocol):
     def notifications(self) -> NotificationStore: ...
 
     @property
+    def tick_batches(self) -> TickBatchStore: ...
+
+    @property
     def processed(self) -> ProcessedStore: ...
 
     @property
@@ -353,11 +377,17 @@ class UnitOfWork(Protocol):
 
 class Repository(Protocol):
     def unit_of_work(
-        self, lock: ConversationKey | None = None
+        self,
+        lock: ConversationKey | None = None,
+        *,
+        lock_wait_seconds: float | None = None,
+        try_lock: bool = False,
     ) -> AbstractContextManager[UnitOfWork]:
         """One transaction: commits on success, rolls back on exception.
 
         With `lock`, messages for that conversation are serialized for the whole transaction.
+        A lock not taken within `lock_wait_seconds` raises ChatBusyError; with `try_lock` it
+        raises at once (SPEC 12.2).
         """
         ...
 

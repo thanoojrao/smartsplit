@@ -1,37 +1,81 @@
-"""One message, end to end (SPEC 8.1, CONTRACTS section 5).
+"""One message, end to end (SPEC 8.1, 10.2, 12.2; CONTRACTS section 5).
 
-Read-only checks first (a repeat, whether the bot reacts, the daily limit), then the photo is
-read outside the lock and stored on its own, then the whole turn runs in one locked
-transaction: the agent loop, the replies, the transcript, and the processed-message record.
+Read-only checks come first: a repeat, whether the bot reacts, and the daily limits. Then the
+photo is read outside the lock and stored on its own. Then the whole turn runs in one locked
+transaction: the agent loop, the replies, the transcript and the processed-message record.
 If a model call fails or the deadline passes, everything the turn did rolls back and the
-person is asked to try again; the photo read and the usage counts survive.
+person is asked to try again; the photo read and the usage counts survive. A chat that stays
+busy longer than the lock wait is answered "busy" (HTTP 503), and the gateway retries.
 """
 
-from dataclasses import dataclass, replace
+import hashlib
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
+from typing import Literal
 
-from smartsplit.domain.enums import ConversationKind
-from smartsplit.domain.messages import InboundMessage, OutboundMessage
+from smartsplit.domain.enums import ConversationKind, PhotoOutcome
+from smartsplit.domain.messages import ImageAttachment, InboundMessage, OutboundMessage
 from smartsplit.domain.model import PhotoRead
-from smartsplit.domain.prompts import ProcessedMessage
-from smartsplit.ports.agent import AgentModel
-from smartsplit.ports.errors import StaleDraftError
+from smartsplit.domain.prompts import ProcessedMessage, TickBatch
+from smartsplit.ports.agent import AgentModel, ModelUsage
+from smartsplit.ports.errors import ChatBusyError, StaleDraftError
 from smartsplit.ports.images import ImageStore
 from smartsplit.ports.llm import Canonicalizer, LlmUnavailableError, ReceiptParser
 from smartsplit.ports.repository import Repository, UnitOfWork
 from smartsplit.ports.system import Clock, IdGenerator
-from smartsplit.services import transcript
-from smartsplit.services.agent_loop import run_loop
+from smartsplit.services.agent_loop import LoopResult, run_loop
+from smartsplit.services.gating import addressed, always_reacts, quoted_message, waiting_on
+from smartsplit.services.limits import Allowance, allowance, first_notice_today
 from smartsplit.services.membership import member_left
 from smartsplit.services.photos import PhotoReader
+from smartsplit.services.replies import opening, record
 from smartsplit.services.reply_text import clean_reply
-from smartsplit.services.sending import send
-from smartsplit.services.speaker import arrive, find_speaker
-from smartsplit.services.text import NEEDS_NUMBER, OVER_LIMIT, TRY_AGAIN, WELCOME
+from smartsplit.services.speaker import arrive, current_member_ids, find_speaker, mentioned
+from smartsplit.services.text import NEEDS_NUMBER, OVER_LIMIT, TRY_AGAIN
 from smartsplit.services.ticking import Ticker
-from smartsplit.services.turn import OrchestratorSettings, Said, Turn, local_date
+from smartsplit.services.turn import OrchestratorSettings, Turn, local_date
 from smartsplit.services.turn_input import build_turn_input
 from smartsplit.services.usage import Meter, MeteredCanonicalizer
+
+UNACKED_AFTER = timedelta(minutes=2)
+"""A tick batch not acknowledged this long is returned again (SPEC 10.8)."""
+BATCHES_KEPT = timedelta(days=1)
+"""How long delivered tick batches are kept (an ack may come late)."""
+
+type Outcome = Literal["replied", "silent", "failed", "deadline", "busy", "limit", "repeat"]
+
+
+@dataclass(frozen=True, slots=True)
+class TurnReport:
+    """What the per-turn log line says, with no content in it (SPEC 12.4)."""
+
+    chat: str
+    """A hash of the chat, never its id."""
+    outcome: Outcome
+    steps: int = 0
+    tools: tuple[tuple[str, bool], ...] = ()
+    usage: ModelUsage = field(default_factory=ModelUsage)
+    seconds: float = 0.0
+    install_nearly_spent: bool = False
+    """The install used 80% of its daily model calls: worth a warning."""
+
+
+@dataclass(frozen=True, slots=True)
+class HandleOutcome:
+    replies: tuple[OutboundMessage, ...]
+    report: TurnReport
+    busy: bool = False
+    """The chat stayed busy too long: the gateway retries (HTTP 503)."""
+
+
+@dataclass(frozen=True, slots=True)
+class _Checked:
+    """What the read-only checks found, before any lock."""
+
+    speaker_id: str | None
+    member: bool
+    waited_on: bool
+    limits: Allowance
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,13 +88,6 @@ class _Incoming:
     meter: Meter
     photo: PhotoRead | None
     over_limit: bool
-
-
-@dataclass(frozen=True, slots=True)
-class HandleOutcome:
-    replies: tuple[OutboundMessage, ...]
-    busy: bool = False
-    """The chat stayed busy too long: the gateway retries (HTTP 503)."""
 
 
 class Orchestrator:
@@ -77,57 +114,153 @@ class Orchestrator:
         self._photos = PhotoReader(repository, images, parser, ids, settings.currency)
         self._ticker = Ticker(repository, clock, ids, settings)
 
-    def tick(self) -> list[OutboundMessage]:
+    def tick(self) -> TickBatch:
         """Deliver the outbox, nudge or expire idle drafts, prune old chat; call it every
-        minute (SPEC 10.8)."""
-        return self._ticker.tick()
+        minute. A batch the gateway hasn't acknowledged comes back with the same id, so a
+        lost response loses nothing (SPEC 10.8)."""
+        now = self._clock.now()
+        with self._repository.unit_of_work() as uow:
+            unacked = uow.tick_batches.unacked_before(now - UNACKED_AFTER)
+        if unacked:
+            return unacked[0]
+        messages = tuple(self._ticker.tick())
+        batch = TickBatch(self._ids.new_id(), messages, now, None if messages else now)
+        with self._repository.unit_of_work() as uow:
+            uow.tick_batches.add(batch)
+            uow.tick_batches.delete_acked_before(now - BATCHES_KEPT)
+        return batch
+
+    def ack(self, batch_id: str) -> bool:
+        """The gateway sent the batch; False if there is no such batch."""
+        with self._repository.unit_of_work() as uow:
+            return uow.tick_batches.ack(batch_id, self._clock.now())
 
     def handle(self, message: InboundMessage) -> HandleOutcome:
         """Replies for this message (and any chat it affects); a repeat returns the same."""
         message = _cleaned(message)
         now = self._clock.now()
+        chat = _chat_hash(message)
+        day = local_date(now, self._settings.timezone)
+        checked = self._screen(message, now, day, chat)
+        if isinstance(checked, HandleOutcome):
+            return checked
         deadline = now + timedelta(seconds=self._settings.message_seconds)
+        meter = Meter(self._repository, day, checked.speaker_id if addressed(message) else None)
+        photo = None
+        if checked.speaker_id is not None and self._may_read(message.image, checked):
+            try:
+                photo = self._read(message, checked.speaker_id, now, meter, deadline)
+            except LlmUnavailableError:
+                return _try_again(message, checked.speaker_id, TurnReport(chat, "failed"))
+        if _ignored_photo(message, photo):
+            return HandleOutcome((), TurnReport(chat, "silent"))
+        over = checked.limits.over
+        try:
+            replies, result = self._turn(_Incoming(message, now, deadline, meter, photo, over))
+        except ChatBusyError:
+            return HandleOutcome((), TurnReport(chat, "busy"), busy=True)
+        except (LlmUnavailableError, StaleDraftError):
+            outcome: Outcome = "deadline" if self._clock.now() >= deadline else "failed"
+            return _try_again(message, checked.speaker_id, TurnReport(chat, outcome))
+        report = TurnReport(
+            chat,
+            "limit" if over else "replied" if replies else "silent",
+            result.steps,
+            tuple(result.tools),
+            result.usage,
+            (self._clock.now() - now).total_seconds(),
+            checked.limits.install_nearly_spent,
+        )
+        return HandleOutcome(replies, report)
+
+    def _screen(
+        self, message: InboundMessage, now: datetime, day: date, chat: str
+    ) -> HandleOutcome | _Checked:
+        """The read-only checks: a repeat, whether the bot reacts, the daily limits."""
         with self._repository.unit_of_work() as uow:
             done = uow.processed.get(message.conversation, message.message_id)
             if done is not None:
-                return HandleOutcome(done.replies)
-            speaker = find_speaker(uow, message)
-            over_limit = speaker is not None and self._over_limit(uow, speaker.id, now)
-        if not _reacts(message):
-            return HandleOutcome(())
-        charged = speaker.id if speaker and _addressed(message) else None
-        meter = Meter(self._repository, self._day(now), charged)
-        photo = None
-        if message.image is not None and speaker is not None and not over_limit:
-            try:
-                photo = self._photos.read(
-                    message.conversation,
-                    message.message_id,
-                    speaker.id,
-                    message.image,
-                    now=now,
-                    meter=meter,
-                    timeout_seconds=self._call_timeout(deadline),
-                )
-            except LlmUnavailableError:
-                return _try_again(message, speaker.id)
-        try:
-            incoming = _Incoming(message, now, deadline, meter, photo, over_limit)
-            return HandleOutcome(self._turn(incoming))
-        except (LlmUnavailableError, StaleDraftError):
-            return _try_again(message, speaker.id if speaker else None)
+                return HandleOutcome(done.replies, TurnReport(chat, "repeat"))
+            checked = self._check(uow, message, now, day)
+        if not (always_reacts(message) or checked.waited_on):
+            return HandleOutcome((), TurnReport(chat, "silent"))
+        if checked.limits.over and not self._notice_due(message, checked.speaker_id, day):
+            return HandleOutcome((), TurnReport(chat, "limit", install_nearly_spent=True))
+        return checked
 
-    def _turn(self, incoming: _Incoming) -> tuple[OutboundMessage, ...]:
+    def _check(
+        self, uow: UnitOfWork, message: InboundMessage, now: datetime, day: date
+    ) -> _Checked:
+        speaker = find_speaker(uow, message)
+        speaker_id = speaker.id if speaker else None
+        conversation = uow.conversations.get(message.conversation)
+        group_id = conversation.group_id if conversation else None
+        member = group_id is None or speaker_id in current_member_ids(uow, group_id)
+        waited = (
+            speaker_id is not None
+            and group_id is not None
+            and waiting_on(uow, message.conversation, group_id, speaker_id, now)
+        )
+        return _Checked(speaker_id, member, waited, allowance(uow, speaker_id, day, self._settings))
+
+    def _notice_due(self, message: InboundMessage, speaker_id: str | None, day: date) -> bool:
+        """Over a limit, the bot says so once a day, to someone who addressed it (SPEC 12.5)."""
+        return (
+            addressed(message)
+            and speaker_id is not None
+            and first_notice_today(self._repository, speaker_id, day)
+        )
+
+    def _may_read(self, image: ImageAttachment | None, checked: _Checked) -> bool:
+        """The cheap checks before a photo is read: a member (or a personal chat), under the
+        daily limits, and not too big (SPEC 7)."""
+        return (
+            image is not None
+            and checked.member
+            and not checked.limits.over
+            and len(image.data) <= self._settings.max_image_bytes
+        )
+
+    def _read(
+        self,
+        message: InboundMessage,
+        speaker_id: str,
+        now: datetime,
+        meter: Meter,
+        deadline: datetime,
+    ) -> PhotoRead | None:
+        if message.image is None:
+            return None
+        return self._photos.read(
+            message.conversation,
+            message.message_id,
+            speaker_id,
+            message.image,
+            now=now,
+            meter=meter,
+            timeout_seconds=self._time_left(deadline, self._settings.llm_timeout_seconds),
+        )
+
+    def _time_left(self, deadline: datetime, at_most: float) -> float:
+        left = (deadline - self._clock.now()).total_seconds()
+        return max(0.0, min(at_most, left))
+
+    def _turn(self, incoming: _Incoming) -> tuple[tuple[OutboundMessage, ...], LoopResult]:
         """The locked transaction: arrival, the loop, the transcript, the record."""
         settings, message, now = self._settings, incoming.message, incoming.now
-        with self._repository.unit_of_work(lock=message.conversation) as uow:
+        wait = self._time_left(incoming.deadline, settings.lock_wait_seconds)
+        with self._repository.unit_of_work(
+            lock=message.conversation, lock_wait_seconds=wait
+        ) as uow:
             done = uow.processed.get(message.conversation, message.message_id)
             if done is not None:
-                return done.replies
+                return done.replies, LoopResult()
             arrival = arrive(uow, self._ids, message, settings.default_region, now)
+            result = LoopResult()
             if arrival is None:
+                text = NEEDS_NUMBER.format(link=settings.bot_link)
                 replies: tuple[OutboundMessage, ...] = (
-                    OutboundMessage(message.conversation, None, NEEDS_NUMBER),
+                    OutboundMessage(message.conversation, None, text),
                 )
             else:
                 turn = Turn(
@@ -142,26 +275,43 @@ class Orchestrator:
                     canonicalizer=MeteredCanonicalizer(self._canonicalizer, incoming.meter),
                 )
                 welcomed = arrival.first_personal_message
-                text = self._respond(turn, incoming, welcomed=welcomed)
-                opening = _opening(turn, welcomed=welcomed, new_group=arrival.new_group)
-                replies = self._record(turn, message, text, opening)
+                result = self._respond(turn, incoming, welcomed=welcomed)
+                new_group = arrival.new_group or _bot_added(message)
+                first = opening(turn, welcomed=welcomed, new_group=new_group)
+                replies = record(turn, message, clean_reply(result.text, turn.handles), first)
             uow.processed.add(
                 ProcessedMessage(message.conversation, message.message_id, replies, now)
             )
-            return replies
+            return replies, result
 
-    def _respond(self, turn: Turn, incoming: _Incoming, *, welcomed: bool) -> str:
-        """The model's cleaned words; events and the daily limit need no model."""
-        event = incoming.message.event
+    def _respond(self, turn: Turn, incoming: _Incoming, *, welcomed: bool) -> LoopResult:
+        """The model's words and what it did; events and the daily limit need no model."""
+        message = incoming.message
+        event = message.event
         if event is not None:
-            identity = turn.uow.identities.get(turn.conversation.key.channel, event.subject_ref)
-            if event.kind == "participant_left" and identity is not None and turn.in_group:
-                member_left(turn, identity.person_id)
-            return ""
+            if event.kind == "participant_left" and event.subject_ref and turn.in_group:
+                identity = turn.uow.identities.get(turn.conversation.key.channel, event.subject_ref)
+                if identity is not None:
+                    member_left(turn, identity.person_id)
+            return LoopResult()
         if incoming.over_limit:
-            return OVER_LIMIT
-        turn_input = build_turn_input(turn, incoming.message, incoming.photo, welcomed)
-        result = run_loop(
+            return LoopResult(OVER_LIMIT)
+        settings = turn.settings
+        people = mentioned(
+            turn.uow,
+            self._ids,
+            message,
+            region=settings.default_region,
+            now=turn.now,
+            by=turn.speaker.id,
+        )
+        quoted = quoted_message(
+            turn.uow, turn.conversation.key, message.quoted_text, settings.chat_history_keep
+        )
+        turn_input = build_turn_input(
+            turn, message, incoming.photo, welcomed=welcomed, mentions=people, quoted=quoted
+        )
+        return run_loop(
             turn,
             self._agent,
             turn_input,
@@ -169,100 +319,34 @@ class Orchestrator:
             deadline=incoming.deadline,
             count_call=incoming.meter.count,
         )
-        return clean_reply(result.text, turn.handles)
-
-    def _record(
-        self, turn: Turn, message: InboundMessage, text: str, opening: list[Said]
-    ) -> tuple[OutboundMessage, ...]:
-        """The replies, with the inbound message and every outbound one in the transcripts.
-
-        In a group chat, a message the bot neither answered nor acted on isn't stored."""
-        said = list(opening)
-        blocks = [s.text for s in turn.shown]
-        main = "\n\n".join(part for part in (text, *blocks) if part)
-        if main:
-            refs = tuple(ref for s in turn.shown for ref in s.refs)
-            kept = "\n\n".join(p for p in (text, *map(transcript.compact, blocks)) if p)
-            said.append(Said(turn.conversation, main, refs, kept))
-        said += turn.elsewhere
-        personal = turn.conversation.kind is ConversationKind.PERSONAL
-        if personal or said or turn.acted:
-            transcript.append(
-                turn.uow,
-                turn.conversation.key,
-                sender_id=turn.speaker.id,
-                text=_inbound_text(message),
-                refs=(),
-                now=turn.now,
-            )
-            turn.uow.chat.prune(turn.conversation.key, self._settings.chat_history_keep)
-        return tuple(send(turn.uow, said, turn.now, self._settings.chat_history_keep))
-
-    def _over_limit(self, uow: UnitOfWork, person_id: str, now: datetime) -> bool:
-        usage = uow.llm_usage.get(person_id, self._day(now))
-        return usage is not None and usage.calls >= self._settings.llm_calls_per_person_per_day
-
-    def _day(self, now: datetime) -> date:
-        return local_date(now, self._settings.timezone)
-
-    def _call_timeout(self, deadline: datetime) -> float:
-        left = (deadline - self._clock.now()).total_seconds()
-        return max(0.0, min(self._settings.llm_timeout_seconds, left))
 
 
-def _opening(turn: Turn, *, welcomed: bool, new_group: bool) -> list[Said]:
-    """Fixed first words: the welcome on someone's first personal message (SPEC 10.3), and a
-    new group chat's intro (the first person is in, everyone else joins explicitly)."""
-    opening: list[Said] = []
-    if welcomed:
-        opening.append(Said(turn.conversation, WELCOME.format(name=turn.speaker.display_name)))
-    if new_group:
-        intro = (
-            f"Hi {turn.conversation.name}! {turn.speaker.display_name} is in. Everyone else "
-            'who wants to split bills here, say "join".'
-        )
-        opening.append(Said(turn.conversation, intro))
-    return opening
+def _ignored_photo(message: InboundMessage, photo: PhotoRead | None) -> bool:
+    """In a group, a photo nobody addressed to the bot goes on only if it is a receipt
+    (SPEC 10.2); one that wasn't read at all goes nowhere."""
+    if message.image is None or message.conversation_kind is not ConversationKind.GROUP:
+        return False
+    if addressed(message):
+        return False
+    return photo is None or photo.outcome is not PhotoOutcome.RECEIPT
 
 
-def _addressed(message: InboundMessage) -> bool:
-    """Personal messages, and group messages that mention or reply to the bot: only these
-    count against the speaker's own daily limit (SPEC 12.5)."""
-    return (
-        message.conversation_kind is ConversationKind.PERSONAL
-        or message.addressed_to_bot
-        or message.reply_to_bot
-    )
+def _bot_added(message: InboundMessage) -> bool:
+    return message.event is not None and message.event.kind == "bot_added"
 
 
-def _reacts(message: InboundMessage) -> bool:
-    """Personal chats: every message. Groups: messages addressed to the bot (a mention or a
-    reply to it), photos, contact cards and chat events (SPEC 10.2)."""
-    return (
-        message.conversation_kind is ConversationKind.PERSONAL
-        or message.addressed_to_bot
-        or message.reply_to_bot
-        or message.image is not None
-        or message.contact is not None
-        or message.event is not None
-    )
+def _chat_hash(message: InboundMessage) -> str:
+    key = message.conversation
+    return hashlib.blake2b(f"{key.channel}:{key.ref}".encode(), digest_size=6).hexdigest()
 
 
-def _try_again(message: InboundMessage, speaker_id: str | None) -> HandleOutcome:
+def _try_again(
+    message: InboundMessage, speaker_id: str | None, report: TurnReport
+) -> HandleOutcome:
     """Nothing was recorded, so a later retry of this message runs it again (SPEC 12.2)."""
     personal = message.conversation_kind is ConversationKind.PERSONAL
-    return HandleOutcome(
-        (OutboundMessage(message.conversation, speaker_id if personal else None, TRY_AGAIN),)
-    )
-
-
-def _inbound_text(message: InboundMessage) -> str:
-    parts = [message.text or ""]
-    if message.image is not None:
-        parts.append("[photo]")
-    if message.contact is not None:
-        parts.append(f"[contact card: {message.contact.name}]")
-    return " ".join(p for p in parts if p)
+    recipient = speaker_id if personal else None
+    return HandleOutcome((OutboundMessage(message.conversation, recipient, TRY_AGAIN),), report)
 
 
 def _cleaned(message: InboundMessage) -> InboundMessage:
@@ -275,8 +359,12 @@ def _cleaned(message: InboundMessage) -> InboundMessage:
     return replace(
         message,
         text=strip(message.text),
+        quoted_text=strip(message.quoted_text),
         sender_name=strip(message.sender_name) or "",
         conversation_name=strip(message.conversation_name),
+        mentions=tuple(
+            replace(m, name=strip(m.name) or "", phone=strip(m.phone)) for m in message.mentions
+        ),
         contact=replace(contact, name=strip(contact.name) or "", phone=strip(contact.phone) or "")
         if contact
         else None,

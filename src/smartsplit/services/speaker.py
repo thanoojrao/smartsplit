@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 
 from smartsplit.domain.enums import ConversationKind
-from smartsplit.domain.messages import InboundMessage
+from smartsplit.domain.messages import InboundMessage, Mention
 from smartsplit.domain.model import ChatIdentity, Conversation, Group, Membership, Person
 from smartsplit.domain.phone import normalize_phone
 from smartsplit.ports.repository import UnitOfWork
@@ -58,21 +58,72 @@ def arrive(
     return Arrival(speaker, conversation, first, new_group)
 
 
+def mentioned(
+    uow: UnitOfWork,
+    ids: IdGenerator,
+    message: InboundMessage,
+    *,
+    region: str,
+    now: datetime,
+    by: str,
+) -> tuple[tuple[Mention, str | None], ...]:
+    """Who each mention is: a known chat identity, or the person with the mention's phone (a
+    new one if nobody has it, so "add @Priya" needs nothing more, SPEC 10.3); None when the
+    gateway gave only a name. A new person is in no group until someone adds them."""
+    found: list[tuple[Mention, str | None]] = []
+    for mention in message.mentions:
+        identity = uow.identities.get(message.conversation.channel, mention.ref)
+        person_id = identity.person_id if identity else None
+        if person_id is None and mention.phone:
+            person = _person_with(
+                uow, ids, phone=mention.phone, name=mention.name, region=region, now=now, by=by
+            )
+            if person is not None:
+                person_id = person.id
+                uow.identities.add(
+                    ChatIdentity(message.conversation.channel, mention.ref, person_id)
+                )
+        found.append((mention, person_id))
+    return tuple(found)
+
+
+def _person_with(
+    uow: UnitOfWork,
+    ids: IdGenerator,
+    *,
+    phone: str,
+    name: str,
+    region: str,
+    now: datetime,
+    by: str | None,
+) -> Person | None:
+    """The person with this number, or a new one; None if it isn't a phone number."""
+    try:
+        number = normalize_phone(phone, region)
+    except ValueError:
+        return None
+    existing = uow.people.by_phone(number)
+    if existing:
+        return existing
+    person = Person(ids.new_id(), name.strip(), number, by, True, False, now)
+    uow.people.add(person)
+    return person
+
+
 def _from_phone(
     uow: UnitOfWork, ids: IdGenerator, message: InboundMessage, region: str, now: datetime
 ) -> Person | None:
     if not message.sender_phone:
         return None
-    try:
-        phone = normalize_phone(message.sender_phone, region)
-    except ValueError:
-        return None
-    existing = uow.people.by_phone(phone)
-    if existing:
-        return existing
-    person = Person(ids.new_id(), message.sender_name.strip(), phone, None, True, False, now)
-    uow.people.add(person)
-    return person
+    return _person_with(
+        uow,
+        ids,
+        phone=message.sender_phone,
+        name=message.sender_name,
+        region=region,
+        now=now,
+        by=None,
+    )
 
 
 def _link_identities(uow: UnitOfWork, message: InboundMessage, person_id: str) -> None:
@@ -110,17 +161,6 @@ def current_member_ids(uow: UnitOfWork, group_id: str) -> list[str]:
 
 def next_position(uow: UnitOfWork, group_id: str) -> int:
     return max((m.position for m in uow.memberships.for_group(group_id)), default=0) + 1
-
-
-def addressed(message: InboundMessage) -> bool:
-    """Photos, mentions or command words, and replies to the bot (SPEC 10.2)."""
-    return (
-        message.image is not None
-        or message.addressed_to_bot
-        or message.reply_to_bot
-        or message.event is not None
-        or message.contact is not None
-    )
 
 
 def group_chat(uow: UnitOfWork, group_id: str) -> Conversation | None:

@@ -23,4 +23,5 @@ def from_environment() -> FastAPI:
         built.repository,
         api_token=settings.api_token.get_secret_value(),
         max_image_bytes=settings.max_image_bytes,
+        ready=built.ready,
     )

@@ -1,6 +1,7 @@
 """People, identity and membership (use cases A1-A13, B1-B5, L8)."""
 
 from dataclasses import replace
+from datetime import timedelta
 
 from smartsplit.adapters.fakes.agent import call, say
 from smartsplit.domain.enums import DraftState
@@ -150,6 +151,7 @@ def test_group_chatter_never_reaches_the_model_and_is_not_stored() -> None:
     # B1, L8
     world = World()
     flat(world, YOU, SAM)
+    world.clock.advance(timedelta(minutes=11))  # the bot no longer waits on Sam
     before = len(world.agent.requests), len(world.transcript(FLAT))
     assert world.say(SAM, FLAT, "who took my charger", addressed=False) == ""
     assert (len(world.agent.requests), len(world.transcript(FLAT))) == before

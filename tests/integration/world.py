@@ -21,6 +21,7 @@ from smartsplit.domain.messages import (
     ContactAttachment,
     ImageAttachment,
     InboundMessage,
+    Mention,
     OutboundMessage,
 )
 from smartsplit.domain.model import BillDraft, Person
@@ -29,7 +30,7 @@ from smartsplit.domain.values import ConversationKey
 from smartsplit.ports.agent import AgentModel, AgentRequest, ModelStep
 from smartsplit.ports.llm import ReceiptParser
 from smartsplit.ports.repository import Repository
-from smartsplit.services.orchestrator import Orchestrator
+from smartsplit.services.orchestrator import HandleOutcome, Orchestrator
 from smartsplit.services.turn import OrchestratorSettings, local_date
 
 T0 = datetime(2026, 11, 21, 12, 0, tzinfo=UTC)
@@ -98,6 +99,7 @@ class World:
     """None: a ScriptedAgent fed by `say`."""
     settings: OrchestratorSettings = field(default_factory=OrchestratorSettings)
     last: list[OutboundMessage] = field(default_factory=list)
+    outcome: HandleOutcome | None = None
 
     def __post_init__(self) -> None:
         self.agent = ScriptedAgent()
@@ -125,6 +127,9 @@ class World:
         event: ChatEvent | None = None,
         addressed: bool = True,
         message_id: str | None = None,
+        reply_to_bot: bool = False,
+        quoted_text: str | None = None,
+        mentions: tuple[Mention, ...] = (),
     ) -> InboundMessage:
         group = chat is not None
         return InboundMessage(
@@ -137,7 +142,9 @@ class World:
             sender_phone=who.phone,
             sender_name=who.name,
             addressed_to_bot=addressed and group,
-            reply_to_bot=False,
+            reply_to_bot=reply_to_bot,
+            quoted_text=quoted_text,
+            mentions=mentions,
             text=text,
             image=image,
             contact=contact,
@@ -146,7 +153,8 @@ class World:
 
     def send(self, message: InboundMessage, steps: Sequence[Step] = ()) -> str:
         self.agent.queue(*steps)
-        self.last = list(self.bot.handle(message).replies)
+        self.outcome = self.bot.handle(message)
+        self.last = list(self.outcome.replies)
         assert self.agent.pending == 0, "the script wasn't used up"
         return "\n".join(m.text for m in self.last)
 
@@ -164,9 +172,13 @@ class World:
         message = self.message(who, chat, text, image=image, contact=contact, addressed=addressed)
         return self.send(message, steps)
 
-    def tick(self) -> str:
-        """Run the bot's timer once; all texts it sent, joined."""
-        self.last = self.bot.tick()
+    def tick(self, *, ack: bool = True) -> str:
+        """Run the bot's timer once, acknowledging the batch like a gateway; all texts it
+        sent, joined."""
+        batch = self.bot.tick()
+        if ack:
+            assert self.bot.ack(batch.id)
+        self.last = list(batch.messages)
         return "\n".join(m.text for m in self.last)
 
     def in_chat(self, chat: str | None, who: Someone | None = None) -> str:

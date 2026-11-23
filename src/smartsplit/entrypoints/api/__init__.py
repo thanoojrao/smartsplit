@@ -1,14 +1,16 @@
 """FastAPI app (SPEC section 11): the gateway's webhook, the timer, and operator reads.
 
 Every `/v1/*` route needs `Authorization: Bearer <SMARTSPLIT_API_TOKEN>`, compared in
-constant time; `/healthz` is open. The app gets a ready Orchestrator and Repository, so it
+constant time; `/healthz` and `/readyz` are open. Each message logs one line without content
+(SPEC 12.4). The app gets a ready Orchestrator and Repository, so it
 holds no business logic: requests are translated to domain messages and back.
 """
 
 import base64
 import binascii
 import hmac
-from collections.abc import Awaitable, Callable
+import logging
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import asdict
 from typing import Annotated, Any, Literal
 
@@ -23,11 +25,13 @@ from smartsplit.domain.messages import (
     ContactAttachment,
     ImageAttachment,
     InboundMessage,
+    Mention,
     OutboundMessage,
 )
 from smartsplit.domain.values import ConversationKey
 from smartsplit.ports.repository import Repository
 from smartsplit.services import Orchestrator
+from smartsplit.services.orchestrator import TurnReport
 from smartsplit.services.reports import group_report, person_report, rules_report
 
 NO_CONTROL = r"^[^\x00-\x1f\x7f]*$"
@@ -42,6 +46,10 @@ def _line(max_length: int, min_length: int = 0) -> Any:
 
 BODY_ALLOWANCE = 100_000
 """Room for everything but the image in a message body (text, names, JSON)."""
+RETRY_AFTER_SECONDS = 5
+"""What a busy chat's 503 tells the gateway to wait before retrying (SPEC 12.2)."""
+
+log = logging.getLogger("smartsplit.turns")
 
 
 class ConversationIn(BaseModel):
@@ -66,10 +74,18 @@ class ContactIn(BaseModel):
 
 
 class EventIn(BaseModel):
-    """A chat event, e.g. someone left the group chat."""
+    """Someone left the group chat (`subject_ref` is who), or the bot was added to it."""
 
-    kind: Literal["participant_left"]
-    subject_ref: str = _line(256, 1)
+    kind: Literal["participant_left", "bot_added"]
+    subject_ref: str | None = Field(default=None, max_length=256, pattern=NO_CONTROL)
+
+
+class MentionIn(BaseModel):
+    """Someone the text mentions as "@<ref>"; the phone when the gateway knows it."""
+
+    ref: str = _line(256, 1)
+    name: str = _line(200)
+    phone: str | None = Field(default=None, max_length=40, pattern=NO_CONTROL)
 
 
 class MessageIn(BaseModel):
@@ -85,6 +101,8 @@ class MessageIn(BaseModel):
     sender_name: str = _line(200)
     addressed_to_bot: bool
     reply_to_bot: bool
+    quoted_text: str | None = Field(default=None, max_length=2_000, pattern=NO_NUL)
+    mentions: list[MentionIn] = Field(default_factory=list, max_length=50)
     text: str | None = Field(default=None, max_length=65_536, pattern=NO_NUL)
     image: ImageIn | None = None
     contact: ContactIn | None = None
@@ -99,8 +117,20 @@ class MessageOut(BaseModel):
     text: str
 
 
+class TickOut(BaseModel):
+    """One tick's messages; acknowledge the batch once they are sent (SPEC 10.8)."""
+
+    batch_id: str
+    messages: list[MessageOut]
+
+
 def create_app(
-    orchestrator: Orchestrator, repository: Repository, *, api_token: str, max_image_bytes: int
+    orchestrator: Orchestrator,
+    repository: Repository,
+    *,
+    api_token: str,
+    max_image_bytes: int,
+    ready: Callable[[], bool],
 ) -> FastAPI:
     """The API around one orchestrator; refuses an empty token rather than run open."""
     if not api_token.strip():
@@ -139,13 +169,38 @@ def create_app(
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/readyz")
+    def readyz() -> JSONResponse:
+        """Ready when the database answers and its schema is the newest."""
+        if ready():
+            return JSONResponse({"status": "ready"})
+        return JSONResponse({"status": "not ready"}, status.HTTP_503_SERVICE_UNAVAILABLE)
+
     @app.post("/v1/messages", dependencies=guarded)
     def messages(body: MessageIn) -> list[MessageOut]:
-        return _out(list(orchestrator.handle(_inbound(body, max_image_bytes)).replies))
+        outcome = orchestrator.handle(_inbound(body, max_image_bytes))
+        log_turn(outcome.report)
+        if outcome.busy:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "chat busy, retry",
+                headers={"Retry-After": str(RETRY_AFTER_SECONDS)},
+            )
+        return _out(outcome.replies)
 
     @app.post("/v1/tick", dependencies=guarded)
-    def tick() -> list[MessageOut]:
-        return _out(orchestrator.tick())
+    def tick() -> TickOut:
+        batch = orchestrator.tick()
+        return TickOut(batch_id=batch.id, messages=_out(batch.messages))
+
+    @app.post(
+        "/v1/tick/{batch_id}/ack",
+        dependencies=guarded,
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def ack(batch_id: str) -> None:
+        if not orchestrator.ack(batch_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "no such batch")
 
     @app.get("/v1/groups/{group_id}/balances", dependencies=guarded)
     def group_balances(group_id: str) -> dict[str, object]:
@@ -195,6 +250,8 @@ def _inbound(body: MessageIn, max_image_bytes: int) -> InboundMessage:
         sender_name=body.sender_name,
         addressed_to_bot=body.addressed_to_bot,
         reply_to_bot=body.reply_to_bot,
+        quoted_text=body.quoted_text,
+        mentions=tuple(Mention(m.ref, m.name, m.phone) for m in body.mentions),
         text=body.text,
         image=image,
         contact=ContactAttachment(body.contact.name, body.contact.phone) if body.contact else None,
@@ -202,7 +259,28 @@ def _inbound(body: MessageIn, max_image_bytes: int) -> InboundMessage:
     )
 
 
-def _out(messages: list[OutboundMessage]) -> list[MessageOut]:
+def log_turn(report: TurnReport) -> None:
+    """The per-turn line: no text, ids or numbers, only what helps debugging (SPEC 12.4)."""
+    tools = ",".join(f"{name}:{'ok' if ok else 'error'}" for name, ok in report.tools) or "-"
+    usage = report.usage
+    log.info(
+        "turn chat=%s outcome=%s steps=%d tools=%s tokens=in:%d,cache_read:%d,cache_write:%d,"
+        "out:%d seconds=%.2f",
+        report.chat,
+        report.outcome,
+        report.steps,
+        tools,
+        usage.input_tokens,
+        usage.cache_read_tokens,
+        usage.cache_write_tokens,
+        usage.output_tokens,
+        report.seconds,
+    )
+    if report.install_nearly_spent:
+        log.warning("over 80%% of today's model calls for the whole install are used")
+
+
+def _out(messages: Sequence[OutboundMessage]) -> list[MessageOut]:
     return [
         MessageOut(
             conversation=ConversationIn(channel=m.conversation.channel, ref=m.conversation.ref),

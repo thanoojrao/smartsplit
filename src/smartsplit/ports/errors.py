@@ -21,5 +21,9 @@ class InvalidRecordError(ConstraintViolationError):
     """The record breaks a check, e.g. a conversation with both a group and a person."""
 
 
+class ChatBusyError(Exception):
+    """The conversation lock wasn't free in time (HTTP 503, the gateway retries)."""
+
+
 class StaleDraftError(Exception):
     """The draft's state changed since it was read (e.g. expired by `tick` meanwhile)."""

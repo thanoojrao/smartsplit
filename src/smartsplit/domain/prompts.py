@@ -130,6 +130,16 @@ class Notification:
 
 
 @dataclass(frozen=True, slots=True)
+class TickBatch:
+    """What one `tick` returned, kept until the gateway acknowledges delivery (SPEC 10.8)."""
+
+    id: str
+    messages: tuple[OutboundMessage, ...]
+    created_at: datetime
+    acked_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class ProcessedMessage:
     """A handled inbound message: a repeat of `message_id` returns `replies` unchanged."""
 

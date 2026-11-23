@@ -4,7 +4,9 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, func, select
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
+from sqlalchemy import Connection, create_engine, func, select
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
@@ -33,3 +35,10 @@ def upgrade_to_head(database_url: str) -> None:
                 connection.execute(select(func.pg_advisory_unlock(MIGRATION_LOCK_ID)))
     finally:
         engine.dispose()
+
+
+def at_head(connection: Connection) -> bool:
+    """The schema is at the newest migration (the API is ready only then, SPEC 11)."""
+    current = set(MigrationContext.configure(connection).get_current_heads())
+    wanted = set(ScriptDirectory.from_config(alembic_config("")).get_heads())
+    return current == wanted

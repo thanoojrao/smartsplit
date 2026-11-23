@@ -7,7 +7,7 @@ group chat by that name. Every reply is printed under the chat it went to.
 
 import mimetypes
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -89,8 +89,7 @@ def make_cli(connect: Connect, connect_demo: ConnectDemo) -> typer.Typer:
     ) -> None:
         bot = state["bot"]
         outcome = bot.orchestrator.handle(_message(speaker, where, text, phone, image))
-        replies = [*outcome.replies, *bot.orchestrator.tick()]
-        _print(bot, speaker, replies)
+        _print(bot, speaker, [*outcome.replies, *_tick(bot)])
 
     @person.command("add")
     def person_add(name: str, phone: str) -> None:
@@ -159,7 +158,7 @@ def _operator_commands(cli: typer.Typer, images: typer.Typer, state: dict[str, B
     def tick() -> None:
         """Run the timer once: deliver messages, nudge or expire idle bills."""
         bot = state["bot"]
-        _print(bot, None, bot.orchestrator.tick())
+        _print(bot, None, _tick(bot))
 
 
 def _echo_line(line: Line) -> None:
@@ -200,7 +199,14 @@ def _message(
     )
 
 
-def _print(bot: Bot, speaker: str | None, replies: list[OutboundMessage]) -> None:
+def _tick(bot: Bot) -> tuple[OutboundMessage, ...]:
+    """One timer run; the CLI is its own gateway, so printing the batch is delivering it."""
+    batch = bot.orchestrator.tick()
+    bot.orchestrator.ack(batch.id)
+    return batch.messages
+
+
+def _print(bot: Bot, speaker: str | None, replies: Sequence[OutboundMessage]) -> None:
     """Each reply under its chat: a group by name, the speaker's own chat as "you", anyone
     else's personal chat by their name."""
     me = _known_id(bot, speaker) if speaker else None

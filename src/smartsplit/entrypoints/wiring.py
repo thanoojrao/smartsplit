@@ -1,6 +1,6 @@
 """Composition root shared by the CLI and the API: settings in, an Orchestrator out."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from smartsplit.adapters.db.migrate import upgrade_to_head
@@ -26,6 +26,8 @@ class App:
     images: ImageStore
     clock: Clock
     settings: Settings
+    ready: Callable[[], bool]
+    """The database answers and is migrated (`/readyz`)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +55,8 @@ def orchestrator_settings(settings: Settings) -> OrchestratorSettings:
         llm_calls_per_day=settings.llm_calls_per_day,
         llm_timeout_seconds=settings.llm_timeout_seconds,
         message_seconds=settings.message_seconds,
+        lock_wait_seconds=settings.lock_wait_seconds,
+        max_image_bytes=settings.max_image_bytes,
         agent_max_steps=settings.agent_max_steps,
         chat_history_messages=settings.chat_history_messages,
         chat_history_keep=settings.chat_history_keep,
@@ -120,4 +124,4 @@ def build(settings: Settings, models: Models | None = None) -> App:
         ids=UuidIds(),
         settings=orchestrator_settings(settings),
     )
-    return App(orchestrator, repository, images, clock, settings)
+    return App(orchestrator, repository, images, clock, settings, repository.ready)

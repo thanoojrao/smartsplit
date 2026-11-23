@@ -323,6 +323,17 @@ notifications = Table(
     Index("notifications_unsent", "created_at", postgresql_where=text("sent_at IS NULL")),
 )
 
+tick_batches = Table(
+    "tick_batches",
+    metadata,
+    Column("id", Text, primary_key=True),
+    _seq(),
+    Column("messages", JSONB, nullable=False),
+    _ts("created_at"),
+    _ts("acked_at", nullable=True),
+    Index("tick_batches_unacked", "created_at", postgresql_where=text("acked_at IS NULL")),
+)
+
 processed_messages = Table(
     "processed_messages",
     metadata,
