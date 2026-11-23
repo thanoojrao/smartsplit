@@ -126,6 +126,11 @@ class World:
         message = self.message(who, chat, text, image=image, contact=contact, addressed=addressed)
         return self.send(message)
 
+    def tick(self) -> str:
+        """Run the bot's timer once; all texts it sent, joined."""
+        self.last = self.bot.tick()
+        return "\n".join(m.text for m in self.last)
+
     def model_calls(self, who: Someone) -> int:
         """Model calls counted for this person today (SPEC 12.2)."""
         with self.repository.unit_of_work() as uow:

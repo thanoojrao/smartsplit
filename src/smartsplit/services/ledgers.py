@@ -110,3 +110,8 @@ def has_balances_elsewhere(uow: UnitOfWork, person_id: str, here: Context) -> bo
         for context, cents in balance.breakdown
         if context != here
     )
+
+
+def between_net(uow: UnitOfWork, person_id: str, other_id: str) -> int:
+    """What `other_id` owes `person_id` overall (< 0: the other way round)."""
+    return overall_between(person_id, other_id, ledgers_for(uow, person_id)).net_cents

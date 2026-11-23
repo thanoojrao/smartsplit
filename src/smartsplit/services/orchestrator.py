@@ -32,6 +32,7 @@ from smartsplit.services.membership import member_left
 from smartsplit.services.receipt_reading import ReceiptReader, Source
 from smartsplit.services.speaker import Arrival, arrive, find_speaker
 from smartsplit.services.text import HELP, NEEDS_NUMBER, OVER_LIMIT, TRY_AGAIN
+from smartsplit.services.ticking import Ticker
 from smartsplit.services.turn import OrchestratorSettings, Turn
 
 type Refusal = NotAllowedError | NeedsClarificationError | InvalidAmountError
@@ -80,6 +81,12 @@ class Orchestrator:
         self._ids = ids
         self._settings = settings
         self._reader = ReceiptReader(repository, images, parser, interpreter, clock, ids, settings)
+        self._ticker = Ticker(repository, self._reader, clock, ids, settings)
+
+    def tick(self) -> list[OutboundMessage]:
+        """Deliver the outbox, nudge or expire idle drafts, and retry unread receipts; call it
+        every minute or so (SPEC 10.8)."""
+        return self._ticker.tick()
 
     def handle(self, message: InboundMessage) -> list[OutboundMessage]:
         """Replies for this message (and any chat it affects); a repeat returns the same."""

@@ -28,7 +28,7 @@ def show_balances(turn: Turn, command: ShowBalances, directory: Directory) -> No
         else None
     )
     group_id = turn.conversation.group_id
-    named_group = _group_named(turn, command.group_name) if command.group_name else None
+    named_group = group_named(turn, command.group_name) if command.group_name else None
     if group_id is not None and named_group in (None, group_id):
         if other is None:
             turn.reply(group_balances_text(uow, group_id, currency))
@@ -69,7 +69,7 @@ def send_privately(turn: Turn, text: str) -> None:
         turn.reply("Message me 1:1 and I'll send you the rest there.")
 
 
-def _group_named(turn: Turn, name: str) -> str:
+def group_named(turn: Turn, name: str) -> str:
     """One of the speaker's groups, current or past, by name."""
     wanted = name.strip().casefold()
     for membership in turn.uow.memberships.for_person(turn.speaker.id):

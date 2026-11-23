@@ -1,7 +1,7 @@
 """What one handled message works with: the unit of work, the speaker, the chat, the replies."""
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from smartsplit.domain.messages import OutboundMessage
@@ -25,6 +25,12 @@ class OrchestratorSettings:
     llm_calls_per_person_per_day: int = 50
     duplicate_window_days: int = 3
     questions_per_message: int = 3
+    max_notifications_per_day: int = 20
+    invite_template: str = "I added our split on SmartSplit. Say hi to the bot to see it."
+    draft_reminder_after: timedelta = timedelta(hours=24)
+    draft_expires_after: timedelta = timedelta(days=3)
+    remind_once_per: timedelta = timedelta(hours=24)
+    notifications_per_tick: int = 200
 
 
 @dataclass(slots=True)

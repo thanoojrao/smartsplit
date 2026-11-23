@@ -14,6 +14,7 @@ from smartsplit.domain.enums import DraftState, PromptKind, PromptStatus
 from smartsplit.domain.model import BillDraft, Nickname
 from smartsplit.domain.phone import mask_phone
 from smartsplit.domain.prompts import (
+    BillChangeEffect,
     ConfirmActionPayload,
     NeedContactPayload,
     Prompt,
@@ -21,11 +22,13 @@ from smartsplit.domain.prompts import (
     StoredImage,
     WhichPersonPayload,
 )
+from smartsplit.services.bill_changes import apply_bill_change
 from smartsplit.services.drafting import active_draft, present, split_of
 from smartsplit.services.errors import NeedsClarificationError, NotAllowedError
 from smartsplit.services.lifecycle import finish, start_next
 from smartsplit.services.membership import join, person_with_phone
 from smartsplit.services.names import Directory
+from smartsplit.services.payments import apply_payment
 from smartsplit.services.prompting import mark_answered, open_prompt
 from smartsplit.services.receipt_flow import answer_who_with
 from smartsplit.services.review import answer_question, save
@@ -121,12 +124,22 @@ def _answer_direct(
             _duplicate(turn, prompt, answer)
         case PromptKind.CONFIRM_ACTION if isinstance(payload, ConfirmActionPayload):
             mark_answered(turn, prompt, answer)
-            if not answer.yes:
-                turn.reply("OK, nothing changed.")
-            elif isinstance(payload.effect, RuleChangeEffect):
-                apply_rule_change(turn, payload.effect)
+            _confirm_action(turn, payload, yes=bool(answer.yes))
         case _:
             raise NotAllowedError("I can't use that answer.")
+
+
+def _confirm_action(turn: Turn, payload: ConfirmActionPayload, *, yes: bool) -> None:
+    """Apply exactly the effect that was restated (SPEC 12.3)."""
+    effect = payload.effect
+    if not yes:
+        turn.reply("OK, nothing changed.")
+    elif isinstance(effect, RuleChangeEffect):
+        apply_rule_change(turn, effect)
+    elif isinstance(effect, BillChangeEffect):
+        apply_bill_change(turn, effect)
+    else:
+        apply_payment(turn, payload, effect)
 
 
 def _draft_of(turn: Turn, prompt: Prompt) -> BillDraft:

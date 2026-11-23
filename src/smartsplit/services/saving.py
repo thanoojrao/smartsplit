@@ -1,7 +1,7 @@
 """Confirming, saving and cancelling drafts, and starting the next queued one (SPEC 10.4)."""
 
 from smartsplit.domain import normalize_item_name
-from smartsplit.domain.enums import DraftState, PromptKind
+from smartsplit.domain.enums import DraftState, NotificationKind, PromptKind
 from smartsplit.domain.model import Bill, BillDraft, BillLine
 from smartsplit.domain.prompts import ConfirmTotalPayload
 from smartsplit.domain.values import EqualSplit, GroupContext, Share, Weight, Weighted
@@ -10,6 +10,7 @@ from smartsplit.services.errors import NotAllowedError
 from smartsplit.services.learning import LineAnswer, learn_from_bill
 from smartsplit.services.ledgers import group_balances_text, overall_text
 from smartsplit.services.lifecycle import finish, start_next
+from smartsplit.services.notifications import invites_for, tell_participants
 from smartsplit.services.prompting import open_prompt
 from smartsplit.services.rules import is_current_member
 from smartsplit.services.scopes import local_scope_for
@@ -74,7 +75,13 @@ def save_bill(turn: Turn, draft: BillDraft, split: DraftSplit) -> Bill:
             turn.post(chat, f"{added}\n{shares}\n{balances}")
         turn.reply(f"{saved}\n{balances}")
     else:
+        tell_participants(turn, bill, NotificationKind.BILL_ADDED, None)
         turn.reply(f"{saved}\n{overall_text(turn.uow, turn.speaker.id, currency)}")
+        for name in invites_for(turn, bill):
+            turn.reply(
+                f"{name} hasn't used SmartSplit yet. Forward this to them:\n"
+                f"{turn.settings.invite_template}"
+            )
     start_next(turn, draft)
     return bill
 
