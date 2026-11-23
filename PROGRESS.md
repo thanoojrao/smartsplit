@@ -11,8 +11,8 @@ and FastAPI app (`POST /v1/messages`, `POST /v1/tick`, `GET /v1/groups/{id}/bala
 constant-time compare; refuse to start without `SMARTSPLIT_API_TOKEN`), wiring
 `OrchestratorSettings` from `config.Settings`, and a README "try it" walkthrough with the fakes.
 Then stop at CHECKPOINT B: push, open the PR, notify, summarize. M9 review range: `2eeadaa..HEAD`.
-Still with the user: DECISIONS "Open" (square-up edge case, option (a) built); the example name
-"Thanoo" remains in `docs/USE_CASES.md`, `docs/USE_CASE_TRACE.md` and `LICENSE` (the edit was
+Still with the user: DECISIONS "Open" (square-up edge case, option (a) built); the user's own
+name remains as the example person in `docs/USE_CASES.md`, `docs/USE_CASE_TRACE.md` and `LICENSE` (the edit was
 blocked by the permission check; the user decides).
 
 ## Milestones
