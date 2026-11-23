@@ -40,7 +40,7 @@ def _add_person(turn: Turn, args: AddPerson) -> Data:
     if not phone:
         raise NotAllowedError(f"I need {args.name}'s contact card or phone number.")
     person = add_person(turn, args.name, phone)
-    return {"person": refs.person_handle(turn, person.id)}
+    return {"person": refs.person_handle(turn, person.id), "name": args.name}
 
 
 def _join_group(turn: Turn, args: JoinGroup) -> Data:

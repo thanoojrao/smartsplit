@@ -1,17 +1,21 @@
-"""A whole bot on the in-memory fakes, and people who talk to it (SPEC section 10 tests)."""
+"""A whole bot on the in-memory fakes, and people who talk to it (SPEC section 10 tests).
 
+The model is a `ScriptedAgent`: each `say` queues the steps the model takes for that message,
+so tests drive the real tools and check state, shown blocks and transcripts (SPEC 8.7).
+"""
+
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from itertools import count
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
+from smartsplit.adapters.fakes.agent import ScriptedAgent, Step, call, first_handle, handle_of
 from smartsplit.adapters.fakes.images import InMemoryImageStore
-from smartsplit.adapters.fakes.interpreter import KeywordInterpreter
 from smartsplit.adapters.fakes.llm import FakeCanonicalizer, FakeReceiptParser
 from smartsplit.adapters.fakes.repository import InMemoryRepository
 from smartsplit.adapters.fakes.system import FixedClock, SequentialIds
-from smartsplit.domain.enums import ConversationKind
+from smartsplit.domain.enums import ConversationKind, DraftState
 from smartsplit.domain.messages import (
     ChatEvent,
     ContactAttachment,
@@ -19,11 +23,14 @@ from smartsplit.domain.messages import (
     InboundMessage,
     OutboundMessage,
 )
+from smartsplit.domain.model import BillDraft, Person
+from smartsplit.domain.prompts import ChatMessage
 from smartsplit.domain.values import ConversationKey
-from smartsplit.ports.llm import CommandInterpreter, ReceiptParser
+from smartsplit.ports.agent import AgentModel, AgentRequest, ModelStep
+from smartsplit.ports.llm import ReceiptParser
 from smartsplit.ports.repository import Repository
 from smartsplit.services.orchestrator import Orchestrator
-from smartsplit.services.turn import OrchestratorSettings
+from smartsplit.services.turn import OrchestratorSettings, local_date
 
 T0 = datetime(2026, 11, 21, 12, 0, tzinfo=UTC)
 _MESSAGE_IDS = count()
@@ -50,6 +57,30 @@ YOU = Someone("Alex", "+919876500001")
 SAM = Someone("Sam", "+919876500002")
 RAJ = Someone("Raj", "+919876500003")
 PRIYA = Someone("Priya", "+919876500004")
+FLAT = "Flat 4B"
+
+
+def calling(name: str, **arguments: object) -> Step:
+    """A tool call whose arguments may name people as `"@Sam"` (→ Sam's handle this turn),
+    drafts as `"@D"` (→ the first draft handle), actions as `"@A"`, bills as `"@B"`."""
+
+    def step(request: AgentRequest) -> ModelStep:
+        return call(name, **{k: _resolve(request, v) for k, v in arguments.items()})
+
+    return step
+
+
+def _resolve(request: AgentRequest, value: object) -> object:
+    if isinstance(value, str) and value.startswith("@"):
+        wanted = value[1:]
+        if wanted in {"D", "A", "B", "Q", "G", "T"}:
+            return first_handle(request, wanted)
+        return handle_of(request, wanted)
+    if isinstance(value, list | tuple):
+        return [_resolve(request, v) for v in value]
+    if isinstance(value, dict):
+        return {k: _resolve(request, v) for k, v in value.items()}
+    return value
 
 
 @dataclass
@@ -60,26 +91,26 @@ class World:
     repository: Repository = field(default_factory=InMemoryRepository)
     canonical: FakeCanonicalizer = field(default_factory=FakeCanonicalizer)
     images: InMemoryImageStore | None = None
-    """Share one between Worlds on one database, as receipts are read back later."""
-    interpreter: CommandInterpreter | None = None
+    """Share one between Worlds on one database."""
     receipts: ReceiptParser | None = None
     """None: the fake parser, which reads recorded receipts (`receipt(...)`)."""
-    """None: the keyword fake, which canonicalizes with `canonical`."""
+    model: AgentModel | None = None
+    """None: a ScriptedAgent fed by `say`."""
     settings: OrchestratorSettings = field(default_factory=OrchestratorSettings)
     last: list[OutboundMessage] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        ids = SequentialIds()
+        self.agent = ScriptedAgent()
         self.parser = FakeReceiptParser(self.settings.max_receipt_lines)
-        self.interpreter = self.interpreter or KeywordInterpreter(self.canonical)
         self.images = self.images or InMemoryImageStore(self.clock, SequentialIds("img"))
         self.bot = Orchestrator(
             repository=self.repository,
             images=self.images,
             parser=self.receipts or self.parser,
-            interpreter=self.interpreter,
+            canonicalizer=self.canonical,
+            agent=self.model or self.agent,
             clock=self.clock,
-            ids=ids,
+            ids=SequentialIds(),
             settings=self.settings,
         )
 
@@ -113,8 +144,10 @@ class World:
             event=event,
         )
 
-    def send(self, message: InboundMessage) -> str:
-        self.last = self.bot.handle(message)
+    def send(self, message: InboundMessage, steps: Sequence[Step] = ()) -> str:
+        self.agent.queue(*steps)
+        self.last = list(self.bot.handle(message).replies)
+        assert self.agent.pending == 0, "the script wasn't used up"
         return "\n".join(m.text for m in self.last)
 
     def say(
@@ -122,42 +155,59 @@ class World:
         who: Someone,
         chat: str | None,
         text: str | None = None,
-        *,
+        *steps: Step,
         image: ImageAttachment | None = None,
         contact: ContactAttachment | None = None,
         addressed: bool = True,
     ) -> str:
         """All reply texts, joined; `chat` None is the speaker's personal chat."""
         message = self.message(who, chat, text, image=image, contact=contact, addressed=addressed)
-        return self.send(message)
+        return self.send(message, steps)
 
     def tick(self) -> str:
         """Run the bot's timer once; all texts it sent, joined."""
         self.last = self.bot.tick()
         return "\n".join(m.text for m in self.last)
 
-    def model_calls(self, who: Someone) -> int:
-        """Model calls counted for this person today (SPEC 12.2)."""
-        with self.repository.unit_of_work() as uow:
-            person = uow.people.by_phone(who.phone)
-            today = self.clock.now().astimezone(ZoneInfo(self.settings.timezone)).date()
-            usage = uow.llm_usage.get(person.id, today) if person else None
-            return usage.calls if usage else 0
-
     def in_chat(self, chat: str | None, who: Someone | None = None) -> str:
         """Only the texts of the last replies that went to one chat."""
         ref = chat if chat is not None else f"dm:{who.phone if who else ''}"
         return "\n".join(m.text for m in self.last if m.conversation.ref == ref)
 
+    @property
+    def turn_input(self) -> str:
+        """What the model was sent on its latest call."""
+        return self.agent.requests[-1].turn_input
 
-FLAT = "Flat 4B"
+    def key(self, chat: str | None, who: Someone | None = None) -> ConversationKey:
+        return ConversationKey("test", chat or f"dm:{who.phone if who else ''}")
+
+    def person(self, who: Someone) -> Person:
+        with self.repository.unit_of_work() as uow:
+            found = uow.people.by_phone(who.phone)
+        assert found is not None
+        return found
+
+    def drafts(self, chat: str | None, who: Someone | None = None) -> list[BillDraft]:
+        with self.repository.unit_of_work() as uow:
+            return list(uow.drafts.for_conversation(self.key(chat, who), list(DraftState)))
+
+    def transcript(self, chat: str | None, who: Someone | None = None) -> list[ChatMessage]:
+        with self.repository.unit_of_work() as uow:
+            return list(uow.chat.recent(self.key(chat, who), 1000))
+
+    def model_calls(self, counter: str) -> int:
+        """Model calls counted today for a person id, or "install"."""
+        with self.repository.unit_of_work() as uow:
+            usage = uow.llm_usage.get(counter, local_date(self.clock.now(), self.settings.timezone))
+            return usage.calls if usage else 0
 
 
 def flat(world: World, *people: Someone) -> None:
-    """Flat 4B with these people in it, everyone having used the bot 1:1 first."""
-    for person in people:
-        world.say(person, None, "help")
+    """Flat 4B with these people in it, everyone having said hi to the bot 1:1 first."""
+    for someone in people:
+        world.say(someone, None, "hi")
     first, *rest = people
-    world.say(first, FLAT, "help")
-    for person in rest:
-        world.say(person, FLAT, "join")
+    world.say(first, FLAT, "hi")
+    for someone in rest:
+        world.say(someone, FLAT, "join", call("join_group"))
