@@ -4,11 +4,16 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 ## Next up
 
-M1–M6 done. **Continue with M7** (orchestrator I: SPEC §10.1–10.4, 10.7, §12.2–12.3), then M8 and
-M9 without stopping (user-confirmed), same process per milestone; stop at CHECKPOINT B (push, open
-the PR, notify, summarize). M7 review range: `3d2f47d..HEAD`. M7 work in progress may be in
-`git stash` ("m7 wip") if a session ended mid-way: check `git stash list` first. One question is
-open for the user (DECISIONS "Open": square-up edge case); option (a) is built, nothing blocked.
+M1–M7 done. **Continue with M8** (orchestrator II: SPEC §10.5–10.8 — notifications outbox +
+`Orchestrator.tick` (claims, reminders, expiry, retrying drafts left in `parsing`, expiring join
+prompts), invites, saved-bill edits/deletes/"not mine" via `confirm_action`, payments (record,
+not received, undo, overpay, square-up), "remind X", history, stop/start, caps), then M9, without
+stopping (user-confirmed); same process per milestone; stop at CHECKPOINT B (push, open the PR,
+notify, summarize). M8 review range: `7986fd4..HEAD`. Entry points for M8: `services/dispatch.py`
+(the `case _:` "I can't do that yet." fallback is where M8 commands land), `services/answers.py`
+(`CONFIRM_ACTION` applies only `RuleChangeEffect` so far), `services/saving.py` (notify after save),
+tests in `tests/integration/` (`World` harness). One question is open for the user (DECISIONS
+"Open": square-up edge case); option (a) is built, nothing blocked.
 
 ## Milestones
 
@@ -22,7 +27,7 @@ open for the user (DECISIONS "Open": square-up edge case); option (a) is built, 
 - [x] M4 — Ledger (SPEC §9): context balances incl. settlements, group `simplify_debts`, personal pairs, overall view, payment allocation, square-up
 - [x] M5 — Receipt parsing (SPEC §7): port + Anthropic adapter + fixtures + opt-in live test; quantity, taxed, discount_for, confidence, validation
 - [x] M6 — Command interpreter (SPEC §8): full command set, Anthropic adapter (tool use) + keyword fake
-- [ ] M7 — Orchestrator I (SPEC §10.1–10.4, 10.7, §12.2–12.3): reacting rules, identity + onboarding + membership, group and personal bill flows, prompts, review edits, confirm, cancel, queue, duplicates, privacy routing, balances queries; idempotency + serialization; DB-backed state; integration tests with fakes (no notifications yet)
+- [x] M7 — Orchestrator I (SPEC §10.1–10.4, 10.7, §12.2–12.3): reacting rules, identity + onboarding + membership, group and personal bill flows, prompts, review edits, confirm, cancel, queue, duplicates, privacy routing, balances queries; idempotency + serialization; DB-backed state; integration tests with fakes (no notifications yet)
 - [ ] M8 — Orchestrator II (SPEC §10.5–10.8): notifications outbox + `tick` (reminders, expiry, batching), invites, saved-bill edits/deletes/"not mine", payments (record, not received, undo, overpay, square-up), reminders, history, stop/start, caps
 - [ ] M9 — CLI + FastAPI entrypoints (SPEC §11) incl. API token, README "try it" walkthrough with the fake adapters
 
@@ -38,6 +43,7 @@ open for the user (DECISIONS "Open": square-up edge case); option (a) is built, 
 - M4: ledger (balances, greedy `simplify_debts`, group/personal pair views, overall with breakdown, payment allocation, iterative square-up) with property tests; review must-fixes (square-up net → Open question, option (a) built and tested; named-context overpayment logged). Range `b949279..41f4cdb`. Commit `41f4cdb`.
 - M5: Anthropic vision parser with structured output (one retry; image-vs-setup 400s), shared validation (`services/receipt_output.py`), `FakeReceiptParser` reading recorded-shape fixtures, opt-in live test with a rendered receipt, `pytest-socket` no-network guard; review must-fix (client factory untested) fixed. Range `41f4cdb..0b0bdbe`. Commit `0b0bdbe`.
 - M6: one tool per command (plain, within the documented structured-output limits), schemas from the dataclasses, decode via the domain codec, `canonicalize` with structured output, keyword fake for tests/demo, `check_amounts`; review must-fixes (strict-tool limits, Unknown text, missing phrases) fixed. Range `ecb1156..3d2f47d`. Commit `3d2f47d`.
+- M7: orchestrator `handle` (model calls outside the lock, one locked transaction per message with idempotency, refusals rolled back, receipts read after commit), group/personal bill flows with queue, duplicates, who-with, review edits, numbered question batches, confirm/cancel/save with learning, onboarding and membership, rules in chat with restated changes, balances with privacy; integration tests on fakes plus a Postgres tour and concurrent confirms; review must-fixes (15) fixed. Range `3d2f47d..7986fd4`. Commit `7986fd4`.
 
 ## Follow-ups
 
