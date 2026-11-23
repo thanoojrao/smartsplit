@@ -20,7 +20,7 @@ from smartsplit.domain.messages import (
     OutboundMessage,
 )
 from smartsplit.domain.values import ConversationKey
-from smartsplit.ports.llm import CommandInterpreter
+from smartsplit.ports.llm import CommandInterpreter, ReceiptParser
 from smartsplit.ports.repository import Repository
 from smartsplit.services.orchestrator import Orchestrator
 from smartsplit.services.turn import OrchestratorSettings
@@ -62,6 +62,8 @@ class World:
     images: InMemoryImageStore | None = None
     """Share one between Worlds on one database, as receipts are read back later."""
     interpreter: CommandInterpreter | None = None
+    receipts: ReceiptParser | None = None
+    """None: the fake parser, which reads recorded receipts (`receipt(...)`)."""
     """None: the keyword fake, which canonicalizes with `canonical`."""
     settings: OrchestratorSettings = field(default_factory=OrchestratorSettings)
     last: list[OutboundMessage] = field(default_factory=list)
@@ -74,7 +76,7 @@ class World:
         self.bot = Orchestrator(
             repository=self.repository,
             images=self.images,
-            parser=self.parser,
+            parser=self.receipts or self.parser,
             interpreter=self.interpreter,
             clock=self.clock,
             ids=ids,
