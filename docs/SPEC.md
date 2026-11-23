@@ -13,9 +13,7 @@ reply (§8). Engine, ledger, rules and matching are unchanged. What changes is h
 actions and replies, and what a production deployment needs around that: one way to refer to things
 (the transcript's references, §8.6), photos read on arrival (§7), a gateway contract with explicit
 deadlines and failure codes (§12.2), and cost and abuse limits that survive failed turns (§12.5).
-The choices made for it are in DECISIONS.md. Three points wait for the user's answer (DECISIONS
-"Open"): one active draft per adder rather than per chat, the offline demo as a scripted replay, and
-"not received"/"undo payment" needing a "yes". This text is written with the recommended answer.
+The choices made for it are in DECISIONS.md.
 
 This document is the source of truth. If the code and this spec disagree, the
 spec wins, unless DECISIONS.md records a change. `docs/USE_CASES.md` lists the

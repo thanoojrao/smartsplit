@@ -7,9 +7,7 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 The first build (M1–M9) is merged into `main` (PR #1). **Revision 2 is approved and refined:** the bot
 is a conversation agent (SPEC §8), with the product pass folded in (one way to refer to things through
 the transcript's references, photos read on arrival, the gateway contract, cost caps that survive failed
-turns, confirmations enforced by code). Three points wait for the user (DECISIONS "Open"); the spec is
-written with the recommended answers, and only M10's draft queue, demo and payment-reversal parts depend
-on them. Next: M10, then M11, M12, CHECKPOINT C. Left as is, by the user's choice: the user's own name in
+turns, confirmations enforced by code). The user answered the three open points (DECISIONS "Made by the user"), all as recommended. Next: M10, then M11, M12, CHECKPOINT C. Left as is, by the user's choice: the user's own name in
 `docs/USE_CASES.md` (top), `docs/USE_CASE_TRACE.md` and `LICENSE`.
 
 ## Milestones
