@@ -206,6 +206,13 @@ drafts = Table(
     _ts("last_activity_at"),
     _ts("reminded_at", nullable=True),
     Index("drafts_by_conversation", "channel", "ref", "state"),
+    Index(
+        "one_active_draft",
+        "channel",
+        "ref",
+        unique=True,
+        postgresql_where=text("state IN ('awaiting_people', 'parsing', 'reviewing')"),
+    ),
 )
 
 prompts = Table(

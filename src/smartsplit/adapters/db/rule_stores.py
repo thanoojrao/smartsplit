@@ -90,21 +90,24 @@ class RuleStore(Store):
         return _rule(row) if row else None
 
     def put(self, rule: Rule) -> None:
-        self._db.execute(
-            delete(t.rules).where(_rule_slot(rule.scope, rule.subject_id, rule.item_key))
-        )
+        """One statement, so two people changing the same rule at once can't collide."""
         kind, ref = scope_columns(rule.scope)
+        statement = pg_insert(t.rules).values(
+            id=rule.id,
+            subject_id=rule.subject_id,
+            item_key=rule.item_key,
+            kind=rule.kind.value,
+            scope_kind=kind,
+            scope_ref=ref,
+            author_id=rule.author_id,
+            source=rule.source.value,
+            created_at=rule.created_at,
+        )
+        replaced = ("id", "kind", "author_id", "source", "created_at")
         self._db.execute(
-            insert(t.rules).values(
-                id=rule.id,
-                subject_id=rule.subject_id,
-                item_key=rule.item_key,
-                kind=rule.kind.value,
-                scope_kind=kind,
-                scope_ref=ref,
-                author_id=rule.author_id,
-                source=rule.source.value,
-                created_at=rule.created_at,
+            statement.on_conflict_do_update(
+                index_elements=["scope_kind", "scope_ref", "subject_id", "item_key"],
+                set_={column: statement.excluded[column] for column in replaced},
             )
         )
 

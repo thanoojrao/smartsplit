@@ -7,7 +7,7 @@ import pytest
 from smartsplit.domain.enums import ConversationKind
 from smartsplit.domain.model import ChatIdentity, Conversation, Group, Membership, Nickname
 from smartsplit.domain.values import ConversationKey
-from smartsplit.ports.repository import DuplicateKeyError, Repository
+from smartsplit.ports.repository import DuplicateKeyError, MissingReferenceError, Repository
 from tests.repository.builders import CHAT, T0, at, person
 
 
@@ -66,6 +66,30 @@ def test_two_identities_map_to_one_person(repo: Repository) -> None:
         )
         assert uow.identities.get("whatsapp", "nope") is None
         assert [i.channel for i in uow.identities.for_person("sam")] == ["whatsapp", "whatsapp_lid"]
+
+
+def test_an_identity_is_unique_and_needs_its_person(repo: Repository) -> None:
+    with repo.unit_of_work() as uow:
+        uow.people.add(person("sam"))
+        uow.identities.add(ChatIdentity("cli", "sam", "sam"))
+
+    with pytest.raises(DuplicateKeyError), repo.unit_of_work() as uow:
+        uow.identities.add(ChatIdentity("cli", "sam", "sam"))
+    with pytest.raises(MissingReferenceError), repo.unit_of_work() as uow:
+        uow.identities.add(ChatIdentity("cli", "ghost", "ghost"))
+
+
+def test_memberships_and_nicknames_need_their_people_and_groups(repo: Repository) -> None:
+    with repo.unit_of_work() as uow:
+        uow.people.add(person("sam"))
+        uow.groups.add(Group("g1", "Flat 4B", CHAT, T0))
+
+    with pytest.raises(MissingReferenceError), repo.unit_of_work() as uow:
+        uow.memberships.add(Membership("nope", "sam", 1, T0, None))
+    with pytest.raises(MissingReferenceError), repo.unit_of_work() as uow:
+        uow.memberships.add(Membership("g1", "ghost", 1, T0, None))
+    with pytest.raises(MissingReferenceError), repo.unit_of_work() as uow:
+        uow.nicknames.put(Nickname("sam", "ghost", "g"))
 
 
 def test_nicknames_are_per_owner_and_replaceable(repo: Repository) -> None:

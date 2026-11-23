@@ -15,7 +15,12 @@ from smartsplit.domain.model import (
 )
 from smartsplit.domain.prompts import Notification, ProcessedMessage, Prompt
 from smartsplit.domain.values import Context, ConversationKey
-from smartsplit.ports.repository import IDLE_DRAFT_STATES, StaleDraftError
+from smartsplit.ports.repository import (
+    ACTIVE_DRAFT_STATES,
+    IDLE_DRAFT_STATES,
+    DuplicateKeyError,
+    StaleDraftError,
+)
 
 
 class ReceiptStore:
@@ -37,6 +42,7 @@ class DraftStore:
         return self.records.get(draft_id)
 
     def add(self, draft: BillDraft) -> None:
+        self._check_one_active(draft)
         insert(self.records, draft.id, draft)
 
     def update(self, draft: BillDraft, expected_state: DraftState) -> None:
@@ -45,7 +51,17 @@ class DraftStore:
             raise KeyError(draft.id)
         if current.state is not expected_state:
             raise StaleDraftError(draft.id)
+        self._check_one_active(draft)
         self.records[draft.id] = draft
+
+    def _check_one_active(self, draft: BillDraft) -> None:
+        if draft.state in ACTIVE_DRAFT_STATES and any(
+            d.id != draft.id
+            and d.conversation == draft.conversation
+            and d.state in ACTIVE_DRAFT_STATES
+            for d in self.records.values()
+        ):
+            raise DuplicateKeyError("the chat already has an active draft")
 
     def for_conversation(
         self, key: ConversationKey, states: Collection[DraftState]

@@ -1,7 +1,12 @@
 """Items, aliases, rules, answer observations and model-call counts."""
 
+import threading
 from datetime import date
 
+import pytest
+from sqlalchemy import Engine
+
+from smartsplit.adapters.db.repository import SqlRepository
 from smartsplit.domain.enums import AnswerOutcome, RuleKind
 from smartsplit.domain.model import AnswerObservation, ItemAlias
 from smartsplit.domain.values import Everywhere, GroupScope, NotesScope, RuleScope
@@ -113,3 +118,28 @@ def test_llm_usage_counts_per_person_per_day(repo: Repository) -> None:
         usage = uow.llm_usage.get("sam", today)
         assert usage is not None
         assert usage.calls == 2
+
+
+@pytest.mark.db
+def test_two_people_changing_the_same_rule_at_once_both_succeed(clean_pg: Engine) -> None:
+    repo = SqlRepository(clean_pg)
+    errors: list[Exception] = []
+
+    def second() -> None:
+        try:
+            with repo.unit_of_work() as uow:
+                uow.rules.put(rule("r2", GroupScope("g1"), kind=RuleKind.ONLY, minutes=1))
+        except Exception as error:  # a failure in the thread is asserted on below
+            errors.append(error)
+
+    with repo.unit_of_work() as uow:
+        uow.rules.put(rule("r1", GroupScope("g1")))
+        worker = threading.Thread(target=second)
+        worker.start()
+        worker.join(timeout=0.3)
+    worker.join()
+
+    assert errors == []
+    with repo.unit_of_work() as uow:
+        found = uow.rules.find(GroupScope("g1"), "raj", "milk")
+    assert found == rule("r2", GroupScope("g1"), kind=RuleKind.ONLY, minutes=1)

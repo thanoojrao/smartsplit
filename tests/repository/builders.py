@@ -75,11 +75,15 @@ def line(line_id: str, cents: int, position: int = 1, **changes: Any) -> LineIte
 
 
 def draft(
-    draft_id: str, *, state: DraftState = DraftState.REVIEWING, minutes: int = 0
+    draft_id: str,
+    *,
+    state: DraftState = DraftState.REVIEWING,
+    minutes: int = 0,
+    chat: ConversationKey = CHAT,
 ) -> BillDraft:
     return BillDraft(
         id=draft_id,
-        conversation=CHAT,
+        conversation=chat,
         context=GroupContext("g1"),
         added_by="sam",
         payer_id="sam",

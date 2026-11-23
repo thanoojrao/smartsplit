@@ -164,6 +164,10 @@ def _notification(row: Row[tuple[object, ...]]) -> Notification:
     )
 
 
+CLAIM_LOCK_ID = 0x534D53_434C41494D
+"""Advisory-lock id that serializes notification claims ("SMS" "CLAIM" in hex)."""
+
+
 class NotificationStore(Store):
     def add(self, notification: Notification) -> None:
         self._db.execute(
@@ -183,8 +187,10 @@ class NotificationStore(Store):
     def claim_due(
         self, now: datetime, limit: int, per_person_daily_cap: int, day_start: datetime
     ) -> tuple[Notification, ...]:
-        """Held and capped recipients are filtered in SQL, so only up to `limit` deliverable
-        rows are locked (SKIP LOCKED), and a backlog of held rows never blocks anyone."""
+        """Claims run one at a time (a transaction-level advisory lock), so two ticks can't both
+        count the same "sent today" and push a person past the cap. Held and capped recipients
+        are filtered in SQL, so a backlog of held rows is never locked or scanned in Python."""
+        self._db.execute(select(func.pg_advisory_xact_lock(CLAIM_LOCK_ID)))
         n, p = t.notifications.c, t.people.c
         reply = NotificationKind.REQUESTED_REPLY.value
         sent_today: dict[str, int] = dict(

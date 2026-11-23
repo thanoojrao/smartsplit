@@ -4,7 +4,9 @@ from dataclasses import replace
 from datetime import date
 
 import pytest
+from sqlalchemy import Engine
 
+from smartsplit.adapters.db.repository import SqlRepository
 from smartsplit.domain.commands import AnswerPrompt, Edit, StartSplit
 from smartsplit.domain.edits import AssignLine
 from smartsplit.domain.enums import DraftState, PromptKind, PromptStatus, RuleKind
@@ -18,8 +20,10 @@ from smartsplit.domain.prompts import (
     WhichPersonPayload,
 )
 from smartsplit.domain.values import ConversationKey, ExactAmount, GroupScope, PersonalContext
-from smartsplit.ports.repository import Repository, StaleDraftError
+from smartsplit.ports.repository import DuplicateKeyError, Repository, StaleDraftError
 from tests.repository.builders import CHAT, T0, at, draft, line, prompt, rule
+
+OTHER = ConversationKey("cli", "other")
 
 
 def test_receipts_round_trip(repo: Repository) -> None:
@@ -46,7 +50,9 @@ def test_receipts_round_trip(repo: Repository) -> None:
 def test_drafts_round_trip_and_update(repo: Repository) -> None:
     with repo.unit_of_work() as uow:
         uow.drafts.add(draft("d1"))
-        uow.drafts.add(replace(draft("d2"), context=PersonalContext(), purchased_at=None))
+        uow.drafts.add(
+            replace(draft("d2", chat=OTHER), context=PersonalContext(), purchased_at=None)
+        )
         uow.drafts.update(
             replace(draft("d1"), state=DraftState.SAVED, reminded_at=at(5)),
             expected_state=DraftState.REVIEWING,
@@ -57,7 +63,7 @@ def test_drafts_round_trip_and_update(repo: Repository) -> None:
             draft("d1"), state=DraftState.SAVED, reminded_at=at(5)
         )
         assert uow.drafts.get("d2") == replace(
-            draft("d2"), context=PersonalContext(), purchased_at=None
+            draft("d2", chat=OTHER), context=PersonalContext(), purchased_at=None
         )
 
 
@@ -87,7 +93,7 @@ def test_drafts_for_a_conversation_by_state(repo: Repository) -> None:
         uow.drafts.add(draft("d2", state=DraftState.QUEUED, minutes=2))
         uow.drafts.add(draft("d1", minutes=1))
         uow.drafts.add(draft("d3", state=DraftState.QUEUED, minutes=3))
-        uow.drafts.add(replace(draft("d4"), conversation=ConversationKey("cli", "other")))
+        uow.drafts.add(draft("d4", chat=OTHER))
 
     with repo.unit_of_work() as uow:
         queued = uow.drafts.for_conversation(CHAT, [DraftState.QUEUED])
@@ -96,11 +102,34 @@ def test_drafts_for_a_conversation_by_state(repo: Repository) -> None:
         assert [d.id for d in both] == ["d1", "d2", "d3"]
 
 
+def test_a_chat_has_at_most_one_active_draft(repo: Repository) -> None:
+    # SPEC 4.5: one draft per conversation is active; others wait as queued.
+    with repo.unit_of_work() as uow:
+        uow.drafts.add(draft("d1"))
+        uow.drafts.add(draft("q1", state=DraftState.QUEUED, minutes=1))
+        uow.drafts.add(draft("q2", state=DraftState.QUEUED, minutes=2))
+        uow.drafts.add(draft("done", state=DraftState.SAVED))
+
+    with pytest.raises(DuplicateKeyError), repo.unit_of_work() as uow:
+        uow.drafts.add(draft("d2", state=DraftState.PARSING))
+    with pytest.raises(DuplicateKeyError), repo.unit_of_work() as uow:
+        uow.drafts.update(
+            replace(draft("q1", minutes=1), state=DraftState.PARSING),
+            expected_state=DraftState.QUEUED,
+        )
+
+    with repo.unit_of_work() as uow:
+        uow.drafts.update(replace(draft("d1"), state=DraftState.SAVED), DraftState.REVIEWING)
+        uow.drafts.update(
+            replace(draft("q1", minutes=1), state=DraftState.PARSING), DraftState.QUEUED
+        )
+
+
 def test_drafts_due_for_reminder_or_expiry(repo: Repository) -> None:
     with repo.unit_of_work() as uow:
         uow.drafts.add(draft("idle", minutes=0))
-        uow.drafts.add(draft("waiting", state=DraftState.AWAITING_PEOPLE, minutes=1))
-        uow.drafts.add(draft("active", minutes=100))
+        uow.drafts.add(draft("waiting", state=DraftState.AWAITING_PEOPLE, minutes=1, chat=OTHER))
+        uow.drafts.add(draft("active", minutes=100, chat=ConversationKey("cli", "third")))
         uow.drafts.add(draft("queued", state=DraftState.QUEUED, minutes=0))
         uow.drafts.add(draft("done", state=DraftState.SAVED, minutes=0))
 
@@ -139,6 +168,28 @@ def test_prompts_with_typed_payloads_and_answers(repo: Repository) -> None:
         assert [p.id for p in open_ones] == ["p2", "p3"]
         assert [p.id for p in uow.prompts.for_draft("d1")] == ["p1", "p2"]
         assert uow.prompts.get("nope") is None
+
+
+@pytest.mark.db
+def test_a_draft_changed_by_another_connection_is_stale(clean_pg: Engine) -> None:
+    repo = SqlRepository(clean_pg)
+    with repo.unit_of_work() as uow:
+        uow.drafts.add(draft("d1"))
+
+    with pytest.raises(StaleDraftError), repo.unit_of_work() as handling_yes:
+        seen = handling_yes.drafts.get("d1")
+        assert seen is not None
+        with repo.unit_of_work() as tick:
+            tick.drafts.update(replace(seen, state=DraftState.EXPIRED), DraftState.REVIEWING)
+        handling_yes.drafts.update(replace(seen, state=DraftState.SAVED), seen.state)
+
+
+def test_a_message_is_processed_once(repo: Repository) -> None:
+    with repo.unit_of_work() as uow:
+        uow.processed.add(ProcessedMessage(CHAT, "m1", (), T0))
+
+    with pytest.raises(DuplicateKeyError), repo.unit_of_work() as uow:
+        uow.processed.add(ProcessedMessage(CHAT, "m1", (), T0))
 
 
 def test_processed_messages_store_their_replies(repo: Repository) -> None:

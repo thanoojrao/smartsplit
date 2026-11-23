@@ -151,7 +151,10 @@ class ReceiptStore(Protocol):
 
 class DraftStore(Protocol):
     def get(self, draft_id: str) -> BillDraft | None: ...
-    def add(self, draft: BillDraft) -> None: ...
+    def add(self, draft: BillDraft) -> None:
+        """Raises DuplicateKeyError if the chat already has an active draft."""
+        ...
+
     def update(self, draft: BillDraft, expected_state: DraftState) -> None:
         """Write the draft only if it is still in `expected_state` (SPEC section 12.2).
 
@@ -172,6 +175,11 @@ class DraftStore(Protocol):
         """
         ...
 
+
+ACTIVE_DRAFT_STATES = frozenset(
+    {DraftState.AWAITING_PEOPLE, DraftState.PARSING, DraftState.REVIEWING}
+)
+"""At most one draft per conversation is in one of these states (SPEC section 4.5)."""
 
 IDLE_DRAFT_STATES = frozenset({DraftState.AWAITING_PEOPLE, DraftState.REVIEWING})
 """Drafts that wait on people and can be reminded about or expire (SPEC section 10.4)."""
@@ -222,7 +230,7 @@ class NotificationStore(Protocol):
 
         Held (left unsent): a recipient who hasn't used the bot or has notifications off, and
         anything beyond `per_person_daily_cap` sent since `day_start`, except `requested_reply`,
-        which is never held and doesn't count. Rows locked by another claim are skipped.
+        which is never held and doesn't count. Concurrent claims never exceed the cap.
         """
         ...
 

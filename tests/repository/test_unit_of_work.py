@@ -4,10 +4,12 @@ import threading
 from datetime import timedelta
 
 import pytest
+from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import Engine, create_engine, select, text
+from sqlalchemy import Engine, create_engine, inspect, select, text
 
+from smartsplit.adapters.db.migrate import alembic_config
 from smartsplit.adapters.db.repository import SqlRepository, lock_id
 from smartsplit.adapters.db.tables import metadata
 from smartsplit.adapters.fakes.repository import InMemoryRepository
@@ -82,10 +84,36 @@ def test_a_second_message_waits_for_the_lock(clean_pg: Engine) -> None:
     with repo.unit_of_work(lock=CHAT):
         first_has_lock.set()
         worker.join(timeout=0.3)
+        assert worker.is_alive()  # blocked on the lock, not merely slow
         order.append("first")
     worker.join()
 
     assert order == ["first", "second"]
+
+
+@pytest.mark.db
+def test_migrations_downgrade_and_upgrade_cleanly(pg_url: str, clean_pg: Engine) -> None:
+    config = alembic_config(pg_url)
+    command.downgrade(config, "base")
+    with clean_pg.connect() as connection:
+        assert "people" not in inspect(connection).get_table_names()
+    command.upgrade(config, "head")
+    with clean_pg.connect() as connection:
+        assert "people" in inspect(connection).get_table_names()
+
+
+@pytest.mark.db
+def test_the_partial_unique_indexes_exist(clean_pg: Engine) -> None:
+    with clean_pg.connect() as connection:
+        rows = connection.execute(
+            text("SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public'")
+        )
+        defs: dict[str, str] = {row.indexname: row.indexdef for row in rows}
+    assert "UNIQUE" in defs["one_current_membership"]
+    assert "WHERE (left_at IS NULL)" in defs["one_current_membership"]
+    assert "UNIQUE" in defs["one_active_draft"]
+    assert "reviewing" in defs["one_active_draft"]
+    assert "WHERE (sent_at IS NULL)" in defs["notifications_unsent"]
 
 
 @pytest.mark.db

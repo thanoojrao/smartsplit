@@ -1,5 +1,6 @@
 """Bills, settlements and the notification outbox."""
 
+import threading
 from dataclasses import replace
 from datetime import timedelta
 
@@ -10,7 +11,7 @@ from smartsplit.adapters.db.repository import SqlRepository
 from smartsplit.domain.enums import NotificationKind
 from smartsplit.domain.prompts import Notification
 from smartsplit.domain.values import GroupContext, PersonalContext
-from smartsplit.ports.repository import Repository
+from smartsplit.ports.repository import MissingReferenceError, Repository
 from tests.repository.builders import at, bill, notification, person, settlement
 
 FLAT, GOA = GroupContext("g1"), GroupContext("g2")
@@ -121,6 +122,20 @@ def test_claimed_notifications_keep_their_fields(repo: Repository) -> None:
     assert claimed == replace(original, sent_at=at(5))
 
 
+def test_a_notification_sent_exactly_at_day_start_counts_toward_the_cap(repo: Repository) -> None:
+    _setup_people(repo)
+    with repo.unit_of_work() as uow:
+        uow.notifications.add(notification("edge", "raj", minutes=-5, sent_at=at(0)))
+        uow.notifications.add(notification("n1", "raj", minutes=1))
+
+    assert _claim(repo, 10, cap=1) == []
+
+
+def test_a_notification_needs_its_recipient(repo: Repository) -> None:
+    with pytest.raises(MissingReferenceError), repo.unit_of_work() as uow:
+        uow.notifications.add(notification("n1", "ghost"))
+
+
 def test_a_capped_backlog_does_not_starve_other_people(repo: Repository) -> None:
     _setup_people(repo)
     with repo.unit_of_work() as uow:
@@ -134,18 +149,26 @@ def test_a_capped_backlog_does_not_starve_other_people(repo: Repository) -> None
 
 
 @pytest.mark.db
-def test_concurrent_claims_skip_each_others_rows(clean_pg: Engine) -> None:
+def test_overlapping_claims_respect_the_daily_cap(clean_pg: Engine) -> None:
+    # Checkpoint A must-fix: one recipient, 6 unsent, cap 2, two overlapping claims → 2 in total.
     repo = SqlRepository(clean_pg)
     _setup_people(repo)
     with repo.unit_of_work() as uow:
-        for n in range(4):
+        for n in range(6):
             uow.notifications.add(notification(f"n{n}", "raj", minutes=n))
+    second: list[str] = []
 
-    with repo.unit_of_work() as first:
-        first_ids = [n.id for n in first.notifications.claim_due(at(10), 2, 10, at(0))]
-        with repo.unit_of_work() as second:
-            second_ids = [n.id for n in second.notifications.claim_due(at(10), 10, 10, at(0))]
+    def claim_again() -> None:
+        with repo.unit_of_work() as uow:
+            second.extend(n.id for n in uow.notifications.claim_due(at(10), 10, 2, at(0)))
 
-    assert first_ids == ["n0", "n1"]
-    assert second_ids == ["n2", "n3"]
-    assert _claim(repo, 11) == []
+    with repo.unit_of_work() as uow:
+        first = [n.id for n in uow.notifications.claim_due(at(10), 10, 2, at(0))]
+        worker = threading.Thread(target=claim_again)
+        worker.start()
+        worker.join(timeout=0.5)
+        assert worker.is_alive()  # waiting for the first claim to commit
+    worker.join()
+
+    assert first == ["n0", "n1"]
+    assert second == []
