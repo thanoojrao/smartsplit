@@ -33,7 +33,7 @@ and the outcome goes into SPEC/USE_CASES/DECISIONS.
 | P21 | History and membership use the date a bill was added, not when the purchase happened; "this month" has no timezone. | Use the purchase date (from the receipt, or "yesterday" in a manual bill), else the date added. "What did I spend" = my shares. Timezone in config. | **agreed** |
 | P22 | Someone wants to be removed from the system. | Specify now, build later: "forget me" removes identities, nicknames, rules and images, and replaces name/phone with "Former member" while keeping ledger rows so others' balances stay correct. | **agreed** |
 | P23 | Adding 5 bills with someone who hasn't used the bot gives 5 invite texts. | Invite text only on the first bill with each non-user. | **agreed** |
-| P24 | Tip rule jumps: a: +1000, b: −1000 → raw sum 0 → equal 50/50; change b to −999 → a pays all 100. | Drop the "raw sum ≤ 0" condition: weight by clamped totals; split equally only if all clamped totals are 0. (Changes a rule you approved.) | pending |
+| P24 | Tip rule jumps: a: +1000, b: −1000 → raw sum 0 → equal 50/50; change b to −999 → a pays all 100. | Drop the "raw sum ≤ 0" condition: weight by clamped totals; split equally only if all clamped totals are 0. (Changes a rule you approved.) | **agreed** |
 
 ## Part 2 — Spec fixes (technical; recommendation applied unless the user objects)
 
