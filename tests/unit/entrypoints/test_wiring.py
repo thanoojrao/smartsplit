@@ -30,6 +30,8 @@ CHANGED = {
 @pytest.fixture
 def settings(monkeypatch: pytest.MonkeyPatch) -> Settings:
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://x/y")
+    for key_name in ("SMARTSPLIT_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(key_name, raising=False)  # a real key in the shell must not leak in
     for name, value in CHANGED.items():
         monkeypatch.setenv(name, value)
     return Settings()

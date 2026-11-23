@@ -19,6 +19,7 @@ def environment(
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", pg_url)
     monkeypatch.setenv("SMARTSPLIT_IMAGE_DIR", str(tmp_path / "images"))
+    monkeypatch.delenv("SMARTSPLIT_ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("SMARTSPLIT_API_TOKEN", raising=False)
 
