@@ -22,13 +22,14 @@ from smartsplit.domain.edits import (
     SetTotal,
     UnassignLine,
 )
-from smartsplit.domain.enums import MatchHow, PromptStatus, QuestionReason
+from smartsplit.domain.enums import MatchHow, QuestionReason
 from smartsplit.domain.model import BillDraft, ItemAlias, LineItem
-from smartsplit.domain.prompts import EngineQuestionPayload, Prompt, PromptAnswer
+from smartsplit.domain.prompts import EngineQuestionPayload, Prompt
 from smartsplit.domain.values import EqualSplit, GroupContext, LineRef, Override, Weight, Weighted
 from smartsplit.services.drafting import exact_override, manual_line, split_of
 from smartsplit.services.errors import NotAllowedError
 from smartsplit.services.names import Directory
+from smartsplit.services.prompting import mark_answered
 from smartsplit.services.scopes import local_scope_for
 from smartsplit.services.speaker import current_member_ids
 from smartsplit.services.turn import Turn
@@ -195,13 +196,7 @@ def answer_question(
         raise NotAllowedError('Answer "yes", "no", or say who shares it.')
     if not people:
         raise NotAllowedError("Someone has to share it.")
-    turn.uow.prompts.update(
-        replace(
-            prompt,
-            status=PromptStatus.ANSWERED,
-            answers=(*prompt.answers, PromptAnswer(turn.speaker.id, answer, turn.now)),
-        )
-    )
+    mark_answered(turn, prompt, answer)
     return with_override(draft, line.id, EqualSplit(people))
 
 

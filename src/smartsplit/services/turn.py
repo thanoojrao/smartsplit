@@ -1,7 +1,8 @@
 """What one handled message works with: the unit of work, the speaker, the chat, the replies."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from smartsplit.domain.messages import InboundMessage, OutboundMessage
 from smartsplit.domain.model import Conversation, Person
@@ -38,10 +39,17 @@ class Turn:
     speaker: Person
     conversation: Conversation
     replies: list[OutboundMessage] = field(default_factory=list)
+    to_parse: list[str] = field(default_factory=list)
+    """Drafts that moved to `parsing` this turn: read after commit, outside the lock (12.2)."""
 
     @property
     def in_group(self) -> bool:
         return self.conversation.group_id is not None
+
+    @property
+    def today(self) -> date:
+        """The install's local date: what "this month" and a bill's default date mean."""
+        return self.now.astimezone(ZoneInfo(self.settings.timezone)).date()
 
     def reply(self, text: str) -> None:
         """Answer in this chat."""
