@@ -1,0 +1,42 @@
+{
+  "merchant": "More",
+  "purchased_at": "2026-11-19",
+  "currency": "INR",
+  "lines": [
+    {
+      "name": "OAT MLK 1L",
+      "quantity": 2,
+      "amount_cents": 24000,
+      "taxed": null,
+      "confidence": 0.95,
+      "discount_for_index": null
+    },
+    {
+      "name": "MILK 20% OFF",
+      "quantity": 1,
+      "amount_cents": -4800,
+      "taxed": null,
+      "confidence": 0.9,
+      "discount_for_index": 0
+    },
+    {
+      "name": "Eggs 12",
+      "quantity": 1,
+      "amount_cents": 9000,
+      "taxed": null,
+      "confidence": 0.95,
+      "discount_for_index": null
+    },
+    {
+      "name": "Store coupon",
+      "quantity": 1,
+      "amount_cents": -1000,
+      "taxed": null,
+      "confidence": 0.95,
+      "discount_for_index": null
+    }
+  ],
+  "tax_cents": 0,
+  "other_adjustments_cents": 0,
+  "total_cents": 27200
+}

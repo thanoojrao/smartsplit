@@ -1,0 +1,18 @@
+{
+  "merchant": "X",
+  "purchased_at": null,
+  "currency": "INR",
+  "lines": [
+    {
+      "name": "Thing",
+      "quantity": 0,
+      "amount_cents": 100,
+      "taxed": null,
+      "confidence": 0.95,
+      "discount_for_index": null
+    }
+  ],
+  "tax_cents": 0,
+  "other_adjustments_cents": 0,
+  "total_cents": 100
+}

@@ -55,3 +55,13 @@ def clean_pg(pg_engine: Engine) -> Engine:
     with pg_engine.begin() as connection:
         connection.execute(text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
     return pg_engine
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """`live` tests call the real Anthropic API, so they run only when asked (SPEC section 7)."""
+    if os.environ.get("SMARTSPLIT_LIVE_LLM") == "1":
+        return
+    skip = pytest.mark.skip(reason="live model test; set SMARTSPLIT_LIVE_LLM=1 to run")
+    for item in items:
+        if item.get_closest_marker("live"):
+            item.add_marker(skip)

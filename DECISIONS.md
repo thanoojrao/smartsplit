@@ -137,6 +137,14 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 
 - (User) CONTRACTS.md v2 agreed; build runs in a fresh session, M1 → M3 straight through, stopping at CHECKPOINT A.
 
+## M5 — receipt parsing
+
+- (M5) Added dev dependency `pytest-socket`; pytest runs with `--disable-socket --allow-hosts=127.0.0.1,::1,localhost`, and the one live test opts back in with `@pytest.mark.enable_socket`. Why: "no network in tests" is enforced, not just intended (design review E11); local Postgres stays reachable.
+- (M5) The parser uses structured output (`output_config.format` with a JSON schema) on `messages.create`, one vision request per attempt, the model and `max_tokens` from config, and the SDK's own retries off (`max_retries=0`) so the spec's "retry once" is exact: an API error or invalid output gets one more attempt; a 400 (image refused) or an unsupported image type is unreadable at once. A refusal or a cut-off answer counts as invalid output. Why: SPEC 7; structured output is the documented way to get JSON back now that forced tool choice 400s on current models.
+- (M5) No server-side refusal `fallbacks` on the receipt call. Why: the model is operator-configured and the fallback parameter is model-specific; a refusal on a receipt photo just means "couldn't read that, try another photo".
+- (M5) Model output is validated in `services/receipt_output.py`, shared by the Anthropic adapter and `FakeReceiptParser`: integer cents only (12.5 refused, never rounded), quantity ≥ 1, non-empty names, at most `max_lines` lines, total > 0 are hard failures; confidence is clamped, an impossible discount link or date becomes None, NUL characters are dropped; a total that doesn't add up and a foreign currency become warnings. Why: SPEC 7, and NUL can't be stored in Postgres (Checkpoint A follow-up).
+- (M5) Fixtures in `tests/fixtures/receipts/*.json` are hand-written in the exact structured-output shape (there is no API key here to record real answers); `FakeReceiptParser` treats image bytes as such a recorded answer, so the CLI demo can use the fixture files as "photos". The live test uses a rendered receipt image (`live_cafe_receipt.png`, made-up shop) with known totals.
+
 ## Checkpoint A review (2026-11-23)
 
 - (User) Unlinked negative lines (refunds) are matched by name and follow that item's rules; generic coupons that match nothing stay shared by everyone; discount-link treatment needs `discount_for` and a negative amount.
