@@ -4,6 +4,7 @@ number is masked."""
 
 import re
 
+from smartsplit.domain.phone import mask_phone, normalize_phone
 from smartsplit.services.handles import HANDLE, Handles
 
 _BOLD = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
@@ -35,4 +36,9 @@ def _mask(match: re.Match[str]) -> str:
     plus = "+" if match.group(0).startswith("+") else ""
     if len(digits) < (MIN_INTERNATIONAL_DIGITS if plus else MIN_LOCAL_DIGITS):
         return match.group(0)
+    if plus:
+        try:
+            return mask_phone(normalize_phone(f"+{digits}", "ZZ"))
+        except ValueError:
+            pass
     return f"{plus}{'•' * (len(digits) - 5)}{digits[-5:]}"
