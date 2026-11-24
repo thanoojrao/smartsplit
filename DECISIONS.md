@@ -277,10 +277,16 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 
 - **M11 review fixes:** events bypass the daily limits (they never call the model); a `bot_added` in a known group makes the adder a member; an unknown group starts only on `bot_added` or a message addressed to the bot (other photos and cards there are ignored, unread); the "limit reached" notice is counted inside the locked turn, so a busy 503 doesn't swallow it; an unaddressed group photo says nothing when the reader is down; the API refuses to start with the placeholder `SMARTSPLIT_BOT_LINK`, and sets the `smartsplit` logger to INFO with a stream handler (uvicorn's config would drop the turn lines). Empty tick batches stay stored (about 1,440 small rows a day, deleted after a day) so any batch id can be acknowledged. Review nit "keep addressed group messages the model ignored" is not taken: SPEC 8.6 stores only group messages the bot answered or acted on.
 
-## Open (waiting for the user)
+## M12 — models
+
+- **Split by job (the user chose option (a), 2026-11-24):** the agent loop and canonicalize on `claude-haiku-5-5` (`SMARTSPLIT_LLM_MODEL`), receipt photos on `claude-sonnet-5-5` (new `SMARTSPLIT_RECEIPT_MODEL`); SPEC 12.1 and 12.5 updated. Code enforces permissions, confirmations and money, so a weaker chat model mostly costs a refused tool call or a clumsier reply; a misread receipt would go into the numbers, so that stays on Sonnet. M12's live scenarios run on both chat models to compare passes, questions asked and cost; escalation to Sonnet (option (b)) only if Haiku fails scenarios Sonnet passes. The question as asked:
 
 - **Which model for which call (user's idea: Haiku for chat, Sonnet when needed).** SPEC 12.1 has one `SMARTSPLIT_LLM_MODEL` for every call. Prices per MTok: Haiku 5.5 $0.10 in / $0.50 out; Sonnet 5.5 $2 / $10 (cache reads $0.10). Options:
   (a) **Split by job:** the agent loop and canonicalize on `claude-haiku-5-5`, receipt photos on `claude-sonnet-5-5`; two settings (`SMARTSPLIT_LLM_MODEL`, `SMARTSPLIT_RECEIPT_MODEL`). About 15–20× cheaper per chat message.
   (b) **(a) plus escalation:** a Haiku turn that ends badly (a tool error it didn't recover from, or the step limit) is rolled back and rerun on Sonnet. Turns are already one transaction, so a rerun is clean; thinking blocks can't cross models, so it's a full rerun.
   (c) Keep Sonnet for everything (as specified).
   **Recommendation:** (a) now, with M12's live scenarios run on both models (questions asked, scenario passes, cost per message); add (b) only if Haiku fails scenarios that Sonnet passes.
+
+## Open (waiting for the user)
+
+(nothing open)

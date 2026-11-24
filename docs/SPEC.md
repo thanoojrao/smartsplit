@@ -688,7 +688,8 @@ some hosts reserve the plain name), `SMARTSPLIT_CURRENCY`, `SMARTSPLIT_DEFAULT_R
 
 | Setting | Default | What |
 |---|---|---|
-| `SMARTSPLIT_LLM_MODEL` | `claude-sonnet-5-5` | every model call |
+| `SMARTSPLIT_LLM_MODEL` | `claude-haiku-5-5` | chat: the agent loop and canonicalize |
+| `SMARTSPLIT_RECEIPT_MODEL` | `claude-sonnet-5-5` | reading receipt photos (§7) |
 | `SMARTSPLIT_LLM_TIMEOUT_SECONDS` | 30 | one model call (capped by the time left for the message) |
 | `SMARTSPLIT_LLM_MAX_TOKENS` | 16000 | per call (room for a long receipt) |
 | `SMARTSPLIT_MESSAGE_SECONDS` | 60 | whole message: photo read, lock wait and agent loop |
@@ -759,8 +760,9 @@ The gateway shows "typing…" while a request is in flight, uses an HTTP timeout
   failed turns count too: against the install's daily total always, and against the speaker's daily
   limit when they addressed the bot (a person isn't charged for group messages the bot only checked).
   Over either limit the bot says so once, without calling the model, until tomorrow (install timezone).
-- Expected: 2–4 model calls for a typical message (one for "yes"), about $0.005–0.01 per message on
-  Claude Sonnet 5.5 with the cache warm, plus one vision call per receipt. Each call logs its token
+- Models are split by job: chat on Claude Haiku 5.5, receipt photos on Claude Sonnet 5.5 (a misread
+  goes straight into the numbers). Expected: 2–4 model calls for a typical message (one for "yes"),
+  well under $0.01 per message with the cache warm, plus one Sonnet vision call per receipt. Each call logs its token
   usage (counts only); the live tests print a usage table with the cost.
 
 ### 12.6 Deploying and running it

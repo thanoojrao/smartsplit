@@ -94,3 +94,12 @@ def test_with_a_key_every_model_port_is_anthropic(monkeypatch: pytest.MonkeyPatc
     assert isinstance(models.parser, AnthropicReceiptParser)
     assert isinstance(models.canonicalizer, AnthropicCanonicalizer)
     assert isinstance(models.agent, AnthropicAgent)
+    # chat on Haiku, receipts on Sonnet (DECISIONS M12)
+    assert (models.agent.model, models.canonicalizer.model) == ("claude-haiku-5-5",) * 2
+    assert models.parser.model == "claude-sonnet-5-5"
+    monkeypatch.setenv("SMARTSPLIT_LLM_MODEL", "chat-model")
+    monkeypatch.setenv("SMARTSPLIT_RECEIPT_MODEL", "receipt-model")
+    chosen = real_models(Settings())
+    assert isinstance(chosen.agent, AnthropicAgent)
+    assert isinstance(chosen.parser, AnthropicReceiptParser)
+    assert (chosen.agent.model, chosen.parser.model) == ("chat-model", "receipt-model")

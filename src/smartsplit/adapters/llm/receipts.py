@@ -119,7 +119,7 @@ class AnthropicReceiptParser:
         self, client: anthropic.Anthropic, *, model: str, max_tokens: int, max_lines: int
     ) -> None:
         self._client = client
-        self._model = model
+        self.model = model
         self._max_tokens = max_tokens
         self._max_lines = max_lines
 
@@ -171,7 +171,7 @@ class AnthropicReceiptParser:
             "format": {"type": "json_schema", "schema": dict(RECEIPT_SCHEMA)}
         }
         return self._client.messages.create(
-            model=self._model,
+            model=self.model,
             max_tokens=self._max_tokens,
             system=SYSTEM_PROMPT,
             output_config=output,

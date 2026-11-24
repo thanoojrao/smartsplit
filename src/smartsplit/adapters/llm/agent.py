@@ -31,7 +31,7 @@ class AnthropicAgent:
 
     def __init__(self, client: anthropic.Anthropic, *, model: str, max_tokens: int) -> None:
         self._client = client
-        self._model = model
+        self.model = model
         self._max_tokens = max_tokens
 
     def step(self, request: AgentRequest) -> ModelStep:
@@ -40,7 +40,7 @@ class AnthropicAgent:
         response = call_once_more(
             "agent",
             lambda: self._client.messages.create(
-                model=self._model,
+                model=self.model,
                 max_tokens=self._max_tokens,
                 system=_system(request.system),
                 tools=_tools(request.tools),

@@ -85,8 +85,8 @@ class _NoKey:
 
 
 def real_models(settings: Settings) -> Models:
-    """One client for every model call, with the configured model and limits; without a key,
-    a stand-in that refuses to call the model."""
+    """One client for every model call: receipts on the receipt model, chat on the chat model;
+    without a key, a stand-in that refuses to call the model."""
     if settings.anthropic_api_key is None:
         missing = _NoKey()
         return Models(missing, missing, missing)
@@ -96,7 +96,10 @@ def real_models(settings: Settings) -> Models:
     model, max_tokens = settings.llm_model, settings.llm_max_tokens
     return Models(
         AnthropicReceiptParser(
-            client, model=model, max_tokens=max_tokens, max_lines=settings.max_receipt_lines
+            client,
+            model=settings.receipt_model,
+            max_tokens=max_tokens,
+            max_lines=settings.max_receipt_lines,
         ),
         AnthropicCanonicalizer(
             client, model=model, max_tokens=max_tokens, timeout_seconds=settings.llm_timeout_seconds

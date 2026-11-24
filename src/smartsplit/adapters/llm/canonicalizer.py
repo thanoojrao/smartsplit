@@ -32,7 +32,7 @@ class AnthropicCanonicalizer:
         self, client: anthropic.Anthropic, *, model: str, max_tokens: int, timeout_seconds: float
     ) -> None:
         self._client = client
-        self._model = model
+        self.model = model
         self._max_tokens = max_tokens
         self._timeout = timeout_seconds
 
@@ -52,7 +52,7 @@ class AnthropicCanonicalizer:
         response = call_once_more(
             "canonicalize",
             lambda: self._client.messages.create(
-                model=self._model,
+                model=self.model,
                 max_tokens=self._max_tokens,
                 system=system,
                 output_config=output,

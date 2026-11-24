@@ -30,7 +30,10 @@ class Settings(BaseSettings):
     currency: str = Field(default="INR", pattern=r"^[A-Z]{3}$")
     default_region: str = Field(default="IN", pattern=r"^[A-Z]{2}$")
     timezone: str = "Asia/Kolkata"
-    llm_model: str = "claude-sonnet-5-5"
+    llm_model: str = "claude-haiku-5-5"
+    """Chat: the agent loop and item-name matching (DECISIONS M12: split by job)."""
+    receipt_model: str = "claude-sonnet-5-5"
+    """Reading receipt photos, where a misread goes straight into the numbers."""
     llm_timeout_seconds: float = Field(default=30, gt=0)
     message_seconds: float = Field(default=60, gt=0)
     """The whole message: photo read, lock wait and agent loop (SPEC 12.2)."""
