@@ -1,6 +1,8 @@
 """The Anthropic agent and canonicalizer adapters, through the real SDK on a scripted
 transport (SPEC 8.7, 12.5)."""
 
+import logging
+
 import anthropic
 import httpx2
 import pytest
@@ -116,9 +118,20 @@ def test_steps_without_replay_are_rebuilt_from_calls_and_text() -> None:
     ]
 
 
-def test_a_refusal_or_a_cut_off_answer_says_nothing() -> None:
-    api = ScriptedApi(message("partial", stop_reason="max_tokens"))
-    assert agent_for(api).step(REQUEST, Counter()).text == ""
+@pytest.mark.parametrize("stop_reason", ["refusal", "max_tokens", "model_context_window_exceeded"])
+def test_a_refusal_or_a_cut_off_answer_fails_the_step(
+    stop_reason: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    # the turn rolls back and asks to try again, instead of committing with no reply
+    api = ScriptedApi(message("partial", stop_reason=stop_reason))
+    with caplog.at_level(logging.INFO, logger="smartsplit.llm"), pytest.raises(LlmUnavailableError):
+        agent_for(api).step(REQUEST, Counter())
+    logged = [r.getMessage() for r in caplog.records]
+    assert f"agent step ended early stop_reason={stop_reason}" in logged
+    assert any(
+        line.startswith("model call purpose=agent model=claude-sonnet-5-5 input_tokens=10")
+        for line in logged
+    )
 
 
 def test_errors_that_can_pass_are_retried_once_and_setup_errors_are_not() -> None:

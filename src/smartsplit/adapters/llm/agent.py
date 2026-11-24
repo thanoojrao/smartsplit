@@ -22,7 +22,7 @@ from smartsplit.ports.agent import (
     ToolResult,
     ToolSpec,
 )
-from smartsplit.ports.llm import CountCall
+from smartsplit.ports.llm import CountCall, LlmUnavailableError
 
 log = logging.getLogger("smartsplit.llm")
 
@@ -105,7 +105,8 @@ def _result(result: ToolResult) -> Any:
 
 
 def _step(response: Message) -> ModelStep:
-    """Tool calls to run, or the reply. A refusal or a cut-off answer says nothing."""
+    """Tool calls to run, or the reply. A refusal or a cut-off answer fails the step, so the
+    turn rolls back and the person is asked to try again (nothing half-said is committed)."""
     usage = ModelUsage(
         response.usage.input_tokens,
         response.usage.cache_read_input_tokens or 0,
@@ -113,8 +114,8 @@ def _step(response: Message) -> ModelStep:
         response.usage.output_tokens,
     )
     if response.stop_reason not in ("end_turn", "tool_use"):
-        log.warning("agent step ended early", extra={"stop_reason": response.stop_reason})
-        return ModelStep((), "", usage)
+        log.warning("agent step ended early stop_reason=%s", response.stop_reason)
+        raise LlmUnavailableError(f"the model stopped: {response.stop_reason}")
     calls = tuple(
         ToolCall(b.id, b.name, _arguments(b.input))
         for b in response.content
