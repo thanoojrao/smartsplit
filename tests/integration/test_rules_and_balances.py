@@ -261,3 +261,13 @@ def test_remind_in_a_group_answers_privately_either_way() -> None:
     assert result(world).data == refused.data
     assert world.in_chat(None, YOU) == "I'll remind Sam."
     assert "A friendly nudge from Alex." in world.tick()
+
+
+def test_remind_in_a_group_from_someone_with_no_personal_chat_asks_for_one() -> None:
+    # SPEC 12.3: the same answer whatever the balance, and never a silent "done"
+    world = World()
+    flat(world, YOU, SAM)
+    bill(world, FLAT)
+    world.say(RAJ, FLAT, "join", call("join_group"))
+    world.say(RAJ, FLAT, "remind Alex", calling("remind", person="@Alex"))
+    assert result(world).error == "Message me 1:1 first, and I'll tell you there."

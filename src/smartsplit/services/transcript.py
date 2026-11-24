@@ -45,12 +45,18 @@ def last_shown_version(
 
 
 def last_shown_shares(
-    uow: UnitOfWork, key: ConversationKey, draft_id: str, keep: int
+    uow: UnitOfWork, key: ConversationKey, draft_id: str, keep: int, version: int | None = None
 ) -> str | None:
     """The fingerprint of the split in the bot's latest message that showed the draft's
-    shares in this chat; a reminder or a "who's it with?" shows none (SPEC 8.4)."""
+    shares in this chat (of that version, if given); a reminder or a "who's it with?" shows
+    none (SPEC 8.4)."""
     return next(
-        (r.shares for r in _draft_refs(uow, key, draft_id, keep) if r.shares is not None), None
+        (
+            r.shares
+            for r in _draft_refs(uow, key, draft_id, keep)
+            if r.shares is not None and (version is None or r.version == version)
+        ),
+        None,
     )
 
 

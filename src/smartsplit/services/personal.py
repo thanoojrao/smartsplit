@@ -28,6 +28,8 @@ def remind(turn: Turn, other: str) -> None:
     which the group mustn't learn (SPEC 12.3)."""
     if turn.uow.people.get(other) is None or other == turn.speaker.id:
         raise NotAllowedError("Remind whom?")
+    if turn.in_group and turn.uow.conversations.personal_for(turn.speaker.id) is None:
+        raise NotAllowedError("Message me 1:1 first, and I'll tell you there.")
     name = name_for(turn.uow, turn.speaker.id, other)
     try:
         _check_remindable(turn, other, name)

@@ -94,6 +94,11 @@ class SqlRepository:
         except (OperationalError, PoolTimeoutError) as error:
             raise StorageUnavailableError(type(error).__name__) from error
 
+    def dispose(self) -> None:
+        """Close every pooled connection (the process is done with the database)."""
+        self._engine.dispose()
+        self._usage_engine.dispose()
+
     def ready(self) -> bool:
         """The database answers and its schema is at the newest migration."""
         try:

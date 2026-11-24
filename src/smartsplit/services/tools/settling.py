@@ -147,7 +147,7 @@ def _seen_as_it_is(turn: Turn, found: BillDraft) -> bool:
     shares = split_of(turn, found).fingerprint
     if last_shown_version(turn.uow, key, found.id, keep) != found.version:
         return False
-    if last_shown_shares(turn.uow, key, found.id, keep) != shares:
+    if last_shown_shares(turn.uow, key, found.id, keep, found.version) != shares:
         return False
     quoted = [r for r in turn.quoted if r.kind == "draft" and r.id == found.id]
     return all(r.version == found.version and r.shares in (None, shares) for r in quoted)

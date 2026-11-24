@@ -92,3 +92,9 @@ Revision 2 (SPEC §8: the conversation agent; approved by the user).
 - (Checkpoint C) An unreadable photo in a group gets no reply even when it may have been a receipt.
 - (Checkpoint C) The `set_nickname` tool description still says it answers "which Sam?" (now `pick_person`); change it with a live run.
 - (Checkpoint C) `MatchedLines.model_calls` is only read by tests now that the meter counts calls; drop it.
+- (Checkpoint C fix review) `tick_batches.append` doesn't check `acked_at`: a tick running past 2 minutes could have its partial batch returned and acked by another tick, and later appends would be lost; refuse appends to an acked batch or keep batches being written out of `unacked_before`.
+- (Checkpoint C fix review) A turn that fails on a database error logs only `outcome=failed`; add the exception class (and SQLSTATE, no parameters) to the turn line.
+- (Checkpoint C fix review) `_screen`'s read-only checks don't catch `StorageUnavailableError` (still a 500); the photo read and the turn do.
+- (Checkpoint C fix review) The shares fingerprint covers each person's total, not per-line assignments; a swap that keeps the totals isn't re-shown (the saved amounts still match).
+- (Checkpoint C fix review) `orchestrator.py` (~390 lines) and `ports/repository.py` (~410) are over ~300 lines too.
+

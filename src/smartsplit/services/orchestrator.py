@@ -118,9 +118,7 @@ class Orchestrator:
             uow.tick_batches.add(TickBatch(batch_id, (), now, None))
         self._ticker.tick(batch_id)
         with self._repository.unit_of_work() as uow:
-            batch = uow.tick_batches.get(batch_id)
-            if batch is None:
-                raise KeyError(batch_id)
+            batch = uow.tick_batches.get(batch_id) or TickBatch(batch_id, (), now, None)
             if not batch.messages:
                 uow.tick_batches.ack(batch_id, now)
                 batch = replace(batch, acked_at=now)
@@ -190,7 +188,7 @@ class Orchestrator:
         if checked.speaker_id is not None and self._may_read(message.image, checked):
             try:
                 photo = self._read(message, checked.speaker_id, now, meter, deadline)
-            except LlmUnavailableError:
+            except (LlmUnavailableError, StorageUnavailableError):
                 if _unaddressed_group_photo(message):
                     return HandleOutcome((), TurnReport(chat, "failed", seconds=self._since(now)))
                 report = TurnReport(chat, "failed", seconds=self._since(now))
@@ -326,8 +324,9 @@ class Orchestrator:
         self, uow: UnitOfWork, message: InboundMessage, now: datetime
     ) -> tuple[OutboundMessage, ...]:
         """Someone known only by a hidden id: "message me 1:1 first", kept in the transcript
-        like every bot message; never posted in a group for a message not meant for the bot."""
-        if not addressed(message):
+        like every bot message. In a group it answers only a message meant for the bot, or
+        their adding the bot (SPEC 10.3); another event says nothing."""
+        if not (addressed(message) or _bot_added(message)):
             return ()
         text = NEEDS_NUMBER.format(link=self._settings.bot_link)
         key = message.conversation

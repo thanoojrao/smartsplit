@@ -205,10 +205,13 @@ def test_turns_holding_every_pooled_connection_can_still_count_usage(
 
     workers = [threading.Thread(target=turn, args=(n,)) for n in range(turns)]
     started = time.monotonic()
-    for worker in workers:
-        worker.start()
-    for worker in workers:
-        worker.join()
+    try:
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join()
+    finally:
+        repo.dispose()
     assert sorted(counted) == list(range(1, turns + 1))
     assert time.monotonic() - started < 10
 
@@ -217,8 +220,11 @@ def test_turns_holding_every_pooled_connection_can_still_count_usage(
 def test_a_failed_statement_doesnt_carry_its_parameters(pg_url: str, clean_pg: Engine) -> None:
     # SPEC 12.4: errors get logged, and parameters hold message text and phone numbers
     repo = connect(pg_url)
-    with pytest.raises(SQLAlchemyError) as raised, repo.unit_of_work() as uow:
-        uow.people.add(replace(person("sam"), display_name="Sam\0 +919876500002"))
+    try:
+        with pytest.raises(SQLAlchemyError) as raised, repo.unit_of_work() as uow:
+            uow.people.add(replace(person("sam"), display_name="Sam\0 +919876500002"))
+    finally:
+        repo.dispose()
     assert "+919876500002" not in str(raised.value)
 
 

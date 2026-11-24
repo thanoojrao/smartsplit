@@ -505,10 +505,13 @@ def test_the_one_tap_link_is_kept_in_the_transcript_and_never_posted_unasked() -
     reply = world.send(hidden)
     assert reply == NEEDS_NUMBER.format(link=world.settings.bot_link)
     assert world.transcript(FLAT)[-1].text == reply
-    left = ChatEvent("bot_added", None)
+    left = ChatEvent("participant_left", None)
     quiet = replace(world.message(RAJ, FLAT, event=left, addressed=False), sender_ref="lid:raj")
     assert world.send(replace(quiet, sender_phone=None)) == ""
-    assert world.transcript(FLAT)[-1].text == reply
+    assert len([m for m in world.transcript(FLAT) if m.text == reply]) == 1
+    added = ChatEvent("bot_added", None)
+    adding = replace(world.message(RAJ, FLAT, event=added, addressed=False), sender_ref="lid:raj")
+    assert world.send(replace(adding, sender_phone=None)) == reply
 
 
 def test_nul_characters_never_reach_the_model_or_the_transcript() -> None:
@@ -537,3 +540,19 @@ def test_two_refs_of_one_person_map_to_them_and_a_1_1_message_links_the_hidden_i
     again = replace(world.message(RAJ, FLAT, "join"), sender_ref="lid:raj", sender_phone=None)
     world.send(again, [call("join_group")])
     assert "Raj joined Flat 4B." in world.in_chat(FLAT)
+
+
+def test_a_database_error_while_reading_a_photo_asks_to_try_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # SPEC 12.2: counting the read's model call can fail too
+    world = World()
+    world.say(YOU, None, "hi")
+
+    def failing(*args: object) -> None:
+        raise StorageUnavailableError("no connection")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(world.repository, "count_usage", failing)
+        assert world.say(YOU, None, "split", image=receipt("restaurant_tip")) == TRY_AGAIN
+    assert outcome_of(world) == "failed"
