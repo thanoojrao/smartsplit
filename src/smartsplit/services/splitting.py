@@ -4,6 +4,7 @@ Pure: given the draft and the candidate rules, the same split comes out every ti
 what lets a review resume exactly after a restart.
 """
 
+import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -26,9 +27,15 @@ class DraftSplit:
     result: SplitResult
     resolved: tuple[ResolvedRule, ...]
     lines_total_cents: int
-    """Lines + tax + other adjustments + any accepted difference: what the shares add up to."""
+    """Lines + tax + other adjustments: what the shares add up to."""
     difference_cents: int
     """Receipt total minus `lines_total_cents`; the adder fixes a line or accepts it (C5)."""
+
+    @property
+    def fingerprint(self) -> str:
+        """Short and stable for the same shares: what a summary's reference remembers."""
+        shares = ";".join(f"{p}={c}" for p, c in sorted(self.result.shares.items()))
+        return hashlib.sha256(shares.encode()).hexdigest()[:16]
 
 
 def compute_split(draft: BillDraft, rules: Sequence[Rule]) -> DraftSplit:
@@ -42,7 +49,7 @@ def compute_split(draft: BillDraft, rules: Sequence[Rule]) -> DraftSplit:
         [TaxedLine(item, line.taxed) for item, line in zip(items, draft.lines, strict=True)],
         draft.tax_cents,
     )
-    adjustments = leftover_tax + draft.other_adjustments_cents + draft.accepted_difference_cents
+    adjustments = leftover_tax + draft.other_adjustments_cents
     resolved = resolve_rules(rules, participants, draft.context, draft.added_by)
     result = split_receipt(
         folded,
@@ -55,7 +62,6 @@ def compute_split(draft: BillDraft, rules: Sequence[Rule]) -> DraftSplit:
         sum(line.amount_cents for line in draft.lines)
         + draft.tax_cents
         + draft.other_adjustments_cents
-        + draft.accepted_difference_cents
     )
     return DraftSplit(result, resolved, lines_total, draft.total_cents - lines_total)
 

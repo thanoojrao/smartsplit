@@ -7,7 +7,7 @@ group chat by that name. Every reply is printed under the chat it went to.
 
 import mimetypes
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -15,12 +15,15 @@ from typing import Annotated
 
 import typer
 
+from smartsplit.adapters.fakes.agent import ScriptedAgent
+from smartsplit.adapters.fakes.llm import DEMO_ITEMS, FakeCanonicalizer, FakeReceiptParser
 from smartsplit.config import Settings
 from smartsplit.domain.enums import ConversationKind, RuleSource
 from smartsplit.domain.messages import ImageAttachment, InboundMessage, OutboundMessage
 from smartsplit.domain.phone import normalize_phone
 from smartsplit.domain.values import ConversationKey
-from smartsplit.entrypoints.wiring import build
+from smartsplit.entrypoints.cli.demo import DEMO, Line, receipt_bytes
+from smartsplit.entrypoints.wiring import App, Models, build
 from smartsplit.ports.images import ImageStore
 from smartsplit.ports.repository import Repository
 from smartsplit.ports.system import Clock
@@ -43,14 +46,16 @@ class Bot:
     max_image_bytes: int
 
 
-type Connect = Callable[[bool], Bot]
-"""Builds the bot; the flag is `--live` (the real model instead of the offline stand-ins)."""
+type Connect = Callable[[], Bot]
+"""Builds the bot on the real models (`say` and `receipt add` need an API key)."""
+type ConnectDemo = Callable[[ScriptedAgent], Bot]
+"""Builds the bot with the demo's scripted agent and recorded receipts (no key)."""
 
 As = Annotated[str, typer.Option("--as", help="Who is speaking (a name from `person add`).")]
 In = Annotated[str, typer.Option("--in", help='"personal" or a group name.')]
 
 
-def make_cli(connect: Connect) -> typer.Typer:
+def make_cli(connect: Connect, connect_demo: ConnectDemo) -> typer.Typer:
     """The CLI around whatever `connect` builds, so tests can run it on the fakes."""
     cli = typer.Typer(no_args_is_help=True, add_completion=False)
     person, group, member, receipt, images = (
@@ -58,9 +63,21 @@ def make_cli(connect: Connect) -> typer.Typer:
     )
     state: dict[str, Bot] = {}
 
-    @cli.callback()
-    def main(live: Annotated[bool, typer.Option(help="Use the real model.")] = False) -> None:
-        state["bot"] = connect(live)
+    @cli.callback(invoke_without_command=True)
+    def main(context: typer.Context) -> None:
+        if context.invoked_subcommand != "demo":
+            state["bot"] = connect()
+
+    @cli.command()
+    def demo() -> None:
+        """Play a short scripted conversation through the real bot and database (no key)."""
+        agent = ScriptedAgent()
+        state["bot"] = connect_demo(agent)
+        for line in DEMO:
+            agent.queue(*line.steps)
+            _echo_line(line)
+            image = ImageAttachment("image/jpeg", receipt_bytes()) if line.receipt else None
+            send(line.speaker, line.where, line.text, phone=line.phone, image=image)
 
     def send(
         speaker: str,
@@ -71,9 +88,8 @@ def make_cli(connect: Connect) -> typer.Typer:
         image: ImageAttachment | None = None,
     ) -> None:
         bot = state["bot"]
-        replies = bot.orchestrator.handle(_message(speaker, where, text, phone, image))
-        replies += bot.orchestrator.tick()
-        _print(bot, speaker, replies)
+        outcome = bot.orchestrator.handle(_message(speaker, where, text, phone, image))
+        _print(bot, speaker, [*outcome.replies, *_tick(bot)])
 
     @person.command("add")
     def person_add(name: str, phone: str) -> None:
@@ -101,11 +117,23 @@ def make_cli(connect: Connect) -> typer.Typer:
         where: In,
         caption: Annotated[str | None, typer.Option(help='e.g. "split with Sam".')] = None,
     ) -> None:
-        """A receipt photo, or with the offline parser a recorded receipt (.json)."""
+        """A receipt photo, read by the real model."""
         if image.stat().st_size > state["bot"].max_image_bytes:
             raise typer.BadParameter("that image is too large")
         mime = mimetypes.guess_type(image.name)[0] or "application/octet-stream"
         send(speaker, where, caption, image=ImageAttachment(mime, image.read_bytes()))
+
+    @cli.command()
+    def say(text: str, speaker: As, where: In) -> None:
+        """Anything you'd type in the chat."""
+        send(speaker, where, text)
+
+    _operator_commands(cli, images, state)
+    return cli
+
+
+def _operator_commands(cli: typer.Typer, images: typer.Typer, state: dict[str, Bot]) -> None:
+    """Reads and upkeep for whoever runs the bot."""
 
     @images.command("prune")
     def images_prune(
@@ -115,11 +143,6 @@ def make_cli(connect: Connect) -> typer.Typer:
         bot = state["bot"]
         cutoff = bot.clock.now() - timedelta(days=older_than_days)
         typer.echo(f"Deleted {bot.images.prune(cutoff)} images.")
-
-    @cli.command()
-    def say(text: str, speaker: As, where: In) -> None:
-        """Anything you'd type in the chat."""
-        send(speaker, where, text)
 
     @cli.command()
     def balances(speaker: As) -> None:
@@ -135,9 +158,14 @@ def make_cli(connect: Connect) -> typer.Typer:
     def tick() -> None:
         """Run the timer once: deliver messages, nudge or expire idle bills."""
         bot = state["bot"]
-        _print(bot, None, bot.orchestrator.tick())
+        _print(bot, None, _tick(bot))
 
-    return cli
+
+def _echo_line(line: Line) -> None:
+    if line.note:
+        typer.echo(f"\n# {line.note}")
+    photo = " [receipt photo]" if line.receipt else ""
+    typer.echo(f"{line.speaker} in {line.where}: {line.text or ''}{photo}")
 
 
 def _ref(name: str) -> str:
@@ -171,7 +199,14 @@ def _message(
     )
 
 
-def _print(bot: Bot, speaker: str | None, replies: list[OutboundMessage]) -> None:
+def _tick(bot: Bot) -> tuple[OutboundMessage, ...]:
+    """One timer run; the CLI is its own gateway, so printing the batch is delivering it."""
+    batch = bot.orchestrator.tick()
+    bot.orchestrator.ack(batch.id)
+    return batch.messages
+
+
+def _print(bot: Bot, speaker: str | None, replies: Sequence[OutboundMessage]) -> None:
     """Each reply under its chat: a group by name, the speaker's own chat as "you", anyone
     else's personal chat by their name."""
     me = _known_id(bot, speaker) if speaker else None
@@ -239,9 +274,21 @@ def _show_rules(bot: Bot, name: str) -> None:
         typer.echo(f"{rule.item}: {rule.kind.value} ({rule.scope}, {how})")
 
 
-def _connect(live: bool) -> Bot:
-    """The real thing: settings from the environment, Postgres, files, and the model if live."""
-    built = build(Settings(), live=live)
+def _connect() -> Bot:
+    """The real thing: settings from the environment, Postgres, files, and the model."""
+    return _bot(build(Settings()))
+
+
+def _connect_demo(agent: ScriptedAgent) -> Bot:
+    """The real bot and database, with the scripted agent and the recorded-receipt parser."""
+    settings = Settings()
+    models = Models(
+        FakeReceiptParser(settings.max_receipt_lines), FakeCanonicalizer(DEMO_ITEMS), agent
+    )
+    return _bot(build(settings, models))
+
+
+def _bot(built: App) -> Bot:
     settings = built.settings
     return Bot(
         built.orchestrator,
@@ -254,5 +301,5 @@ def _connect(live: bool) -> Bot:
     )
 
 
-app = make_cli(_connect)
+app = make_cli(_connect, _connect_demo)
 """The `smartsplit` console script."""

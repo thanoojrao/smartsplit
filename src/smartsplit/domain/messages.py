@@ -22,9 +22,20 @@ class ContactAttachment:
 
 
 @dataclass(frozen=True, slots=True)
+class Mention:
+    """Someone the text mentions; the text carries them as "@<ref>"."""
+
+    ref: str
+    name: str
+    phone: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class ChatEvent:
-    kind: Literal["participant_left"]
-    subject_ref: str
+    """Someone left the group chat, or the bot was added to one (SPEC 10.1)."""
+
+    kind: Literal["participant_left", "bot_added"]
+    subject_ref: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +53,9 @@ class InboundMessage:
     sender_name: str
     addressed_to_bot: bool
     reply_to_bot: bool
+    quoted_text: str | None = None
+    """The start of the message being replied to, if any."""
+    mentions: tuple[Mention, ...] = ()
     text: str | None = None
     image: ImageAttachment | None = None
     contact: ContactAttachment | None = None

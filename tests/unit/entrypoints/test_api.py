@@ -1,20 +1,34 @@
 """The HTTP API around an orchestrator on the in-memory fakes (SPEC section 11, K3-K4)."""
 
 import base64
+import logging
+from collections.abc import Callable
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
+from smartsplit.adapters.fakes.agent import call, say
+from smartsplit.adapters.fakes.repository import InMemoryRepository
+from smartsplit.domain.values import ConversationKey
 from smartsplit.entrypoints.api import create_app
-from tests.integration.world import FLAT, RAJ, SAM, YOU, World, flat, receipt
+from smartsplit.services.turn import OrchestratorSettings
+from tests.integration.world import FLAT, RAJ, SAM, YOU, World, calling, flat, receipt
 
 TOKEN = "s3cret-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
-def client(world: World, max_image_bytes: int = 5_000_000) -> TestClient:
-    app = create_app(world.bot, world.repository, api_token=TOKEN, max_image_bytes=max_image_bytes)
+def client(
+    world: World, max_image_bytes: int = 5_000_000, ready: Callable[[], bool] = lambda: True
+) -> TestClient:
+    app = create_app(
+        world.bot,
+        world.repository,
+        api_token=TOKEN,
+        max_image_bytes=max_image_bytes,
+        ready=ready,
+    )
     return TestClient(app)
 
 
@@ -43,14 +57,16 @@ def test_health_is_open_and_everything_else_needs_the_token() -> None:
     assert wrong.status_code == 401
     assert wrong.headers["WWW-Authenticate"] == "Bearer"
     assert api.get("/v1/people/x/rules").status_code == 401
-    assert api.post("/v1/tick", headers=AUTH).json() == []
+    assert api.post("/v1/tick", headers=AUTH).json()["messages"] == []
 
 
 def test_the_api_refuses_to_start_without_a_token() -> None:
     world = World()
     for token in ("", "   "):
         with pytest.raises(ValueError, match="SMARTSPLIT_API_TOKEN"):
-            create_app(world.bot, world.repository, api_token=token, max_image_bytes=1)
+            create_app(
+                world.bot, world.repository, api_token=token, max_image_bytes=1, ready=lambda: True
+            )
 
 
 def test_a_message_goes_through_the_orchestrator_and_retries_return_the_same() -> None:
@@ -61,13 +77,15 @@ def test_a_message_goes_through_the_orchestrator_and_retries_return_the_same() -
     replies = first.json()
     assert replies[0]["conversation"] == {"channel": "whatsapp", "ref": "1203630@g.us"}
     assert replies[0]["recipient_id"] is None
-    assert replies[0]["text"].startswith("Hi Flat 4B! Alex is in.")
+    assert replies[0]["text"].startswith("Hi Flat 4B! I split bills")
     assert api.post("/v1/messages", headers=AUTH, json=message("help")).json() == replies
 
 
 def test_a_receipt_photo_inline() -> None:
-    api = client(World())
+    world = World()
+    api = client(world)
     api.post("/v1/messages", headers=AUTH, json=message("help", message_id="m0"))
+    world.agent.queue(call("start_receipt"))
     data = base64.b64encode(receipt("restaurant_tip").data).decode()
     photo = message(message_id="m1", image={"mime_type": "image/jpeg", "data_base64": data})
     replies = api.post("/v1/messages", headers=AUTH, json=photo).json()
@@ -96,9 +114,9 @@ def ids(world: World) -> tuple[str, str]:
 def test_operator_reads() -> None:
     world = World()
     flat(world, YOU, SAM, RAJ)
-    world.say(YOU, FLAT, "rent 3000, split all")
-    world.say(YOU, FLAT, "yes")
-    world.say(RAJ, FLAT, "I don't drink milk")
+    world.say(YOU, FLAT, "rent", call("add_manual_bill", description="rent", amount="3000"))
+    world.say(YOU, FLAT, "yes", calling("confirm_draft", draft="@D"))
+    world.say(RAJ, FLAT, "no milk", call("add_rule", subject="me", item="milk", kind="exclude"))
     group_id, you_id = ids(world)
     api = client(world)
     group = api.get(f"/v1/groups/{group_id}/balances", headers=AUTH).json()
@@ -165,8 +183,10 @@ def test_bodies_are_size_limited_before_they_are_read() -> None:
 def test_rules_in_someones_notes_name_the_owner() -> None:
     world = World()
     flat(world, YOU, SAM)
-    world.say(YOU, None, "Sam never shares dessert")
-    world.say(YOU, None, "yes")
+    world.say(
+        YOU, None, "Sam never", calling("add_rule", subject="@Sam", item="dessert", kind="exclude")
+    )
+    world.say(YOU, None, "yes", calling("confirm_pending", action="@A"))
     with world.repository.unit_of_work() as uow:
         sam = uow.people.by_phone(SAM.phone)
         assert sam is not None
@@ -174,3 +194,77 @@ def test_rules_in_someones_notes_name_the_owner() -> None:
     assert [(r["item"], r["scope"], r["author"]) for r in rules] == [
         ("dessert", "Alex's notes", "Alex")
     ]
+
+
+def test_a_busy_chat_answers_503_with_retry_after() -> None:
+    # SPEC 12.2: the gateway retries the same message
+    repository = InMemoryRepository()
+    api = client(World(repository=repository))
+    repository.busy.add(ConversationKey("whatsapp", "1203630@g.us"))
+    busy = api.post("/v1/messages", headers=AUTH, json=message("help"))
+    assert busy.status_code == 503
+    assert busy.headers["Retry-After"] == "5"
+    repository.busy.clear()
+    assert api.post("/v1/messages", headers=AUTH, json=message("help")).status_code == 200
+
+
+def test_ready_only_when_the_database_is() -> None:
+    # SPEC 11: /readyz is open, like /healthz
+    state = {"ready": False}
+    api = client(World(), ready=lambda: state["ready"])
+    assert api.get("/readyz").status_code == 503
+    state["ready"] = True
+    assert api.get("/readyz").json() == {"status": "ready"}
+
+
+def test_tick_batches_are_acknowledged() -> None:
+    # SPEC 10.8
+    api = client(World())
+    batch = api.post("/v1/tick", headers=AUTH).json()
+    assert set(batch) == {"batch_id", "messages"}
+    assert api.post(f"/v1/tick/{batch['batch_id']}/ack", headers=AUTH).status_code == 204
+    assert api.post("/v1/tick/nope/ack", headers=AUTH).status_code == 404
+    assert api.post(f"/v1/tick/{batch['batch_id']}/ack").status_code == 401
+
+
+def test_mentions_quotes_and_the_bot_being_added_come_through() -> None:
+    # SPEC 10.1
+    world = World()
+    api = client(world)
+    added = message(None, message_id="m0", event={"kind": "bot_added"}, addressed_to_bot=False)
+    intro = api.post("/v1/messages", headers=AUTH, json=added).json()
+    assert intro[0]["text"].startswith("Hi Flat 4B! I split bills")
+    world.agent.queue(say("Hi Sam's friend."))
+    mention = {"ref": "lid:7", "name": "Priya", "phone": "+919876500004"}
+    body = message(
+        "hi @lid:7", message_id="m1", mentions=[mention], quoted_text=intro[0]["text"][:40]
+    )
+    assert api.post("/v1/messages", headers=AUTH, json=body).status_code == 200
+    assert "hi @Priya" in world.turn_input
+    assert "[replying to the bot's message" in world.turn_input
+    too_many = message("hi", message_id="m2", mentions=[mention] * 51)
+    assert api.post("/v1/messages", headers=AUTH, json=too_many).status_code == 422
+
+
+def test_each_message_logs_one_line_without_content(caplog: pytest.LogCaptureFixture) -> None:
+    # SPEC 12.4
+    world = World()
+    api = client(world)
+    world.agent.queue(call("get_balances"), say("All square, Alex."))
+    with caplog.at_level(logging.INFO, logger="smartsplit.turns"):
+        api.post("/v1/messages", headers=AUTH, json=message("secret plans"))
+    lines = [r.getMessage() for r in caplog.records if r.name == "smartsplit.turns"]
+    assert len(lines) == 1
+    assert "outcome=replied steps=2 tools=get_balances:ok" in lines[0]
+    for content in ("secret", "Alex", "1203630", "9876500001"):
+        assert content not in lines[0]
+
+
+def test_a_nearly_spent_install_logs_a_warning(caplog: pytest.LogCaptureFixture) -> None:
+    world = World(settings=OrchestratorSettings(llm_calls_per_day=1))
+    api = client(world)
+    world.agent.queue(say("Hi."))
+    api.post("/v1/messages", headers=AUTH, json=message("hi", message_id="m0"))
+    with caplog.at_level(logging.INFO, logger="smartsplit.turns"):
+        api.post("/v1/messages", headers=AUTH, json=message("hi again", message_id="m1"))
+    assert any(r.levelno == logging.WARNING for r in caplog.records)

@@ -1,4 +1,4 @@
-# SmartSplit — Data shapes and contracts (v2, agreed with the user 2026-11-23)
+# SmartSplit — Data shapes and contracts (v3, revision 2 after the product pass)
 
 The concrete types and interfaces every milestone builds against. SPEC.md says *what* happens;
 this file says *what the data looks like*. Python-style signatures. Field names are final once
@@ -9,15 +9,15 @@ agreed; changing them later is a decision to log in DECISIONS.md.
   `datetime`; dates are `date`. Ordered collections are `tuple`, in participant order.
 - Value objects and records are `@dataclass(frozen=True, slots=True)` and hold **no `dict`/`Mapping`
   fields** (they'd be unhashable and still mutable): per-person values are tuples of small records
-  (`Share`, `Weight`, `ExactAmount`). Helpers convert to/from `dict` at the edges of pure functions.
+  (`Share`, `Weight`). Helpers convert to/from `dict` at the edges of pure functions.
 - Tagged unions are unions of frozen dataclasses with a distinct class per variant, so they round-trip
   through JSON/DB as `{"type": "<ClassName>", ...fields}`.
 - `confidence` is the only float in the model and never takes part in money math.
 
 **Where things live** (import-linter enforced): everything in §1 is in `smartsplit.domain`
-(`domain/model.py`, `domain/messages.py`, `domain/commands.py`, `domain/prompts.py`); §2 in
-`smartsplit.engine`; §3 in `smartsplit.ledger`; §4 in `smartsplit.ports` (incl. the port errors);
-§5's `Orchestrator` and the `NotAllowedError`/`NeedsClarification` errors in `smartsplit.services`.
+(`domain/model.py`, `domain/messages.py`, `domain/prompts.py`, and §1.7's tool arguments in `domain/tools.py`, see DECISIONS M10); §2 in `smartsplit.engine`; §3 in
+`smartsplit.ledger`; §4 in `smartsplit.ports` (incl. the port errors); the tool implementations and §5's
+`Orchestrator` and `NotAllowedError` in `smartsplit.services`.
 Error classes end in `Error` (ruff N818): `ReceiptUnreadableError`, `LlmUnavailableError`,
 `NotAllowedError`; storage errors live in `smartsplit.ports.errors`: `StaleDraftError` and the
 `ConstraintViolationError` family (`DuplicateKeyError`, `MissingReferenceError`,
@@ -31,26 +31,26 @@ Error classes end in `Error` (ruff N818): `ReceiptUnreadableError`, `LlmUnavaila
 
 | Enum | Values |
 |---|---|
-| `RuleKind` (exists) | `exclude`, `soft_exclude`, `only` |
-| `QuestionReason` (exists) | `soft_rule`, `no_eligible_members` |
+| `RuleKind` | `exclude`, `soft_exclude`, `only` |
+| `QuestionReason` | `soft_rule`, `no_eligible_members` |
 | `RuleSource` | `stated`, `learned` |
 | `ConversationKind` | `group`, `personal` |
-| `DraftState` | `queued`, `awaiting_people`, `parsing`, `reviewing`, `saved`, `cancelled`, `expired` |
-| `PromptKind` | `engine_question`, `who_with`, `which_person`, `need_contact`, `confirm_total`, `confirm_line`, `confirm_action`, `join_group`, `duplicate_warning` |
-| `PromptStatus` | `pending` (not yet asked, e.g. later question batch), `open`, `answered`, `dropped` |
+| `DraftState` | `queued`, `awaiting_people`, `reviewing`, `saved`, `cancelled`, `expired` |
+| `PromptKind` | `engine_question`, `pending_action`, `which_person` |
+| `PromptStatus` | `open`, `answered`, `dropped` |
 | `SettlementKind` | `payment`, `square_up` |
 | `AnswerOutcome` | `excluded`, `sole_assignee`, `included` |
 | `MatchHow` | `exact`, `alias`, `fuzzy`, `llm`, `none` |
-| `NotificationKind` | `bill_added`, `bill_changed`, `payment_recorded`, `payment_reversed`, `square_up`, `reminder`, `requested_reply` |
+| `PhotoOutcome` | `receipt`, `not_a_receipt`, `unreadable` |
+| `NotificationKind` | `bill_added`, `bill_changed`, `payment_recorded`, `payment_reversed`, `square_up`, `reminder` |
 
-### 1.2 Small records, scopes, contexts, references
+### 1.2 Small records, scopes, contexts
 
 ```python
 Cents = int
 
 class Share:        person_id: str, cents: Cents
 class Weight:       person_id: str, weight: int                 # weight >= 1
-class ExactAmount:  person: PersonRef, cents: Cents             # as said, before resolution
 
 class ConversationKey:  channel: str, ref: str                  # globally unique pair
 
@@ -67,13 +67,6 @@ Context = GroupContext | PersonalContext
 class EqualSplit:  people: tuple[str, ...]
 class Weighted:    weights: tuple[Weight, ...]
 Override = EqualSplit | Weighted            # exact amounts become Weighted via amounts_to_weights
-
-PersonRef = str                             # a name or number as said; services resolve it
-class LastBill: ...
-class NumberedBill: n: int                  # from the speaker's last numbered list
-class NamedBill:    text: str               # "the Toit bill"
-BillRef = LastBill | NumberedBill | NamedBill
-LineRef = int | str                         # line number in the shown list, or a name
 ```
 
 ### 1.3 People, places, items, rules
@@ -87,8 +80,7 @@ class Nickname:       owner_id, subject_id, name: str                # name stor
 class Group:          id, name: str, channel_ref: ConversationKey | None, created_at
 class Membership:     group_id, person_id, position: int, joined_at, left_at: datetime | None
 class Conversation:   key: ConversationKey, kind: ConversationKind, name: str | None,
-                      group_id: str | None, person_id: str | None,   # exactly one set
-                      last_listed_bill_ids: tuple[str, ...]          # resolves NumberedBill
+                      group_id: str | None, person_id: str | None    # exactly one set
 
 class Item:           key: str
 class ItemAlias:      scope: LocalScope, raw_name: str, item_key: str
@@ -96,30 +88,38 @@ class Rule:           id, subject_id, item_key: str, kind: RuleKind, scope: Rule
                       author_id, source: RuleSource, created_at
 class AnswerObservation: scope: LocalScope, subject_id, item_key: str, outcome: AnswerOutcome,
                       bill_id, observed_at
-class LlmUsage:       person_id, day: date, calls: int               # day in SMARTSPLIT_TIMEZONE
+class LlmUsage:       counter: str, day: date, calls: int    # counter: a person id, or "install";
+                                                             # day in SMARTSPLIT_TIMEZONE
 ```
 
-### 1.4 Receipts, drafts, bills, payments
+### 1.4 Photos, receipts, drafts, bills, payments
 
 ```python
 class LineItem:   id, position: int, name: str, quantity: int, amount_cents: Cents,
                   taxed: bool | None, confidence: float, canonical: str | None,
                   discount_for: str | None, match_how: MatchHow, match_is_new: bool
+                  # position = the line number people see; never renumbered within a draft
 
 class Receipt:    id, image_ref: str, mime_type: str, merchant: str | None,
                   purchased_at: date | None, line_items: tuple[LineItem, ...],
                   tax_cents: Cents, other_adjustments_cents: Cents, total_cents: Cents,
                   warnings: tuple[str, ...]                          # immutable parse record
 
+class PhotoRead:  conversation: ConversationKey, message_id: str, sender_id: str,
+                  outcome: PhotoOutcome, receipt_id: str | None, used_by_draft_id: str | None,
+                  created_at                                         # unique (conversation, message_id)
+
 class BillDraft:  # mutable working copy, updated through the repository
                   id, conversation: ConversationKey, context: Context, added_by, payer_id,
-                  receipt_id: str | None, image_ref: str | None, image_mime_type: str | None,
-                  description: str, purchased_at: date | None,
-                  lines: tuple[LineItem, ...], tax_cents: Cents, other_adjustments_cents: Cents,
-                  total_cents: Cents, accepted_difference_cents: Cents,
-                  participants: tuple[str, ...], overrides: tuple[tuple[str, Override], ...],
-                  owes_all_id: str | None, state: DraftState,
+                  receipt_id: str | None, description: str, purchased_at: date | None,
+                  lines: tuple[LineItem, ...], next_position: int,   # never reused
+                  tax_cents: Cents, other_adjustments_cents: Cents,
+                  total_cents: Cents, participants: tuple[str, ...],
+                  overrides: tuple[tuple[str, Override], ...], owes_all_id: str | None,
+                  possible_duplicate_of: DuplicateRef | None, waiting_for: tuple[str, ...],
+                  state: DraftState, version: int,
                   created_at, last_activity_at, reminded_at: datetime | None
+class DuplicateRef: bill_id: str | None, draft_id: str | None        # exactly one set
 
 class BillLine:   id, position: int, name: str, item_key: str, quantity: int,
                   amount_cents: Cents,          # before tax folding (as on the receipt / edited)
@@ -137,41 +137,44 @@ class Settlement: id, payment_id, context: Context, from_id, to_id, amount_cents
                   kind: SettlementKind, recorded_by, reverses_id: str | None, created_at
 ```
 
-### 1.5 Prompts, notifications, idempotency
+### 1.5 Prompts, transcript, notifications, delivery, idempotency
 
 ```python
 class Prompt:     id, conversation: ConversationKey, draft_id: str | None, kind: PromptKind,
-                  payload: PromptPayload, status: PromptStatus,
+                  payload: EngineQuestionPayload | PendingActionPayload | WhichPersonPayload,
+                  status: PromptStatus,
                   asked_of: str | None,          # None = anyone in the context may answer
-                  created_by, created_at, answers: tuple[PromptAnswer, ...]
-class PromptAnswer: person_id, answer: AnswerPrompt, at: datetime
+                  created_by, created_at, expires_at: datetime | None,
+                  answers: tuple[PromptAnswer, ...]
+class PromptAnswer: person_id, assignees: tuple[Weight, ...], at: datetime  # the line's new split
 
 class EngineQuestionPayload:  line_id: str, member_id: str | None, reason: QuestionReason
-class WhoWithPayload:         options: tuple[ListOption, ...]
-class ListOption:             n: int, person_ids: tuple[str, ...], group_id: str | None, label: str
-class WhichPersonPayload:     said: PersonRef, candidate_ids: tuple[str, ...], pending: Command
-class NeedContactPayload:     said: PersonRef, pending: Command
-class ConfirmTotalPayload:    difference_cents: Cents
-class ConfirmLinePayload:     line_id: str
-class ConfirmActionPayload:   command: Command, effect: Effect, based_on_version: int
-class JoinGroupPayload:       person_id: str
-class DuplicateWarningPayload: other_bill_id: str | None, other_draft_id: str | None
-PromptPayload = (EngineQuestionPayload | WhoWithPayload | WhichPersonPayload | NeedContactPayload
-                 | ConfirmTotalPayload | ConfirmLinePayload | ConfirmActionPayload
-                 | JoinGroupPayload | DuplicateWarningPayload)
+class WhichPersonPayload:     name: str, options: tuple[str, ...]   # person ids, in the order shown
+class PendingActionPayload:   tool: str, arguments: ToolArgs,    # §1.7, with ids in place of handles
+                              effect: Effect, based_on_version: int,
+                              proposed_in_message_id: str        # "never in the same turn"
+    # expires_at = proposed + 30 minutes; a new proposal of the same tool by the same person drops theirs
 
-# What a confirm_action will do, exactly as restated. "yes" applies it only if the affected data
+# What a pending action will do, exactly as restated. A "yes" applies it only if the affected data
 # is still at based_on_version; otherwise the effect is recomputed and asked again.
-class BillChangeEffect:  reverse_bill_id: str | None, new_bill: Bill | None
+class BillChangeEffect:  reverse_bill_id: str, new_bill: Bill | None
 class PaymentEffect:     settlements: tuple[Settlement, ...], overpaid_cents: Cents
 class RuleChangeEffect:  add: Rule | None, delete_rule_id: str | None
 Effect = BillChangeEffect | PaymentEffect | RuleChangeEffect
 
+class ChatRef:      kind: Literal["person", "bill", "draft", "line", "question", "action", "group",
+                                  "payment"],
+                    id: str, version: int | None,                # version: drafts, as shown
+                    shares: str | None                           # drafts: fingerprint of the split shown
+class ChatMessage:  conversation: ConversationKey, seq: int, sender_id: str | None,   # None = the bot
+                    text: str, refs: tuple[ChatRef, ...], created_at
+                    # shown blocks stored compactly: first lines + refs (SPEC §8.6)
+
 class Notification: id, recipient_id, actor_id, kind: NotificationKind,
-                    bill_ids: tuple[str, ...], payment_id: str | None, text_args: NotificationArgs,
+                    bill_ids: tuple[str, ...], payment_id: str | None, args: NotificationArgs,
                     created_at, sent_at: datetime | None
-class NotificationArgs: reason: str | None, amount_cents: Cents | None, body: str | None
-    # body is used only by requested_reply (already-rendered text); others render at send time
+class NotificationArgs: reason: str | None, amount_cents: Cents | None
+class TickBatch:    id, messages: tuple[OutboundMessage, ...], created_at, acked_at: datetime | None
 class ProcessedMessage: key: ConversationKey, message_id: str,
                         replies: tuple[OutboundMessage, ...], processed_at
 ```
@@ -181,58 +184,59 @@ class ProcessedMessage: key: ConversationKey, message_id: str,
 ```python
 class ImageAttachment:   mime_type: str, data: bytes
 class ContactAttachment: name: str, phone: str
-class ChatEvent:         kind: Literal["participant_left"], subject_ref: str
+class Mention:           ref: str, name: str, phone: str | None   # text carries "@<ref>"
+class ChatEvent:         kind: Literal["participant_left", "bot_added"], subject_ref: str | None
 
 class InboundMessage:    message_id: str, conversation: ConversationKey,
                          conversation_kind: ConversationKind, conversation_name: str | None,
                          sender_ref: str, sender_alt_ref: str | None,   # e.g. number + hidden id
                          sender_phone: str | None, sender_name: str,
-                         addressed_to_bot: bool, reply_to_bot: bool,
+                         addressed_to_bot: bool, reply_to_bot: bool, quoted_text: str | None,
+                         mentions: tuple[Mention, ...],
                          text: str | None, image: ImageAttachment | None,
                          contact: ContactAttachment | None, event: ChatEvent | None
 class OutboundMessage:   conversation: ConversationKey, recipient_id: str | None, text: str
                          # recipient_id set for personal-chat messages (the CLI prints "to Sam")
 ```
 
-### 1.7 Commands (`domain/commands.py`)
+### 1.7 Tool arguments (`services/tools/`)
 
-The interpreter returns exactly one `Command`. People are `PersonRef`s (names as said); the model
-never supplies ids. Whether "yes" means `ConfirmDraft` or an answer is decided by the services from
-the open prompts, not by the model (the interpreter returns `AnswerPrompt(yes=True)`).
+One frozen dataclass per tool (SPEC §8.3); the JSON schema the model sees is generated from it. Every
+reference is a **handle** string issued for this turn (`P2`, `B3`, `D1`, `L4`, `Q1`, `A1`, `G1`, `T1` a payment) or
+`"me"`; every amount is a `Money` string in major units (`"800"`, `"12.50"`), parsed by code into cents
+(no floats; at most the currency's decimals; at most `SMARTSPLIT_MAX_AMOUNT_CENTS`). Code maps handles
+to ids before running the tool, and stores ids, never handles.
 
-| Command | Fields |
+| Tool | Arguments |
 |---|---|
-| `StartSplit` | people, everyone: bool, excluding, payer: PersonRef \| None, owes_all: PersonRef \| None |
-| `AddManualBill` | description, amount, people, everyone, excluding, payer, owes_all, exact: tuple[ExactAmount, ...], purchased_on: date \| None |
-| `AnswerPrompt` | prompt_id: str \| None, yes: bool \| None, choice: int \| None, people, excluding, text: str \| None |
-| `Edit` | target: BillRef \| None (None = the active draft), op: EditOp, reason: str \| None |
-| `ConfirmDraft` / `CancelDraft` / `Acknowledge` | — (`Acknowledge` = "ok" to a notification; no reply) |
-| `FileIntoGroup` | group_name |
-| `DeleteBill` | target: BillRef, reason: str \| None |
-| `NotMine` | target: BillRef \| None |
-| `ShowBillDetails` | target: BillRef \| None |
-| `AddPerson` | name, phone: str \| None (contact cards arrive as attachments). In a group chat this adds a member. |
-| `JoinGroup` | — (the speaker) |
-| `MemberLeft` | person: PersonRef \| None (None = the speaker) |
-| `SetNickname` | person, nickname |
-| `CorrectNumber` | person, phone |
-| `AddRule` / `DeleteRule` | subject: PersonRef \| None (None = speaker), item: str, kind: RuleKind (AddRule only) |
-| `ListRules` | subject: PersonRef \| None |
-| `ShowBalances` | with_person: PersonRef \| None, group_name: str \| None |
-| `RecordPayment` | payer: PersonRef \| None, payee: PersonRef \| None (one of them is the speaker), amount, context_name: str \| None |
-| `NotReceived` / `UndoPayment` | — |
-| `SquareUp` | with_person |
-| `Remind` | person |
-| `ShowHistory` | period: `this_month` \| `last_month` \| None, last_n: int \| None |
-| `Notifications` | on: bool |
-| `Help` / `Unknown` | `Unknown` carries the original text |
+| `get_balances` | with_person: P \| None, group: G \| None, overall: bool |
+| `get_bill` | bill: B \| D |
+| `list_bills` | last_n: int \| None, period: `this_month` \| `last_month` \| None, text: str \| None, person: P \| None |
+| `list_rules` | about: P |
+| `find_person` | name: str |
+| `start_receipt` | people: (P, …), everyone_except: (P, …), payer: P \| None, owes_all: P \| None, unknown_names: (str, …) |
+| `add_manual_bill` | description, amount: Money, people, everyone_except, payer, owes_all, exact: ((P, Money), …), purchased_on: date \| None, unknown_names |
+| `set_draft_people` | draft: D, people, everyone_except, group: G \| None |
+| `edit_draft` | draft: D, change: one of `SetLineAmount(line: L, amount)`, `RemoveLine(line)`, `AddLine(name, amount)`, `SetTotal(amount)`, `AssignLine(line, people, weights: ((P, int), …), exact: ((P, Money), …))`, `UnassignLine(line: L \| None, people)`, `AddPeople(people)`, `RemovePeople(people)`, `NotThisItem(line, item_said: str \| None)`, `SetPayer(person)` |
+| `answer_question` | question: Q, included: bool \| None, people: (P, …) (for "who's this for?") |
+| `pick_person` | question: Q (a "Which Sam?" list), option: int (1 for the first) |
+| `file_into_group` | draft: D, group: G |
+| `confirm_draft` / `cancel_draft` | draft: D (+ keep_duplicate: bool, accept_difference: bool for confirm) |
+| `add_person` | name: str, phone: str \| None, use_contact: bool, mention: P \| None |
+| `join_group` | — |
+| `member_left` | person: P (or "me") |
+| `set_nickname` | person: P, nickname: str |
+| `correct_number` | person: P, phone: str |
+| `add_rule` / `delete_rule` | subject: P (or "me"), item: str, kind: RuleKind (add only) |
+| `change_bill` | bill: B, change: `Delete` \| `NotMine` \| an `edit_draft` change, reason: str \| None |
+| `record_payment` | from_person: P, to_person: P (one is "me"), amount: Money, group: G \| None |
+| `square_up` | with_person: P |
+| `not_received` / `undo_payment` | payment: T \| None (None = the latest one involving the speaker) |
+| `confirm_pending` / `decline_pending` | action: A |
+| `remind` | person: P |
+| `set_notifications` | on: bool |
 
-`people`/`excluding` are `tuple[PersonRef, ...]`; amounts are `Cents`.
-
-`EditOp` (one dataclass each): `SetLineAmount(line, amount)`, `RemoveLine(line)`, `AddLine(name, amount)`,
-`SetTotal(amount)`, `AssignLine(line, people, weights: tuple[tuple[PersonRef, int], ...], exact)`,
-`UnassignLine(line: LineRef | None, people)` (None = every line), `AddParticipants(people)`,
-`RemoveParticipants(people)`, `AcceptDifference()`, `NotThisItem(line, item_said)`, `SetPayer(person)`.
+`unknown_names` lets a draft start while people are still to be found (SPEC §10.4).
 
 ---
 
@@ -326,42 +330,72 @@ class ImageStore(Protocol):
     def prune(self, older_than: datetime) -> int: ...
 
 
+CountCall = Callable[[], None]  # called before every request to the model, retries included
+
+
+# Each call's timeout covers its retry too: a retry gets what is left (none under a second).
 class ReceiptParser(Protocol):
-    def parse(self, image: bytes, mime_type: str, currency: str) -> ParsedReceipt: ...
+    def parse(
+        self,
+        image: bytes,
+        mime_type: str,
+        currency: str,
+        timeout_seconds: float,
+        count_call: CountCall,
+    ) -> ParsedReceipt | NotAReceipt: ...
 
 
-class Canonicalizer(Protocol):  # all that item matching needs (M3)
-    def canonicalize(self, name: str, known_keys: Sequence[str]) -> str: ...
+class Canonicalizer(Protocol):  # all that item matching needs; inside a turn it is given the
+    def canonicalize(  # time left, and past the deadline a name keeps its normalized form
+        self, name: str, known_keys: Sequence[str], timeout_seconds: float, count_call: CountCall
+    ) -> str: ...
 
 
-class CommandInterpreter(Canonicalizer, Protocol):
-    def interpret(self, text: str, context: InterpretContext) -> Command: ...
+class AgentModel(Protocol):  # §4.2
+    def step(self, request: AgentRequest, count_call: CountCall) -> ModelStep: ...
 
 
 class Repository(Protocol):
     def unit_of_work(
-        self, lock: ConversationKey | None = None
+        self,
+        lock: ConversationKey | None = None,
+        *,
+        lock_wait_seconds: float | None = None,
+        try_lock: bool = False,
     ) -> AbstractContextManager[UnitOfWork]: ...
 
-    # one transaction; commits on success, rolls back on exception; optional per-conversation lock
+    # one transaction; commits on success, rolls back on exception; optional per-conversation lock.
+    # A lock not taken within lock_wait_seconds raises ChatBusyError; with try_lock it raises at once.
 
 
 class ReceiptUnreadableError(Exception): ...  # bad image / invalid output after the retry
 
 
 class LlmUnavailableError(Exception): ...  # timeout / API error after the retry
+
+
+class ChatBusyError(Exception): ...  # the conversation lock wasn't free in time
 ```
 
 `UnitOfWork` exposes one store per aggregate (each a Protocol with get/add/update and the queries the
-services need; method lists finalized in M2): `people`, `identities`, `nicknames`, `groups`,
-`memberships`, `conversations`, `items`, `aliases`, `rules`, `observations`, `receipts`, `drafts`,
-`prompts`, `bills`, `settlements`, `notifications`, `processed`, `llm_usage` (exposed as read-only
-properties; method lists in `ports/repository.py`). `drafts.update(draft, expected_state)` raises
-`StaleDraftError` if the state changed. Special queries:
-`notifications.claim_due(now, limit, per_person_daily_cap, day_start)` (claims serialized by an
-advisory lock, rows taken with SKIP LOCKED; the cap counts
-sent notifications except `requested_reply` since `day_start` in the install timezone) and
-`drafts.due_for_reminder_or_expiry(idle_since)`.
+services need; method lists in `ports/repository.py`): `people`, `identities`, `nicknames`, `groups`,
+`memberships`, `conversations`, `items`, `aliases`, `rules`, `observations`, `photos`, `receipts`,
+`drafts`, `prompts`, `bills`, `settlements`, `chat`, `notifications`, `tick_batches`, `processed`,
+`llm_usage`. Notable queries:
+- `drafts.update(draft, expected_version)` raises `StaleDraftError` if the draft changed;
+  `drafts.due_for_reminder_or_expiry(idle_since)`.
+- `photos.latest_unused(conversation, sender_id, since)` (SPEC §10.4).
+- `chat.append(message)`, `chat.recent(key, limit)`, `chat.prune(key, keep)`,
+  `chat.delete_older_than(before) -> int`; `seq` from one sequence, so appending to another chat
+  needs no lock on it.
+- `notifications.unsent_for(recipient_id)` (what is held for them, for their first message);
+  `notifications.claim_due(now, limit, per_person_daily_cap, day_start)` (claims serialized by an
+  advisory lock, rows taken with SKIP LOCKED); `tick_batches.unacked_before(when)`, `ack(batch_id)`,
+  `get(batch_id)`, `append(batch_id, messages)` (each tick step adds what it sent, in its own
+  transaction).
+- `Repository.count_usage(counter, day)` counts one model call in its own committed transaction,
+  never inside a turn's; `llm_usage.get` reads the counts.
+- `UnitOfWork.savepoint()`: a block whose writes are undone if it raises (one tool call).
 
 ### 4.1 Parser output
 
@@ -372,35 +406,50 @@ class ParsedReceipt:  merchant: str | None, purchased_at: date | None,
                       lines: tuple[ParsedLine, ...], tax_cents: Cents,
                       other_adjustments_cents: Cents, total_cents: Cents,
                       currency: str | None, warnings: tuple[str, ...]
+class NotAReceipt:    ...
 ```
 
-### 4.2 Interpreter input
+### 4.2 Agent model (SPEC §8)
 
 ```python
-class NameablePerson: person_id, names: tuple[str, ...]          # nicknames + display name
-class InterpretContext:
-    conversation_kind: ConversationKind, conversation_name: str | None, today: date,
-    speaker_id, nameable: tuple[NameablePerson, ...], group_member_names: tuple[str, ...],
-    group_names: tuple[str, ...], open_prompts: tuple[str, ...],   # short rendered questions
-    draft_lines: tuple[str, ...]                                    # "1. Milk ₹60", ...
+class ToolSpec:   name: str, description: str, input_schema: Mapping[str, object]
+class ToolCall:   id: str, name: str, arguments: Mapping[str, object]
+class ToolResult: call_id: str, ok: bool, data: Mapping[str, object], error: str | None,
+                  shown: tuple[str, ...]          # code-rendered text appended to the reply (SPEC §8.5)
+class ModelUsage: input_tokens, cache_read_tokens, cache_write_tokens, output_tokens: int
+class ModelStep:  tool_calls: tuple[ToolCall, ...], text: str | None, usage: ModelUsage,
+                  replay: tuple[Mapping[str, object], ...]   # provider blocks, sent back unchanged
+                  # no tool calls → the turn ends; `text` (may be empty) is the model's part of the reply
+class AgentRequest:
+    system: str
+    tools: tuple[ToolSpec, ...]                   # always the fixed list (the cached prefix)
+    turn_input: str                               # <state>…</state><recent_chat>…</recent_chat><message>…</message>
+    history: tuple[tuple[ModelStep, tuple[ToolResult, ...]], ...]   # this turn's earlier steps only
+    timeout_seconds: float                        # min(LLM timeout, time left for the message)
+    final: bool                                   # the last allowed step: no tool may be called
+
+class AgentModel(Protocol):
+    def step(self, request: AgentRequest, count_call: CountCall) -> ModelStep: ...  # raises LlmUnavailableError
 ```
+
+Handles are per-turn strings; the service keeps the handle → id map for the turn (including handles
+returned by tool results) and rejects any handle it didn't issue.
 
 ## 5. Orchestrator (`smartsplit.services`)
 
 ```python
+class HandleOutcome:  replies: tuple[OutboundMessage, ...], busy: bool   # busy → HTTP 503
 class Orchestrator:
-    def handle(self, message: InboundMessage) -> list[OutboundMessage]: ...
-    def tick(self) -> list[OutboundMessage]: ...  # uses Clock.now()
+    def handle(self, message: InboundMessage) -> HandleOutcome: ...      # one message, SPEC §8.1
+    def tick(self) -> TickBatch: ...                                     # uses Clock.now()
+    def ack(self, batch_id: str) -> None: ...
 ```
 
-- Both return messages for **any** conversation: replies to the current chat, posts to a group chat
-  (a bill filed from a personal chat, draft reminders/expiry in the draft's chat), and personal-chat
-  messages claimed from the `Notification` outbox (subject to opt-out, caps and the hold for people
-  who haven't used the bot).
-- `handle` does its LLM calls (parse, interpret, canonicalize) before taking the conversation lock.
-  If saving or cancelling promotes a `queued` draft, its receipt is parsed in a second step after the
-  first transaction commits, and its summary is appended to the same reply list. `tick` retries any
-  draft left in `parsing` (e.g. after a crash).
+- `handle` returns messages for **any** conversation: replies to the current chat, posts to a group
+  chat (a bill filed from a personal chat), DMs (answers sent privately from a group). Personal-chat
+  notifications go through the outbox and leave through `tick`.
+- `handle` reads a photo before taking the lock and stores the `PhotoRead` in its own transaction;
+  the agent turn is one locked transaction; usage counts are written in their own transactions.
 - **HTTP:** the same field names in snake_case; `conversation` is `{"channel": ..., "ref": ...}`;
   images inline as `"image": {"mime_type": "image/jpeg", "data_base64": "..."}`, size-limited.
 
@@ -409,10 +458,14 @@ POST /v1/messages
 {"message_id": "wamid.123", "conversation": {"channel": "whatsapp", "ref": "1203630@g.us"},
  "conversation_kind": "group", "conversation_name": "Flat 4B",
  "sender_ref": "+919876543210", "sender_alt_ref": "123456@lid", "sender_phone": "+919876543210",
- "sender_name": "Sam", "addressed_to_bot": true, "reply_to_bot": false,
- "text": "split this, Sam paid", "image": {"mime_type": "image/jpeg", "data_base64": "..."}}
+ "sender_name": "Sam", "addressed_to_bot": true, "reply_to_bot": false, "quoted_text": null,
+ "mentions": [{"ref": "+919800000001", "name": "Raj", "phone": "+919800000001"}],
+ "text": "split this, @+919800000001 paid", "image": {"mime_type": "image/jpeg", "data_base64": "..."}}
 → 200 [{"conversation": {"channel": "whatsapp", "ref": "1203630@g.us"}, "recipient_id": null,
         "text": "Toit, ₹1,200 …"}]
+
+POST /v1/tick → 200 {"batch_id": "…", "messages": [...]}
+POST /v1/tick/{batch_id}/ack → 204
 ```
 
 ## 6. Errors
@@ -420,7 +473,8 @@ POST /v1/messages
 | Error | Lives in | Handled as |
 |---|---|---|
 | `ValueError` | pure layers, invalid input | a bug if it reaches the user; services validate first |
-| `ReceiptUnreadableError` | ports | "Couldn't read that receipt, try another photo" |
-| `LlmUnavailableError` | ports | "Couldn't do that, try again in a minute"; nothing changes |
-| `NotAllowedError` | services | short plain refusal ("Only Sam can delete that rule") |
-| `NeedsClarification` | services | becomes a `Prompt` (`which_person`, `need_contact`, …) |
+| `ReceiptUnreadableError` | ports | the photo is stored as `unreadable`; the model tells the person |
+| `LlmUnavailableError` | ports | "Couldn't do that, try again in a minute"; the turn rolls back |
+| `ChatBusyError` | ports | HTTP 503 with `Retry-After`; nothing recorded |
+| `NotAllowedError` | services | a tool error with a short reason the model passes on ("Only Sam can delete that rule") |
+| `StaleDraftError` | ports | the turn rolls back like any failure (a concurrent change slipped past the lock) |

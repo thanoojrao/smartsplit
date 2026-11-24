@@ -167,7 +167,7 @@ def _notification(row: Row[tuple[object, ...]]) -> Notification:
         NotificationKind(m["kind"]),
         tuple(m["bill_ids"]),
         m["payment_id"],
-        decode(m["text_args"], NotificationArgs),
+        decode(m["args"], NotificationArgs),
         m["created_at"],
         m["sent_at"],
     )
@@ -194,6 +194,15 @@ class NotificationStore(Store):
         ).first()
         return found is not None
 
+    def unsent_for(self, recipient_id: str) -> tuple[Notification, ...]:
+        n = t.notifications.c
+        rows = self._execute(
+            select(t.notifications)
+            .where(n.recipient_id == recipient_id, n.sent_at.is_(None))
+            .order_by(n.created_at, n.seq)
+        )
+        return tuple(_notification(row) for row in rows)
+
     def add(self, notification: Notification) -> None:
         self._execute(
             insert(t.notifications).values(
@@ -203,7 +212,7 @@ class NotificationStore(Store):
                 kind=notification.kind.value,
                 bill_ids=list(notification.bill_ids),
                 payment_id=notification.payment_id,
-                text_args=encode(notification.text_args),
+                args=encode(notification.args),
                 created_at=notification.created_at,
                 sent_at=notification.sent_at,
             )
@@ -217,18 +226,14 @@ class NotificationStore(Store):
         are filtered in SQL, so a backlog of held rows is never locked or scanned in Python."""
         self._execute(select(func.pg_advisory_xact_lock(CLAIM_LOCK_ID)))
         n, p = t.notifications.c, t.people.c
-        reply = NotificationKind.REQUESTED_REPLY.value
         counts = self._execute(
             select(n.recipient_id, func.count().label("sent"))
-            .where(n.sent_at >= day_start, n.kind != reply)
+            .where(n.sent_at >= day_start)
             .group_by(n.recipient_id)
         )
         sent_today: dict[str, int] = {row.recipient_id: row.sent for row in counts}
         capped = [person for person, count in sent_today.items() if count >= per_person_daily_cap]
-        deliverable = or_(
-            n.kind == reply,
-            and_(p.has_used_bot, p.notifications_enabled, n.recipient_id.not_in(capped)),
-        )
+        deliverable = and_(p.has_used_bot, p.notifications_enabled, n.recipient_id.not_in(capped))
         rows = self._execute(
             select(t.notifications)
             .join(t.people, p.id == n.recipient_id)
@@ -240,11 +245,10 @@ class NotificationStore(Store):
         claimed: list[Notification] = []
         for row in rows:
             notification = _notification(row)
-            if notification.kind is not NotificationKind.REQUESTED_REPLY:
-                count = sent_today.get(notification.recipient_id, 0)
-                if count >= per_person_daily_cap:
-                    continue
-                sent_today[notification.recipient_id] = count + 1
+            count = sent_today.get(notification.recipient_id, 0)
+            if count >= per_person_daily_cap:
+                continue
+            sent_today[notification.recipient_id] = count + 1
             claimed.append(notification)
         if claimed:
             self._execute(

@@ -5,17 +5,17 @@ from datetime import timedelta
 import typer
 from typer.testing import CliRunner
 
+from smartsplit.adapters.fakes.agent import ScriptedAgent, call, say
+from smartsplit.adapters.fakes.llm import DEMO_ITEMS, FakeCanonicalizer
 from smartsplit.entrypoints.cli import Bot, make_cli
-from tests.integration.world import RECEIPTS, World
+from tests.integration.world import RECEIPTS, World, calling
 
 runner = CliRunner()
 
 
-def cli_for(
-    world: World, live_flags: list[bool] | None = None, max_image_bytes: int = 5_000
-) -> typer.Typer:
+def bot_for(world: World, max_image_bytes: int) -> Bot:
     assert world.images is not None
-    bot = Bot(
+    return Bot(
         world.bot,
         world.repository,
         world.images,
@@ -25,12 +25,12 @@ def cli_for(
         max_image_bytes,
     )
 
-    def connect(live: bool) -> Bot:
-        if live_flags is not None:
-            live_flags.append(live)
-        return bot
 
-    return make_cli(connect)
+def cli_for(world: World, max_image_bytes: int = 5_000) -> typer.Typer:
+    def connect_demo(agent: ScriptedAgent) -> Bot:
+        return bot_for(World(model=agent, canonical=FakeCanonicalizer(DEMO_ITEMS)), max_image_bytes)
+
+    return make_cli(lambda: bot_for(world, max_image_bytes), connect_demo)
 
 
 def run(cli: typer.Typer, *args: str) -> str:
@@ -39,64 +39,55 @@ def run(cli: typer.Typer, *args: str) -> str:
     return result.output
 
 
-def test_the_demo_flow() -> None:
-    cli = cli_for(World())
+def test_the_cli_flow() -> None:
+    world = World()
+    cli = cli_for(world)
     added = run(cli, "person", "add", "Alex", "+919876500001")
-    assert added.startswith("[you]\n  Hi Alex! I split bills.")
-    assert added.count("I split bills.") == 1
+    assert added.startswith("[you]\n  Hi Alex! I split bills")
     run(cli, "person", "add", "Sam", "+919876500002")
     created = run(cli, "group", "create", "Flat 4B", "--as", "Alex")
-    assert created.startswith("[Flat 4B]\n  Hi Flat 4B! Alex is in.")
+    assert created.startswith("[Flat 4B]\n  Hi Flat 4B! I split bills")
+    assert 'reply to this message with "join"' in created
+    world.agent.queue(call("join_group"))
     assert run(cli, "member", "add", "Flat 4B", "Sam") == "[Flat 4B]\n  Sam joined Flat 4B.\n"
+    world.agent.queue(call("start_receipt"))
     receipt = str(RECEIPTS / "restaurant_tip.json")
     shown = run(cli, "receipt", "add", receipt, "--as", "Alex", "--in", "Flat 4B")
     assert "  Toit, ₹2,047.00, paid by Alex." in shown
+    world.agent.queue(calling("confirm_draft", draft="@D"))
     saved = run(cli, "say", "yes", "--as", "Alex", "--in", "Flat 4B")
     assert "Sam owes Alex ₹1,023.50" in saved
     assert run(cli, "balances", "--as", "Sam") == (
         "Alex: you owe ₹1,023.50\n  Flat 4B: you owe ₹1,023.50\n"
     )
+    world.agent.queue(call("add_rule", subject="me", item="milk", kind="exclude"))
     run(cli, "say", "I don't drink milk", "--as", "Sam", "--in", "personal")
     assert run(cli, "rules", "--about", "Sam") == "milk: exclude (everywhere, set by Sam)\n"
-    assert run(cli, "balances", "--as", "Alex") == (
-        "Sam: owes you ₹1,023.50\n  Flat 4B: owes you ₹1,023.50\n"
-    )
     assert run(cli, "tick") == ""
 
 
 def test_messages_to_other_peoples_chats_are_labelled() -> None:
-    cli = cli_for(World())
+    world = World()
+    cli = cli_for(world)
     run(cli, "person", "add", "Alex", "+919876500001")
     run(cli, "person", "add", "Sam", "+919876500002")
+    world.agent.queue(call("add_person", name="Sam", phone="+919876500002"))
     run(cli, "say", "add Sam +919876500002", "--as", "Alex", "--in", "personal")
+    world.agent.queue(calling("add_manual_bill", description="chai", amount="100", people=["@Sam"]))
     run(cli, "say", "chai 100 with Sam", "--as", "Alex", "--in", "personal")
+    world.agent.queue(calling("confirm_draft", draft="@D"))
     out = run(cli, "say", "yes", "--as", "Alex", "--in", "personal")
     assert "[you]\n  Saved: chai" in out
     assert "[to Sam]\n  Alex added chai" in out
 
 
-def test_receipt_with_a_caption_and_the_live_flag() -> None:
-    flags: list[bool] = []
-    cli = cli_for(World(), flags)
-    run(cli, "person", "add", "Alex", "+919876500001")
-    run(cli, "person", "add", "Sam", "+919876500002")
-    run(cli, "say", "add Sam +919876500002", "--as", "Alex", "--in", "personal")
-    receipt = str(RECEIPTS / "restaurant_tip.json")
-    out = run(
-        cli,
-        "--live",
-        "receipt",
-        "add",
-        receipt,
-        "--as",
-        "Alex",
-        "--in",
-        "personal",
-        "--caption",
-        "split with Sam",
-    )
-    assert "Sam: ₹1,023.50" in out
-    assert flags[-1] is True and flags[0] is False
+def test_the_scripted_demo_needs_no_key() -> None:
+    # K1
+    out = run(cli_for(World()), "demo")
+    assert "Raj skipped: 2% MLK GAL" in out
+    assert "# Sam records a payment; it waits for his yes" in out
+    assert "  Recorded." in out
+    assert out.endswith("[you]\n  Raj owes you ₹50.00\n")
 
 
 def test_unknown_people_are_refused() -> None:
@@ -127,8 +118,10 @@ def test_input_the_cli_refuses() -> None:
 
 
 def test_replies_in_your_own_chat_are_yours() -> None:
-    cli = cli_for(World())
+    world = World()
+    cli = cli_for(world)
     run(cli, "person", "add", "Alex", "+919876500001")
+    world.agent.queue(say("Hm?"))
     assert run(cli, "say", "what", "--as", "Alex", "--in", "personal").startswith("[you]\n")
     assert run(cli, "say", "hi", "--as", "Nobody", "--in", "personal").startswith("[you]\n")
 

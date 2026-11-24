@@ -7,24 +7,22 @@ import pytest
 from sqlalchemy import Engine
 
 from smartsplit.adapters.db.repository import SqlRepository
-from smartsplit.domain.commands import AnswerPrompt, Edit, StartSplit
-from smartsplit.domain.edits import AssignLine
 from smartsplit.domain.enums import DraftState, PromptKind, PromptStatus, RuleKind
 from smartsplit.domain.messages import OutboundMessage
 from smartsplit.domain.model import Receipt
 from smartsplit.domain.prompts import (
-    ConfirmActionPayload,
+    PendingActionPayload,
     ProcessedMessage,
     PromptAnswer,
     RuleChangeEffect,
-    WhichPersonPayload,
 )
+from smartsplit.domain.tools import AddRule
 from smartsplit.domain.values import (
     ConversationKey,
-    ExactAmount,
     GroupContext,
     GroupScope,
     PersonalContext,
+    Weight,
 )
 from smartsplit.ports.errors import DuplicateKeyError, StaleDraftError
 from smartsplit.ports.repository import Repository
@@ -62,13 +60,13 @@ def test_drafts_round_trip_and_update(repo: Repository) -> None:
             replace(draft("d2", chat=OTHER), context=PersonalContext(), purchased_at=None)
         )
         uow.drafts.update(
-            replace(draft("d1"), state=DraftState.SAVED, reminded_at=at(5)),
-            expected_state=DraftState.REVIEWING,
+            replace(draft("d1"), state=DraftState.SAVED, reminded_at=at(5), version=2),
+            expected_version=1,
         )
 
     with repo.unit_of_work() as uow:
         assert uow.drafts.get("d1") == replace(
-            draft("d1"), state=DraftState.SAVED, reminded_at=at(5)
+            draft("d1"), state=DraftState.SAVED, reminded_at=at(5), version=2
         )
         assert uow.drafts.get("d2") == replace(
             draft("d2", chat=OTHER), context=PersonalContext(), purchased_at=None
@@ -77,18 +75,16 @@ def test_drafts_round_trip_and_update(repo: Repository) -> None:
 
 def test_updating_a_missing_draft_raises(repo: Repository) -> None:
     with pytest.raises(KeyError), repo.unit_of_work() as uow:
-        uow.drafts.update(draft("nope"), expected_state=DraftState.REVIEWING)
+        uow.drafts.update(draft("nope"), expected_version=1)
 
 
-def test_a_draft_update_fails_if_its_state_changed_meanwhile(repo: Repository) -> None:
+def test_a_draft_update_fails_if_its_version_changed_meanwhile(repo: Repository) -> None:
     # SPEC 12.2: e.g. tick expired the draft while a "yes" was being handled.
     with repo.unit_of_work() as uow:
-        uow.drafts.add(draft("d1", state=DraftState.EXPIRED))
+        uow.drafts.add(replace(draft("d1", state=DraftState.EXPIRED), version=2))
 
     with pytest.raises(StaleDraftError), repo.unit_of_work() as uow:
-        uow.drafts.update(
-            replace(draft("d1"), state=DraftState.SAVED), expected_state=DraftState.REVIEWING
-        )
+        uow.drafts.update(replace(draft("d1"), state=DraftState.SAVED), expected_version=1)
 
     with repo.unit_of_work() as uow:
         stored = uow.drafts.get("d1")
@@ -110,27 +106,25 @@ def test_drafts_for_a_conversation_by_state(repo: Repository) -> None:
         assert [d.id for d in both] == ["d1", "d2", "d3"]
 
 
-def test_a_chat_has_at_most_one_active_draft(repo: Repository) -> None:
-    # SPEC 4.5: one draft per conversation is active; others wait as queued.
+def test_an_adder_has_at_most_one_active_draft_per_chat(repo: Repository) -> None:
+    # SPEC 4.5: one active draft per (chat, adder); their others wait as queued.
     with repo.unit_of_work() as uow:
         uow.drafts.add(draft("d1"))
         uow.drafts.add(draft("q1", state=DraftState.QUEUED, minutes=1))
         uow.drafts.add(draft("q2", state=DraftState.QUEUED, minutes=2))
         uow.drafts.add(draft("done", state=DraftState.SAVED))
+        uow.drafts.add(replace(draft("raj1"), added_by="raj"))
 
     with pytest.raises(DuplicateKeyError), repo.unit_of_work() as uow:
-        uow.drafts.add(draft("d2", state=DraftState.PARSING))
+        uow.drafts.add(draft("d2", state=DraftState.AWAITING_PEOPLE))
     with pytest.raises(DuplicateKeyError), repo.unit_of_work() as uow:
         uow.drafts.update(
-            replace(draft("q1", minutes=1), state=DraftState.PARSING),
-            expected_state=DraftState.QUEUED,
+            replace(draft("q1", minutes=1), state=DraftState.REVIEWING), expected_version=1
         )
 
     with repo.unit_of_work() as uow:
-        uow.drafts.update(replace(draft("d1"), state=DraftState.SAVED), DraftState.REVIEWING)
-        uow.drafts.update(
-            replace(draft("q1", minutes=1), state=DraftState.PARSING), DraftState.QUEUED
-        )
+        uow.drafts.update(replace(draft("d1"), state=DraftState.SAVED), 1)
+        uow.drafts.update(replace(draft("q1", minutes=1), state=DraftState.REVIEWING), 1)
 
 
 def test_drafts_due_for_reminder_or_expiry(repo: Repository) -> None:
@@ -149,18 +143,19 @@ def test_drafts_due_for_reminder_or_expiry(repo: Repository) -> None:
 def test_prompts_with_typed_payloads_and_answers(repo: Repository) -> None:
     confirm = replace(
         prompt("p2", minutes=2),
-        kind=PromptKind.CONFIRM_ACTION,
-        payload=ConfirmActionPayload(
-            Edit(AssignLine(2, exact=(ExactAmount("Sam", 100),)), reason="typo"),
+        kind=PromptKind.PENDING_ACTION,
+        payload=PendingActionPayload(
+            "add_rule",
+            AddRule("raj", "milk", RuleKind.ONLY),
             RuleChangeEffect(rule("r1", GroupScope("g1"), kind=RuleKind.ONLY), None),
             based_on_version=3,
+            proposed_in_message_id="m7",
         ),
-        answers=(PromptAnswer("raj", AnswerPrompt(yes=True, people=("Sam",)), at(3)),),
+        expires_at=at(30),
     )
     which = replace(
         prompt("p3", minutes=3, draft_id=None),
-        kind=PromptKind.WHICH_PERSON,
-        payload=WhichPersonPayload("Sam", ("s1", "s2"), StartSplit(people=("Sam",))),
+        answers=(PromptAnswer("raj", (Weight("sam", 1),), at(3)),),
         asked_of="me",
     )
     with repo.unit_of_work() as uow:
@@ -188,8 +183,8 @@ def test_a_draft_changed_by_another_connection_is_stale(clean_pg: Engine) -> Non
         seen = handling_yes.drafts.get("d1")
         assert seen is not None
         with repo.unit_of_work() as tick:
-            tick.drafts.update(replace(seen, state=DraftState.EXPIRED), DraftState.REVIEWING)
-        handling_yes.drafts.update(replace(seen, state=DraftState.SAVED), seen.state)
+            tick.drafts.update(replace(seen, state=DraftState.EXPIRED, version=2), seen.version)
+        handling_yes.drafts.update(replace(seen, state=DraftState.SAVED, version=2), seen.version)
 
 
 def test_a_message_is_processed_once(repo: Repository) -> None:
@@ -225,30 +220,3 @@ def test_open_drafts_of_a_context_across_chats(repo: Repository) -> None:
     with repo.unit_of_work() as uow:
         assert [d.id for d in uow.drafts.open_in_context(GroupContext("g1"))] == ["d1", "d2", "d3"]
         assert [d.id for d in uow.drafts.open_in_context(PersonalContext())] == ["d5"]
-
-
-def test_replies_can_be_added_to_a_processed_message(repo: Repository) -> None:
-    first = OutboundMessage(CHAT, None, "Reading it.")
-    later = OutboundMessage(CHAT, None, "Toit, ₹1,200.")
-    with repo.unit_of_work() as uow:
-        uow.processed.add(ProcessedMessage(CHAT, "m1", (first,), T0))
-    with repo.unit_of_work() as uow:
-        uow.processed.add_replies(CHAT, "m1", [later])
-
-    with repo.unit_of_work() as uow:
-        stored = uow.processed.get(CHAT, "m1")
-        assert stored is not None
-        assert stored.replies == (first, later)
-    with pytest.raises(KeyError), repo.unit_of_work() as uow:
-        uow.processed.add_replies(CHAT, "m2", [later])
-
-
-def test_drafts_stuck_in_parsing(repo: Repository) -> None:
-    with repo.unit_of_work() as uow:
-        uow.drafts.add(draft("d1", state=DraftState.PARSING, minutes=1))
-        uow.drafts.add(draft("d2", chat=OTHER, state=DraftState.PARSING, minutes=5))
-        uow.drafts.add(draft("d3", chat=THIRD, state=DraftState.REVIEWING, minutes=1))
-
-    with repo.unit_of_work() as uow:
-        assert [d.id for d in uow.drafts.parsing_idle_since(at(5))] == ["d1", "d2"]
-        assert [d.id for d in uow.drafts.parsing_idle_since(at(4))] == ["d1"]

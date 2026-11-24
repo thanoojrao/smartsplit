@@ -1,14 +1,15 @@
-# Local development Postgres. Cloud sessions use the preinstalled Postgres instead
-# (see scripts/session_start.sh).
+# `docker compose up -d db` starts Postgres for local development (cloud sessions use the
+# preinstalled one, see scripts/session_start.sh). `docker compose --profile app up -d` also
+# runs the API, configured from .env (README "Deploy it").
 services:
   db:
     image: postgres:16
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: smartsplit
     ports:
-      - "127.0.0.1:5432:5432"  # local only; never expose the default password
+      - "127.0.0.1:5432:5432"  # local only; never expose the database
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/create_test_db.sql:/docker-entrypoint-initdb.d/create_test_db.sql:ro
@@ -17,5 +18,22 @@ services:
       interval: 2s
       retries: 15
 
+  app:
+    profiles: ["app"]
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/smartsplit
+      SMARTSPLIT_IMAGE_DIR: /data/images
+    ports:
+      - "127.0.0.1:8000:8000"  # put a TLS proxy in front to expose it
+    volumes:
+      - images:/data/images
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  images:

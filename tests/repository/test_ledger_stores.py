@@ -72,19 +72,13 @@ def test_claim_marks_due_notifications_sent_oldest_first(repo: Repository) -> No
     assert _claim(repo, 11) == []
 
 
-def test_claim_holds_non_users_and_opted_out_except_requested_replies(repo: Repository) -> None:
+def test_claim_holds_non_users_and_the_opted_out(repo: Repository) -> None:
     _setup_people(repo)
     with repo.unit_of_work() as uow:
         uow.notifications.add(notification("held1", "new", minutes=1))
         uow.notifications.add(notification("held2", "quiet", minutes=2))
-        uow.notifications.add(
-            notification("reply", "quiet", kind=NotificationKind.REQUESTED_REPLY, minutes=3)
-        )
-        uow.notifications.add(
-            notification("reply2", "new", kind=NotificationKind.REQUESTED_REPLY, minutes=4)
-        )
 
-    assert _claim(repo, 10) == ["reply", "reply2"]
+    assert _claim(repo, 10) == []
 
     with repo.unit_of_work() as uow:
         new = uow.people.get("new")
@@ -98,15 +92,10 @@ def test_claim_respects_the_daily_cap_and_the_limit(repo: Repository) -> None:
     with repo.unit_of_work() as uow:
         uow.notifications.add(notification("old", "raj", minutes=-60, sent_at=at(-30)))
         uow.notifications.add(notification("today", "raj", minutes=0, sent_at=at(1)))
-        uow.notifications.add(
-            notification(
-                "reply", "raj", kind=NotificationKind.REQUESTED_REPLY, minutes=0, sent_at=at(1)
-            )
-        )
         for n in range(4):
             uow.notifications.add(notification(f"n{n}", "raj", minutes=2 + n))
 
-    # Cap 3: one counted send today ("old" was before day_start, the reply doesn't count).
+    # Cap 3: one send today ("old" was before day_start).
     assert _claim(repo, 10, cap=3, limit=1) == ["n0"]
     assert _claim(repo, 11, cap=3) == ["n1"]
     assert _claim(repo, 12, cap=10) == ["n2", "n3"]
@@ -200,3 +189,16 @@ def test_whether_a_notification_was_caused_since(repo: Repository) -> None:
         assert not uow.notifications.exists_since("sam", "raj", reminder, at(11))
         assert not uow.notifications.exists_since("raj", "raj", reminder, at(0))
         assert not uow.notifications.exists_since("sam", "raj", NotificationKind.BILL_ADDED, at(0))
+
+
+def test_what_is_held_for_someone_who_hasnt_used_the_bot(repo: Repository) -> None:
+    # SPEC 10.3: their first message can mention it
+    _setup_people(repo)
+    with repo.unit_of_work() as uow:
+        uow.notifications.add(notification("n2", "new", minutes=2))
+        uow.notifications.add(notification("n1", "new", minutes=1))
+        uow.notifications.add(notification("other", "raj", minutes=1))
+    _claim(repo, 5)
+    with repo.unit_of_work() as uow:
+        assert [n.id for n in uow.notifications.unsent_for("new")] == ["n1", "n2"]
+        assert uow.notifications.unsent_for("raj") == ()

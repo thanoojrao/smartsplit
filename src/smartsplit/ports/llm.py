@@ -1,12 +1,10 @@
-"""Model-backed ports: receipt parsing and command interpretation (SPEC sections 7-8)."""
+"""Model-backed ports: receipt parsing and item names (SPEC sections 6.4 and 7)."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Protocol
 
-from smartsplit.domain.commands import Command
-from smartsplit.domain.enums import ConversationKind
 from smartsplit.domain.values import Cents
 
 
@@ -41,45 +39,37 @@ class ParsedReceipt:
     warnings: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class NotAReceipt:
+    """The photo isn't a receipt (a meme, a selfie)."""
+
+
+type CountCall = Callable[[], None]
+"""Called just before each request to the model, a retry included, so every call counts
+against the daily limits (SPEC 12.5)."""
+
+
 class ReceiptParser(Protocol):
-    def parse(self, image: bytes, mime_type: str, currency: str) -> ParsedReceipt:
-        """Read a receipt; raises ReceiptUnreadableError or LlmUnavailableError."""
+    def parse(
+        self,
+        image: bytes,
+        mime_type: str,
+        currency: str,
+        timeout_seconds: float,
+        count_call: CountCall,
+    ) -> ParsedReceipt | NotAReceipt:
+        """Read a receipt within `timeout_seconds` in all (a retry gets what is left);
+        raises ReceiptUnreadableError or LlmUnavailableError."""
         ...
-
-
-@dataclass(frozen=True, slots=True)
-class NameablePerson:
-    """Someone the speaker can name: their nicknames plus the display name."""
-
-    person_id: str
-    names: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class InterpretContext:
-    """What the interpreter may know about the chat; all text in it is untrusted data."""
-
-    conversation_kind: ConversationKind
-    conversation_name: str | None
-    today: date
-    speaker_id: str
-    nameable: tuple[NameablePerson, ...]
-    group_member_names: tuple[str, ...]
-    group_names: tuple[str, ...]
-    open_prompts: tuple[str, ...]
-    draft_lines: tuple[str, ...]
 
 
 class Canonicalizer(Protocol):
-    def canonicalize(self, name: str, known_keys: Sequence[str]) -> str:
-        """Map a messy receipt name to an item key: a known one, or a new key for a new item.
+    def canonicalize(
+        self, name: str, known_keys: Sequence[str], timeout_seconds: float, count_call: CountCall
+    ) -> str:
+        """Map a messy receipt name to an item key: a known one, or a new key for a new item,
+        within `timeout_seconds` in all.
 
         Raises LlmUnavailableError.
         """
-        ...
-
-
-class CommandInterpreter(Canonicalizer, Protocol):
-    def interpret(self, text: str, context: InterpretContext) -> Command:
-        """Turn chat text into exactly one command; raises LlmUnavailableError."""
         ...

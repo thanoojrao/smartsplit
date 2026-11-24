@@ -8,7 +8,6 @@ from typer.testing import CliRunner
 
 from smartsplit.entrypoints.api.server import from_environment
 from smartsplit.entrypoints.cli import app
-from tests.integration.world import RECEIPTS
 
 pytestmark = pytest.mark.db
 
@@ -25,43 +24,53 @@ def environment(
 
 
 def test_the_console_script_runs_the_demo(environment: None) -> None:
+    # K1: no key; the real tools and database; Raj's rule keeps him off the milk
+    result = CliRunner().invoke(app, ["demo"])
+    assert result.exit_code == 0, result.output
+    assert "Raj skipped: 2% MLK GAL" in result.output
+    assert "Waiting for Sam to say yes." in result.output
+    assert "  Recorded." in result.output
+    assert "[to Alex]" in result.output
+
+
+def test_operator_commands_need_no_key_but_talking_does(environment: None) -> None:
     runner = CliRunner()
-
-    def run(*args: str) -> str:
-        result = runner.invoke(app, list(args))
-        assert result.exit_code == 0, result.output
-        return result.output
-
-    # the README walkthrough: Raj's rule keeps him off the milk
-    run("person", "add", "Alex", "+919876500001")
-    run("person", "add", "Sam", "+919876500002")
-    run("person", "add", "Raj", "+919876500003")
-    run("group", "create", "Flat 4B", "--as", "Alex")
-    run("member", "add", "Flat 4B", "Sam")
-    run("member", "add", "Flat 4B", "Raj")
-    run("say", "Raj doesn't drink milk", "--as", "Raj", "--in", "Flat 4B")
-    receipt = str(RECEIPTS / "grocery_taxed_mix.json")
-    shown = run("receipt", "add", receipt, "--as", "Alex", "--in", "Flat 4B")
-    assert "Raj skipped: 2% MLK GAL (group rule)" in shown
-    details = run("say", "details", "--as", "Alex", "--in", "Flat 4B")
-    assert "1. 2% MLK GAL ₹120.00: Alex and Sam" in details
-    assert "Sam owes Alex" in run("say", "yes", "--as", "Alex", "--in", "Flat 4B")
-    assert "Alex: you owe" in run("balances", "--as", "Sam")
+    assert runner.invoke(app, ["tick"]).exit_code == 0
+    said = runner.invoke(app, ["person", "add", "Alex", "+919876500001"])
+    assert said.exit_code != 0
+    assert "This needs ANTHROPIC_API_KEY" in said.output
 
 
-def test_live_needs_a_key(environment: None) -> None:
-    result = CliRunner().invoke(app, ["--live", "tick"])
-    assert result.exit_code != 0
-    assert "--live needs ANTHROPIC_API_KEY" in result.output
-
-
-def test_the_api_factory(environment: None, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_api_factory(
+    environment: None, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     with pytest.raises(SystemExit, match="SMARTSPLIT_API_TOKEN"):
         from_environment()
     monkeypatch.setenv("SMARTSPLIT_API_TOKEN", "t0ken")
     with pytest.raises(SystemExit, match="ANTHROPIC_API_KEY"):
         from_environment()
-    monkeypatch.setenv("SMARTSPLIT_OFFLINE", "1")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "not-a-real-key")
+    monkeypatch.delenv("SMARTSPLIT_BOT_LINK", raising=False)
+    with pytest.raises(SystemExit, match="SMARTSPLIT_BOT_LINK"):
+        from_environment()
+    monkeypatch.setenv("SMARTSPLIT_BOT_LINK", "https://wa.me/15550001")
     api = TestClient(from_environment())
     assert api.get("/healthz").json() == {"status": "ok"}
-    assert api.post("/v1/tick", headers={"Authorization": "Bearer t0ken"}).json() == []
+    assert api.get("/readyz").json() == {"status": "ready"}
+    auth = {"Authorization": "Bearer t0ken"}
+    batch = api.post("/v1/tick", headers=auth).json()
+    assert batch["messages"] == []
+    assert api.post(f"/v1/tick/{batch['batch_id']}/ack", headers=auth).status_code == 204
+    chatter = {
+        "message_id": "m1",
+        "conversation": {"channel": "whatsapp", "ref": "g1"},
+        "conversation_kind": "group",
+        "sender_ref": "+919876500001",
+        "sender_name": "Alex",
+        "addressed_to_bot": False,
+        "reply_to_bot": False,
+        "text": "lunch?",
+    }
+    assert api.post("/v1/messages", headers=auth, json=chatter).json() == []
+    # SPEC 12.4: the factory makes the INFO line visible without any test setup
+    assert any("outcome=silent" in r.getMessage() for r in caplog.records)

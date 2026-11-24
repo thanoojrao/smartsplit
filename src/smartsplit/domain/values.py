@@ -5,9 +5,6 @@ from dataclasses import dataclass
 Cents = int
 """Money is always integer cents of the install currency (SPEC section 3)."""
 
-PersonRef = str
-"""A name or number as someone said it; services resolve it to a person."""
-
 
 @dataclass(frozen=True, slots=True)
 class Share:
@@ -21,14 +18,6 @@ class Weight:
 
     person_id: str
     weight: int
-
-
-@dataclass(frozen=True, slots=True)
-class ExactAmount:
-    """ "Sam's part was 100", before the name is resolved."""
-
-    person: PersonRef
-    cents: Cents
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,25 +75,3 @@ class Weighted:
 
 type Override = EqualSplit | Weighted
 """Who shares a line, from answers or edits. Exact amounts become `Weighted`."""
-
-
-@dataclass(frozen=True, slots=True)
-class LastBill:
-    """The speaker's own last bill in this chat."""
-
-
-@dataclass(frozen=True, slots=True)
-class NumberedBill:
-    """A bill from the numbered list last shown in this chat."""
-
-    n: int
-
-
-@dataclass(frozen=True, slots=True)
-class NamedBill:
-    text: str
-
-
-type BillRef = LastBill | NumberedBill | NamedBill
-type LineRef = int | str
-"""A line number in the shown list, or a name."""

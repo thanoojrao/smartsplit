@@ -5,11 +5,11 @@ from typing import cast
 
 from hypothesis import strategies as st
 
-from smartsplit.domain.commands import Command
 from smartsplit.domain.enums import MatchHow
 from smartsplit.domain.messages import OutboundMessage
 from smartsplit.domain.model import Bill, LineItem
-from smartsplit.domain.prompts import NotificationArgs, Prompt, PromptPayload
+from smartsplit.domain.prompts import ChatRef, NotificationArgs, Prompt, PromptPayload
+from smartsplit.domain.tools import EditDraft, PendingArgs
 from smartsplit.domain.values import Override
 
 ZONES = st.sampled_from(
@@ -20,7 +20,9 @@ st.register_type_strategy(datetime, st.datetimes(timezones=ZONES))
 aware, so `from_type` must never produce a naive one; mixed zones must keep their instant."""
 
 STORED_SHAPES: list[object] = [
-    Command,
+    PendingArgs,
+    EditDraft,
+    tuple[ChatRef, ...],
     PromptPayload,
     Prompt,
     tuple[tuple[str, Override], ...],

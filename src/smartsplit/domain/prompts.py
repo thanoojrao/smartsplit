@@ -1,13 +1,15 @@
-"""What the bot is waiting for, the notification outbox and idempotency (CONTRACTS 1.5)."""
+"""What code tracks for the conversation: prompts, the transcript, the outbox, idempotency
+(CONTRACTS 1.5)."""
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
-from smartsplit.domain.commands import AnswerPrompt, Command
 from smartsplit.domain.enums import NotificationKind, PromptKind, PromptStatus, QuestionReason
 from smartsplit.domain.messages import OutboundMessage
 from smartsplit.domain.model import Bill, Rule, Settlement
-from smartsplit.domain.values import Cents, ConversationKey, PersonRef
+from smartsplit.domain.tools import PendingArgs
+from smartsplit.domain.values import Cents, ConversationKey, Weight
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,56 +20,8 @@ class EngineQuestionPayload:
 
 
 @dataclass(frozen=True, slots=True)
-class ListOption:
-    n: int
-    person_ids: tuple[str, ...]
-    group_id: str | None
-    label: str
-
-
-@dataclass(frozen=True, slots=True)
-class WhoWithPayload:
-    options: tuple[ListOption, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class StoredImage:
-    """A receipt photo already in the ImageStore, waiting for its draft."""
-
-    image_ref: str
-    mime_type: str
-
-
-@dataclass(frozen=True, slots=True)
-class WhichPersonPayload:
-    said: PersonRef
-    candidate_ids: tuple[str, ...]
-    pending: Command
-    """The command to resume once the person is chosen."""
-    image: StoredImage | None = None
-    """The photo that came with `pending`, so the receipt isn't lost meanwhile."""
-
-
-@dataclass(frozen=True, slots=True)
-class NeedContactPayload:
-    said: PersonRef
-    pending: Command
-    image: StoredImage | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ConfirmTotalPayload:
-    difference_cents: Cents
-
-
-@dataclass(frozen=True, slots=True)
-class ConfirmLinePayload:
-    line_id: str
-
-
-@dataclass(frozen=True, slots=True)
 class BillChangeEffect:
-    reverse_bill_id: str | None
+    reverse_bill_id: str
     new_bill: Bill | None
 
 
@@ -87,48 +41,42 @@ type Effect = BillChangeEffect | PaymentEffect | RuleChangeEffect
 
 
 @dataclass(frozen=True, slots=True)
-class ConfirmActionPayload:
-    """The exact effect that was restated; "yes" applies it only if still at that version."""
+class PendingActionPayload:
+    """The exact effect that was restated; a "yes" applies it only if still at that version."""
 
-    command: Command
+    tool: str
+    arguments: PendingArgs
+    """With ids in place of handles, so the effect can be recomputed when it went stale."""
     effect: Effect
     based_on_version: int
+    proposed_in_message_id: str
+    """A proposal is never confirmed in the turn that made it (SPEC 8.4)."""
 
 
 @dataclass(frozen=True, slots=True)
-class JoinGroupPayload:
-    person_id: str
+class WhichPersonPayload:
+    """ "Which Sam?" for a bill: the name as said and the people offered, in the order shown,
+    so the answer's number means exactly who was listed (L5)."""
+
+    name: str
+    options: tuple[str, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class DuplicateWarningPayload:
-    other_bill_id: str | None
-    other_draft_id: str | None
-
-
-type PromptPayload = (
-    EngineQuestionPayload
-    | WhoWithPayload
-    | WhichPersonPayload
-    | NeedContactPayload
-    | ConfirmTotalPayload
-    | ConfirmLinePayload
-    | ConfirmActionPayload
-    | JoinGroupPayload
-    | DuplicateWarningPayload
-)
+type PromptPayload = EngineQuestionPayload | PendingActionPayload | WhichPersonPayload
 
 
 @dataclass(frozen=True, slots=True)
 class PromptAnswer:
+    """Who answered a line question, and the line's split their answer made."""
+
     person_id: str
-    answer: AnswerPrompt
+    assignees: tuple[Weight, ...]
     at: datetime
 
 
 @dataclass(frozen=True, slots=True)
 class Prompt:
-    """Anything the bot waits for a reply to, persisted so a restart resumes cleanly."""
+    """Something the bot waits on that code must track, persisted so a restart resumes."""
 
     id: str
     conversation: ConversationKey
@@ -140,16 +88,42 @@ class Prompt:
     """Only this person may answer; None means anyone in the context."""
     created_by: str
     created_at: datetime
+    expires_at: datetime | None
     answers: tuple[PromptAnswer, ...]
+
+
+type RefKind = Literal["person", "bill", "draft", "line", "question", "action", "group", "payment"]
+
+
+@dataclass(frozen=True, slots=True)
+class ChatRef:
+    """Something a bot message showed, so later turns can refer to exactly it (SPEC 8.6)."""
+
+    kind: RefKind
+    id: str
+    version: int | None = None
+    """For drafts: the version shown."""
+    shares: str | None = None
+    """For drafts shown with their split: a fingerprint of the shares, so a split that changed
+    without a new version (a rule made meanwhile) isn't saved unseen (SPEC 8.4)."""
+
+
+@dataclass(frozen=True, slots=True)
+class ChatMessage:
+    """One line of a chat's transcript; `sender_id` None is the bot."""
+
+    conversation: ConversationKey
+    seq: int
+    sender_id: str | None
+    text: str
+    refs: tuple[ChatRef, ...]
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
 class NotificationArgs:
-    """`body` is used only by `requested_reply`; other kinds render when sent."""
-
     reason: str | None = None
     amount_cents: Cents | None = None
-    body: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,9 +136,19 @@ class Notification:
     kind: NotificationKind
     bill_ids: tuple[str, ...]
     payment_id: str | None
-    text_args: NotificationArgs
+    args: NotificationArgs
     created_at: datetime
     sent_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class TickBatch:
+    """What one `tick` returned, kept until the gateway acknowledges delivery (SPEC 10.8)."""
+
+    id: str
+    messages: tuple[OutboundMessage, ...]
+    created_at: datetime
+    acked_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)

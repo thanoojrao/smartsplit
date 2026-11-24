@@ -7,44 +7,36 @@ from typing import Literal
 import pytest
 
 from smartsplit.domain.codec import Json, decode, encode
-from smartsplit.domain.commands import (
-    AddManualBill,
-    AnswerPrompt,
-    Command,
-    DeleteBill,
-    Edit,
-    ShowHistory,
-)
-from smartsplit.domain.edits import AcceptDifference, AssignLine, UnassignLine
 from smartsplit.domain.enums import MatchHow, QuestionReason, RuleKind
 from smartsplit.domain.model import LineItem
 from smartsplit.domain.prompts import (
     BillChangeEffect,
-    ConfirmActionPayload,
     EngineQuestionPayload,
+    NotificationArgs,
+    PendingActionPayload,
     PromptPayload,
 )
-from smartsplit.domain.values import (
-    EqualSplit,
-    ExactAmount,
-    LastBill,
-    NumberedBill,
-    Override,
-    Weight,
-    Weighted,
+from smartsplit.domain.tools import (
+    AddManualBill,
+    AssignLine,
+    ChangeBill,
+    DeleteBill,
+    EditDraft,
+    ExactPart,
+    ListBills,
+    PendingArgs,
+    UnassignLine,
+    WeightPart,
 )
+from smartsplit.domain.values import EqualSplit, Override, Weight, Weighted
 
-COMMANDS: list[Command] = [
-    Edit(AssignLine("wine", weights=(("Sam", 2), ("Raj", 1)))),
-    Edit(UnassignLine(None, ("Raj",)), target=NumberedBill(2), reason="he was away"),
-    Edit(AcceptDifference(), target=LastBill()),
+TOOL_ARGS: list[object] = [
+    EditDraft("D1", AssignLine("L2", (), (WeightPart("P2", 2), WeightPart("P3", 1)), ())),
+    EditDraft("D1", UnassignLine(None, ("P3",))),
     AddManualBill(
-        "rent", 30000, exact=(ExactAmount("Sam", 12000),), purchased_on=date(2026, 11, 1)
+        "rent", "30000", (), (), None, None, (ExactPart("P2", "12000"),), date(2026, 11, 1), ()
     ),
-    AnswerPrompt(yes=True, choice=2, people=("Sam", "Raj")),
-    DeleteBill(NumberedBill(1)),
-    ShowHistory(period="this_month"),
-    ShowHistory(),
+    ListBills(None, "this_month", None, None),
 ]
 
 
@@ -52,13 +44,14 @@ def round_trip(value: object, hint: object) -> object:
     return decode(json.loads(json.dumps(encode(value))), hint)
 
 
-@pytest.mark.parametrize("command", COMMANDS)
-def test_commands_round_trip_through_the_union(command: Command) -> None:
-    assert round_trip(command, Command) == command
+@pytest.mark.parametrize("arguments", TOOL_ARGS)
+def test_tool_arguments_round_trip(arguments: object) -> None:
+    assert round_trip(arguments, type(arguments)) == arguments
 
 
 def test_prompt_payloads_round_trip() -> None:
-    payload = ConfirmActionPayload(DeleteBill(LastBill(), "dup"), BillChangeEffect("b1", None), 7)
+    args: PendingArgs = ChangeBill("b1", DeleteBill(), "dup")
+    payload = PendingActionPayload("change_bill", args, BillChangeEffect("b1", None), 7, "m1")
 
     assert round_trip(payload, PromptPayload) == payload
     question = EngineQuestionPayload("l1", None, QuestionReason.NO_ELIGIBLE_MEMBERS)
@@ -102,11 +95,11 @@ def test_malformed_data_is_rejected(data: Json, hint: object) -> None:
 
 
 def test_fields_added_later_with_defaults_still_decode() -> None:
-    stored_before: Json = {"type": "ShowHistory", "period": None}
+    stored_before: Json = {"type": "NotificationArgs", "reason": "late"}
 
-    assert decode(stored_before, Command) == ShowHistory()
+    assert decode(stored_before, NotificationArgs) == NotificationArgs("late", None)
     with pytest.raises(ValueError):
-        decode({"type": "DeleteBill"}, Command)
+        decode({"type": "ChangeBill", "bill": "b1"}, PendingArgs)
 
 
 def test_unknown_types_are_refused() -> None:

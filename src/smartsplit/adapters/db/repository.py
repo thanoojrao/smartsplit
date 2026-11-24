@@ -3,19 +3,24 @@
 import hashlib
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import date
 
 from sqlalchemy import Connection, Engine, create_engine, func, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from smartsplit.adapters.db import draft_stores, ledger_stores, people_stores, rule_stores
 from smartsplit.adapters.db.base import port_error
+from smartsplit.adapters.db.migrate import at_head
 from smartsplit.domain.values import ConversationKey
+from smartsplit.ports.errors import ChatBusyError, StorageUnavailableError
 
 
 class SqlUnitOfWork:
     """The stores, all bound to one connection inside one transaction."""
 
     def __init__(self, connection: Connection) -> None:
+        self._connection = connection
         self.people = people_stores.PeopleStore(connection)
         self.identities = people_stores.IdentityStore(connection)
         self.nicknames = people_stores.NicknameStore(connection)
@@ -27,13 +32,22 @@ class SqlUnitOfWork:
         self.rules = rule_stores.RuleStore(connection)
         self.observations = rule_stores.ObservationStore(connection)
         self.llm_usage = rule_stores.LlmUsageStore(connection)
+        self.photos = draft_stores.PhotoStore(connection)
+        self.chat = draft_stores.ChatStore(connection)
         self.receipts = draft_stores.ReceiptStore(connection)
         self.drafts = draft_stores.DraftStore(connection)
         self.prompts = draft_stores.PromptStore(connection)
+        self.tick_batches = draft_stores.TickBatchStore(connection)
         self.processed = draft_stores.ProcessedStore(connection)
         self.bills = ledger_stores.BillStore(connection)
         self.settlements = ledger_stores.SettlementStore(connection)
         self.notifications = ledger_stores.NotificationStore(connection)
+
+    @contextmanager
+    def savepoint(self) -> Iterator[None]:
+        """A Postgres SAVEPOINT, released on success and rolled back if the block raises."""
+        with self._connection.begin_nested():
+            yield
 
 
 def lock_id(key: ConversationKey) -> int:
@@ -44,27 +58,98 @@ def lock_id(key: ConversationKey) -> int:
 
 
 class SqlRepository:
-    """The Repository port on Postgres; every unit of work is one transaction."""
+    """The Repository port on Postgres; every unit of work is one transaction.
 
-    def __init__(self, engine: Engine) -> None:
+    Usage counts go through `usage_engine` when given: a turn holds a pooled connection for
+    its whole transaction and counts each model call on a second one, so with one shared pool,
+    a full pool of turns would all wait for a connection none of them gives back."""
+
+    def __init__(self, engine: Engine, usage_engine: Engine | None = None) -> None:
         self._engine = engine
+        self._usage_engine = usage_engine or engine
 
     @contextmanager
-    def unit_of_work(self, lock: ConversationKey | None = None) -> Iterator[SqlUnitOfWork]:
-        """Commit on success, roll back on exception; the lock lasts until the transaction ends."""
+    def unit_of_work(
+        self,
+        lock: ConversationKey | None = None,
+        *,
+        lock_wait_seconds: float | None = None,
+        try_lock: bool = False,
+    ) -> Iterator[SqlUnitOfWork]:
+        """Commit on success, roll back on exception; the lock lasts until the transaction ends.
+
+        A busy chat raises ChatBusyError: at once with `try_lock`, else after
+        `lock_wait_seconds` (Postgres `lock_timeout` covers advisory locks too)."""
         try:
             with self._engine.begin() as connection:
                 connection.execute(text("SET LOCAL TIME ZONE 'UTC'"))  # times come back in UTC
                 if lock is not None:
-                    connection.execute(select(func.pg_advisory_xact_lock(lock_id(lock))))
+                    _take_lock(connection, lock_id(lock), lock_wait_seconds, try_lock=try_lock)
                 yield SqlUnitOfWork(connection)
         except IntegrityError as error:  # raised at commit; store calls translate their own
             translated = port_error(error)
             if translated is None:
                 raise
             raise translated from error
+        except (OperationalError, PoolTimeoutError) as error:
+            raise StorageUnavailableError(type(error).__name__) from error
+
+    def dispose(self) -> None:
+        """Close every pooled connection (the process is done with the database)."""
+        self._engine.dispose()
+        self._usage_engine.dispose()
+
+    def ready(self) -> bool:
+        """The database answers and its schema is at the newest migration."""
+        try:
+            with self._engine.connect() as connection:
+                return at_head(connection)
+        except SQLAlchemyError:
+            return False
+
+    def count_usage(self, counter: str, day: date) -> int:
+        """Its own connection and transaction, committed at once (SPEC 12.5)."""
+        try:
+            with self._usage_engine.begin() as connection:
+                return rule_stores.LlmUsageStore(connection).increment(counter, day)
+        except (OperationalError, PoolTimeoutError) as error:
+            raise StorageUnavailableError(type(error).__name__) from error
+
+
+def _take_lock(
+    connection: Connection, key: int, wait_seconds: float | None, *, try_lock: bool
+) -> None:
+    if try_lock:
+        if not connection.execute(select(func.pg_try_advisory_xact_lock(key))).scalar_one():
+            raise ChatBusyError("chat busy")
+        return
+    if wait_seconds is not None:
+        milliseconds = max(1, int(wait_seconds * 1000))
+        connection.execute(text(f"SET LOCAL lock_timeout = {milliseconds}"))
+    try:
+        connection.execute(select(func.pg_advisory_xact_lock(key)))
+    except OperationalError as error:
+        if getattr(error.orig, "sqlstate", None) == LOCK_NOT_AVAILABLE:
+            raise ChatBusyError("chat busy") from error
+        raise
+    if wait_seconds is not None:
+        connection.execute(text("RESET lock_timeout"))
+
+
+LOCK_NOT_AVAILABLE = "55P03"
+
+
+USAGE_POOL_SIZE = 2
+"""Usage writes are one short statement each, never waiting on anything else."""
 
 
 def connect(database_url: str) -> SqlRepository:
-    """A repository on a pooled engine; stale pooled connections are replaced transparently."""
-    return SqlRepository(create_engine(database_url, pool_pre_ping=True))
+    """A repository on pooled engines (one for turns, a small one for usage counts); stale
+    pooled connections are replaced transparently. Statement parameters are kept out of
+    error messages and logs: they hold message text and phone numbers (SPEC 12.4)."""
+    return SqlRepository(
+        create_engine(database_url, pool_pre_ping=True, hide_parameters=True),
+        create_engine(
+            database_url, pool_pre_ping=True, hide_parameters=True, pool_size=USAGE_POOL_SIZE
+        ),
+    )

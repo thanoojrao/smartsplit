@@ -23,11 +23,18 @@ from smartsplit.domain.model import (
     Membership,
     Nickname,
     Person,
+    PhotoRead,
     Receipt,
     Rule,
     Settlement,
 )
-from smartsplit.domain.prompts import Notification, ProcessedMessage, Prompt
+from smartsplit.domain.prompts import (
+    ChatMessage,
+    Notification,
+    ProcessedMessage,
+    Prompt,
+    TickBatch,
+)
 from smartsplit.domain.values import Context, ConversationKey, LocalScope, RuleScope
 
 
@@ -138,13 +145,13 @@ class ReceiptStore(Protocol):
 class DraftStore(Protocol):
     def get(self, draft_id: str) -> BillDraft | None: ...
     def add(self, draft: BillDraft) -> None:
-        """Raises DuplicateKeyError if the chat already has an active draft."""
+        """Raises DuplicateKeyError if the adder already has an active draft in that chat."""
         ...
 
-    def update(self, draft: BillDraft, expected_state: DraftState) -> None:
-        """Write the draft only if it is still in `expected_state` (SPEC section 12.2).
+    def update(self, draft: BillDraft, expected_version: int) -> None:
+        """Write the draft only if the stored one is still at `expected_version` (SPEC 12.2).
 
-        Raises StaleDraftError if its state changed meanwhile, KeyError if it doesn't exist.
+        Raises StaleDraftError if it changed meanwhile, KeyError if it doesn't exist.
         """
         ...
 
@@ -159,11 +166,6 @@ class DraftStore(Protocol):
         first: a group draft can be under review in someone's personal chat (SPEC 10.4)."""
         ...
 
-    def parsing_idle_since(self, idle_since: datetime) -> tuple[BillDraft, ...]:
-        """Drafts still in `parsing` with no activity since `idle_since` (e.g. the model was
-        down, or the process stopped mid-read), oldest first, for `tick` to retry."""
-        ...
-
     def due_for_reminder_or_expiry(self, idle_since: datetime) -> tuple[BillDraft, ...]:
         """Awaiting-people or reviewing drafts with no activity since `idle_since`, oldest first.
 
@@ -172,16 +174,46 @@ class DraftStore(Protocol):
         ...
 
 
-ACTIVE_DRAFT_STATES = frozenset(
-    {DraftState.AWAITING_PEOPLE, DraftState.PARSING, DraftState.REVIEWING}
-)
-"""At most one draft per conversation is in one of these states (SPEC section 4.5)."""
+ACTIVE_DRAFT_STATES = frozenset({DraftState.AWAITING_PEOPLE, DraftState.REVIEWING})
+"""At most one draft per (conversation, adder) is in one of these states (SPEC section 4.5)."""
 
 OPEN_DRAFT_STATES = ACTIVE_DRAFT_STATES | {DraftState.QUEUED}
 """Not finished yet: active, or waiting behind the active one."""
 
-IDLE_DRAFT_STATES = frozenset({DraftState.AWAITING_PEOPLE, DraftState.REVIEWING})
+IDLE_DRAFT_STATES = ACTIVE_DRAFT_STATES
 """Drafts that wait on people and can be reminded about or expire (SPEC section 10.4)."""
+
+
+class PhotoStore(Protocol):
+    def get(self, key: ConversationKey, message_id: str) -> PhotoRead | None: ...
+    def add(self, photo: PhotoRead) -> None:
+        """Raises DuplicateKeyError if that message's photo was already stored."""
+        ...
+
+    def update(self, photo: PhotoRead) -> None: ...
+    def latest_unused(
+        self, key: ConversationKey, sender_id: str, since: datetime
+    ) -> PhotoRead | None:
+        """The sender's newest receipt photo in this chat since then, not yet in a draft."""
+        ...
+
+
+class ChatStore(Protocol):
+    def append(self, message: ChatMessage) -> ChatMessage:
+        """Store a transcript line; its `seq` comes from one sequence for every chat."""
+        ...
+
+    def recent(self, key: ConversationKey, limit: int) -> tuple[ChatMessage, ...]:
+        """The last `limit` messages of the chat, oldest first."""
+        ...
+
+    def prune(self, key: ConversationKey, keep: int) -> None:
+        """Keep only the newest `keep` messages of the chat."""
+        ...
+
+    def delete_older_than(self, before: datetime) -> int:
+        """Delete every chat's messages created before then; returns how many."""
+        ...
 
 
 class PromptStore(Protocol):
@@ -233,38 +265,62 @@ class NotificationStore(Protocol):
         (e.g. "remind Raj" at most once a day)."""
         ...
 
+    def unsent_for(self, recipient_id: str) -> tuple[Notification, ...]:
+        """What is waiting to be sent to them, oldest first (SPEC 10.3)."""
+        ...
+
     def claim_due(
         self, now: datetime, limit: int, per_person_daily_cap: int, day_start: datetime
     ) -> tuple[Notification, ...]:
         """Claim unsent notifications, oldest first, mark them sent at `now`, and return them.
 
         Held (left unsent): a recipient who hasn't used the bot or has notifications off, and
-        anything beyond `per_person_daily_cap` sent since `day_start`, except `requested_reply`,
-        which is never held and doesn't count. Concurrent claims never exceed the cap.
+        anything beyond `per_person_daily_cap` sent since `day_start`. Concurrent claims never
+        exceed the cap.
         """
+        ...
+
+
+class TickBatchStore(Protocol):
+    def add(self, batch: TickBatch) -> None: ...
+    def get(self, batch_id: str) -> TickBatch | None: ...
+    def append(self, batch_id: str, messages: Sequence[OutboundMessage]) -> None:
+        """Add messages at the end, in the transaction that decided to send them, so nothing
+        is marked sent without being in a batch (SPEC 10.8)."""
+        ...
+
+    def unacked_before(self, when: datetime) -> tuple[TickBatch, ...]:
+        """Batches not acknowledged that were created before `when`, oldest first."""
+        ...
+
+    def ack(self, batch_id: str, at: datetime) -> bool:
+        """Mark it delivered; False if there is no such batch."""
+        ...
+
+    def delete_acked_before(self, when: datetime) -> None:
+        """Forget delivered batches created before `when`."""
         ...
 
 
 class ProcessedStore(Protocol):
     def get(self, key: ConversationKey, message_id: str) -> ProcessedMessage | None: ...
     def add(self, processed: ProcessedMessage) -> None: ...
-    def add_replies(
-        self, key: ConversationKey, message_id: str, replies: Sequence[OutboundMessage]
-    ) -> None:
-        """Append replies sent after the first transaction (a receipt read once the message was
-        recorded), so a retried message returns them too (SPEC 12.2)."""
-        ...
 
 
 class LlmUsageStore(Protocol):
-    def get(self, person_id: str, day: date) -> LlmUsage | None: ...
-    def increment(self, person_id: str, day: date) -> int:
-        """Count one more model call and return the day's new total."""
+    def get(self, counter: str, day: date) -> LlmUsage | None: ...
+    def increment(self, counter: str, day: date) -> int:
+        """Count one more model call and return the day's new total (CONTRACTS: `add`)."""
         ...
 
 
 class UnitOfWork(Protocol):
     """One transaction's view of every store (read-only members, so implementations may narrow)."""
+
+    def savepoint(self) -> AbstractContextManager[None]:
+        """Undo just the writes inside the block if it raises; the transaction goes on (one
+        refused tool call leaves nothing half done, SPEC 8.3)."""
+        ...
 
     @property
     def people(self) -> PeopleStore: ...
@@ -297,6 +353,9 @@ class UnitOfWork(Protocol):
     def observations(self) -> ObservationStore: ...
 
     @property
+    def photos(self) -> PhotoStore: ...
+
+    @property
     def receipts(self) -> ReceiptStore: ...
 
     @property
@@ -312,7 +371,13 @@ class UnitOfWork(Protocol):
     def settlements(self) -> SettlementStore: ...
 
     @property
+    def chat(self) -> ChatStore: ...
+
+    @property
     def notifications(self) -> NotificationStore: ...
+
+    @property
+    def tick_batches(self) -> TickBatchStore: ...
 
     @property
     def processed(self) -> ProcessedStore: ...
@@ -323,10 +388,22 @@ class UnitOfWork(Protocol):
 
 class Repository(Protocol):
     def unit_of_work(
-        self, lock: ConversationKey | None = None
+        self,
+        lock: ConversationKey | None = None,
+        *,
+        lock_wait_seconds: float | None = None,
+        try_lock: bool = False,
     ) -> AbstractContextManager[UnitOfWork]:
         """One transaction: commits on success, rolls back on exception.
 
         With `lock`, messages for that conversation are serialized for the whole transaction.
+        A lock not taken within `lock_wait_seconds` raises ChatBusyError; with `try_lock` it
+        raises at once (SPEC 12.2).
         """
+        ...
+
+    def count_usage(self, counter: str, day: date) -> int:
+        """Count one model call in its own short transaction, committed at once, so it stays
+        counted even if the turn that made the call rolls back (SPEC 12.5); returns the day's
+        new total. Safe to call while a unit of work is open."""
         ...

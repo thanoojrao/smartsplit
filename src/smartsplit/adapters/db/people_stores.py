@@ -202,7 +202,6 @@ def _conversation_values(conversation: Conversation) -> dict[str, object]:
         "name": conversation.name,
         "group_id": conversation.group_id,
         "person_id": conversation.person_id,
-        "last_listed_bill_ids": list(conversation.last_listed_bill_ids),
     }
 
 
@@ -214,7 +213,6 @@ def _conversation(row: Row[tuple[object, ...]]) -> Conversation:
         m["name"],
         m["group_id"],
         m["person_id"],
-        tuple(m["last_listed_bill_ids"]),
     )
 
 

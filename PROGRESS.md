@@ -4,15 +4,11 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 ## Next up
 
-M1–M9 done: **CHECKPOINT B** reached; PR #1 is open and green, waiting on the user's review.
-Live model checks done (2026-11-23): run 1 passed 2/5 (a bare "yes" to a shown bill came back
-Unknown; "Cappuccino" didn't map to the known "coffee" key, so Raj's coffee rule asked nothing).
-Prompts fixed in `91d9cd1`; run 2 passed 5/5, 40 calls, about $0.09, interpret cache reads
-working. Next: the user's review of PR #1, then merge. To recheck the model later:
-`SMARTSPLIT_LIVE_LLM=1 uv run pytest tests/live -v` (key in `SMARTSPLIT_ANTHROPIC_API_KEY`,
-never print it).
-Left as is for now, by the user's choice: the user's own name still appears as the example
-person in `docs/USE_CASES.md`, `docs/USE_CASE_TRACE.md` and `LICENSE`.
+M10–M12 are done, and so are the Checkpoint C review fixes (log line below; DECISIONS "Checkpoint C fixes").
+PR #2 (`claude/great-feynman-y9tao9` → `main`) is open with the gate green. **Next: the user merges PR #2
+(squash) or says to.** Nothing else is started. Ideas after that: the follow-ups below; the WhatsApp gateway
+(SPEC 13). The user's own name stays in `docs/USE_CASES.md`, `docs/USE_CASE_TRACE.md` and `LICENSE` by
+their choice.
 
 ## Milestones
 
@@ -32,6 +28,14 @@ person in `docs/USE_CASES.md`, `docs/USE_CASE_TRACE.md` and `LICENSE`.
 
 **CHECKPOINT B** — final: stop, push, open a PR, notify the user, and summarize.
 
+Revision 2 (SPEC §8: the conversation agent; approved by the user).
+
+- [x] M10 — Agent core, offline (SPEC §4.4–4.5, §8, §10.2–10.8, §12.3; CONTRACTS §1, §4.2, §5): `AgentModel` port and `ScriptedAgent`; tool argument dataclasses with generated schemas, handles and `Money` strings; tools over the existing services returning results + shown blocks; transcript with refs for every outbound message (replies, DMs, group posts, notifications, tick messages), compact storage, pruning; pending actions (later turn, right person, same chat, 30 min, version, supersede) and the `confirm_draft` rules; draft `version`, line numbers that never shift, one active draft per adder, `awaiting_people` for unknown names; the loop in `handle` (one locked transaction, tools-off last step, deadline, rollback); group-turn privacy; reply clean-up (handles → names, markdown, numbers); `smartsplit demo`. Retire the first build's interpretation stack: `domain/commands.py`, `CommandInterpreter`, `services/{intents,dispatch,routing,answers,context}.py`, `adapters/llm/{commands,command_tools}.py`, `adapters/fakes/{phrases,interpreter}.py`, the 7 old prompt kinds, `requested_reply`, the `parsing` state and its retries, `Conversation.last_listed_bill_ids`, question batches. Integration tests re-expressed as state, shown-block and transcript checks, plus loop tests (multi-step, tool errors the model recovers from, rollback, limits, injection)
+- [x] M11 — Production flow (SPEC §7, §10.1–10.3, §10.8, §11, §12): photos read on arrival into `PhotoRead` (own transaction, reused on retry, `not_a_receipt` silent in groups, checks before the read, last-photo pickup); group gating (addressed, receipt photos, waited-on people for 10 minutes), mentions, quoted replies, `bot_added` intro and reply-to-join, `SMARTSPLIT_BOT_LINK`; usage counted in its own transactions, install-wide daily cap; message deadline and bounded lock wait (503 + `Retry-After`); `tick` with try-lock, `TickBatch` and ack; `/readyz`; per-turn log line; Dockerfile, compose app service, `tick` timer, backup and restore in the README
+- [x] M12 — Anthropic agent adapter (SPEC §8.7, §12.5): tool use on `claude-haiku-5-5` for chat and `claude-sonnet-5-5` for receipts (user's choice, DECISIONS "M12 — models"), with the cached prefix, tools-off last step, per-call timeout from the deadline; system prompt (reply style, one question at most, defaults, untrusted data); live scenarios for L1–L5, L7, L11, L16 and the main flows of C, D, G, H and I, counting questions asked; usage table and cost per message; README/CLI updates
+
+**CHECKPOINT C** — stop, push, open a PR, notify the user, and summarize (including live results and cost per message).
+
 ## Log
 
 - M0: scaffold created by hand. Engine contract frozen in `src/smartsplit/engine/__init__.py`. Commit `fc41671`.
@@ -45,13 +49,16 @@ person in `docs/USE_CASES.md`, `docs/USE_CASE_TRACE.md` and `LICENSE`.
 - M7: orchestrator `handle` (model calls outside the lock, one locked transaction per message with idempotency, refusals rolled back, receipts read after commit), group/personal bill flows with queue, duplicates, who-with, review edits, numbered question batches, confirm/cancel/save with learning, onboarding and membership, rules in chat with restated changes, balances with privacy; integration tests on fakes plus a Postgres tour and concurrent confirms; review must-fixes (15) fixed. Range `3d2f47d..7986fd4`. Commit `7986fd4`.
 - M8: outbox + `tick` (one message per person rendered at send time, numbered batches, invites once, daily cap by local day, reminder after 24 h and expiry after 3 days, quiet retries of unread receipts), saved-bill edit/delete/not-mine as reversal + new bill after a restated yes, payments with allocation, disputes, undo, overpay credit and square-up pinned to a ledger version, remind, history, stop/start; review must-fixes (5) fixed. Range `7986fd4..2eeadaa`. Commit `2eeadaa`.
 - M9: one composition root (config → orchestrator, migrations under a lock), Typer CLI (person/group/member/receipt/say/balances/rules/tick/images prune, `--live`), FastAPI app (messages, tick, operator reads, bearer token in constant time, body and field limits, explicit offline mode), README walkthrough; user-approved import-contract change (indirect imports only); review must-fixes (4) fixed. Range `2eeadaa..a4b98c4`. Commit `a4b98c4`.
+- M10: the conversation agent offline: `AgentModel` port + `ScriptedAgent`; ~30 tools over id-based services (handles, `Money` strings, generated schemas, savepoint per call); transcript with refs for every outbound message; pending actions and `confirm_draft` rules in code; photos read on arrival (`PhotoRead`); versioned drafts, one active per adder, `awaiting_people`; loop with tools-off final step, deadline and rollback; reply clean-up; `smartsplit demo`; migration 0003; Anthropic agent/canonicalizer adapters (tuned in M12); old interpretation stack removed; review must-fixes (4) fixed. Range `e4b2f78..31bab22`. Commit `31bab22`.
+- M11: gating (addressed, receipt photos, waited-on people for 10 minutes; unknown groups start only when addressed), photo checks before the read, mentions (names, handles, a phone creates the person), quoted replies (refs first), `bot_added` intro with the adder in, bot link in "message me 1:1 first", install cap and once-a-day limit notice, bounded lock wait → 503, `tick` try-lock + stored `TickBatch` + ack, `/readyz`, per-turn log line (`TurnReport`), Dockerfile + compose `app` + CI image check, README deploy/tick/backups; review must-fixes (4) fixed. Range `d6d05cc..6307239`. Commit `6307239`.
+- M12: chat on Haiku and receipts on Sonnet (user's choice); live harness (scripted setup, real model for the conversation, state checks, style checks, usage per model, questions asked, cost per message) with 23 conversations; "which person" as a stored, code-rendered question answered with `pick_person`; one summary per draft per turn; balances for this group and overall; listening hint; prompt tuned on live transcripts; final live runs 23/23 and 22/23 at ~$0.0004 per chat message; review must-fixes (2 + 4) fixed. Range `310a2e4..adb764b`. Commit `adb764b`.
+- Checkpoint C fixes (review items 1–20, then the fix review's 2 must-fixes): duplicate check for queued drafts, shown-shares fingerprint on save, group-scoped payments and bills, separate usage pool, hidden SQL parameters, tick batches appended per step, DB errors → try again, retries within the time left and counted, refusals fail the turn, scoped personal bill versions, private remind, group names in "which Sam?", held notices on a first message, contact cards and hidden ids in groups, personal-only invites, matches shown once, docs. 681 tests, 95.8% coverage. Then the `set_nickname` description (only `pick_person` answers "Which Sam?") and the usage log line keeping its record fields; live L5 (personal and group) passed 2/2. Range `9658b13..HEAD`; the final commit is the PR head.
 
 ## Follow-ups
 
 (non-blocking review findings go here)
 
 - (M1 review) `amounts_to_weights` raises on no fixed amounts: the orchestrator (M7) must use a plain list override for an equal split, never route "no exact amounts" here.
-- (M2 review) The fake `claim_due` returns a `requested_reply` for a recipient who doesn't exist, while Postgres (inner join, FK) can't store one; the fake skips FK checks generally. Harmless today.
 - (M3 review) A linked discount shares its parent's key, so a `soft_exclude` would make the engine ask twice; the orchestrator should ask about linked discounts only through the parent line (M7).
 - (Checkpoint A, M8) `claim_due`: rows dropped by the cap still use `limit` slots within one batch.
 - (Checkpoint A) `split_receipt` accepts `bool` amounts (`True` = 1 cent); optionally reject non-int amounts.
@@ -59,13 +66,35 @@ person in `docs/USE_CASES.md`, `docs/USE_CASE_TRACE.md` and `LICENSE`.
 - (Fix review, M8) Call `claim_due` only in its own unit of work with no conversation lock (lock order).
 - (M5 review) 429/529 are retried at once; honouring `retry-after` (capped by the timeout) would make the one retry likelier to succeed.
 - (M5 review) Adapter tests import `httpx2`, which comes with `anthropic`; declare it if a future SDK drops it.
-- (M6 review) Literal/enum casing is handled in the codec; apostrophe variants in the keyword fake. "remove Raj" in the fake reads as removing a line named Raj (acceptable for a fake).
 - (M3 review) Stated rules only normalize the item ("I don't drink MLK" → `mlk`); decide in M6/M7 whether stated items go through `match_item`/the model.
 - (M7 review) A photo refused after its image was stored (e.g. not a member) leaves an orphaned image until the image store prunes it.
 - (M7 review) A model-supplied id is echoed back in "X isn't in Flat 4B": harmless (it resolves to nobody), but a generic refusal would read better.
 - (M7) Each group answer re-reads memberships and the directory per message; fine at chat scale, revisit if profiling says otherwise.
-- (M8 review) `tick`'s delivery writes `last_listed_bill_ids` without the chat's lock; a turn in that personal chat at the same moment could overwrite it (only the numbering for "details 2" is affected).
 - (M8 review) `OrchestratorSettings` repeats defaults from `config.Settings`; M9 builds it from config so there is one source.
 - (M8) A model outage leaves a receipt retried every 2 minutes for up to 3 days; a back-off would save calls.
 - (M9 review) `rules_chat.scope_label` and `_scope_name` share a group branch; fold them into one helper.
 - (M9 review) `member add` for a group that doesn't exist yet creates it with that person in it; refuse instead if that surprises people.
+- (M10 review) `domain/tools.py` is ~320 lines of plain argument dataclasses; split the `edit_draft` change variants into their own module if it grows.
+- (M11 review) A failed or timed-out turn's log line has only its outcome and time: the loop's steps, tools and usage so far are lost with the rollback; carry them out on the exception if debugging needs them.
+- (M11 review) `mentioned` creates a person for any mention with a phone, even one sent by a non-member; the gateway must not send the bot's own mention (`addressed_to_bot` covers it). Consider creating people only through `add_person`.
+- (M11 review) The 12-hex chat hash in the log line is unsalted; a salt from config would stop someone with the logs and a list of chat ids from matching them.
+- (Checkpoint C) Pin the Dockerfile base image to a patch version or a digest.
+- (Checkpoint C) README gateway notes: mention that a body without Content-Length gets 411.
+- (Checkpoint C) A prompt-cache breakpoint on the turn input would make steps 2–6 of a turn cheaper.
+- (Checkpoint C) Daily caps are checked once per message, so a long turn can overshoot by a turn's calls.
+- (Checkpoint C) Transcript `seq` is assigned at insert, not commit, so two chats' lines can interleave out of commit order.
+- (Checkpoint C) "Waiting for Sam to say yes" is shown to Sam himself; word it for the person asked.
+- (Checkpoint C) The waited-on window counts any bot post, not only replies.
+- (Checkpoint C) The single-member note shows even when the adder narrowed the bill to themselves.
+- (Checkpoint C) The demo's scripted words repeat text the shown blocks already say.
+- (Checkpoint C) `parse_money` assumes 2 decimals; take the currency's exponent if other currencies come.
+- (Checkpoint C) Files over ~300 lines: `adapters/db/draft_stores.py` (~460) first.
+- (Checkpoint C) A per-run test schema would let concurrent gate runs share one Postgres.
+- (Checkpoint C) An unreadable photo in a group gets no reply even when it may have been a receipt.
+- (Checkpoint C) `MatchedLines.model_calls` is only read by tests now that the meter counts calls; drop it.
+- (Checkpoint C fix review) `tick_batches.append` doesn't check `acked_at`: a tick running past 2 minutes could have its partial batch returned and acked by another tick, and later appends would be lost; refuse appends to an acked batch or keep batches being written out of `unacked_before`.
+- (Checkpoint C fix review) A turn that fails on a database error logs only `outcome=failed`; add the exception class (and SQLSTATE, no parameters) to the turn line.
+- (Checkpoint C fix review) `_screen`'s read-only checks don't catch `StorageUnavailableError` (still a 500); the photo read and the turn do.
+- (Checkpoint C fix review) The shares fingerprint covers each person's total, not per-line assignments; a swap that keeps the totals isn't re-shown (the saved amounts still match).
+- (Checkpoint C fix review) `orchestrator.py` (~390 lines) and `ports/repository.py` (~410) are over ~300 lines too.
+

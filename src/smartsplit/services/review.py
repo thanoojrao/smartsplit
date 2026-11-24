@@ -1,161 +1,198 @@
-"""Review edits and answers on the draft under review (SPEC 10.4, use cases C5-C6, G2-G6).
+"""Review edits and answers on a draft (SPEC 10.4, use cases C5-C6, G2-G6).
 
-Every change is written with the draft's expected state, so a draft that expired or was saved
-meanwhile isn't changed behind anyone's back (SPEC 12.2).
+Changes arrive as tool arguments; `person` turns a person reference into an id (a handle
+during a turn, the stored id when a pending action is recomputed). Nothing is written here:
+the caller stores the changed draft with `drafting.change`.
 """
 
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 from smartsplit.domain import normalize_item_name
-from smartsplit.domain.commands import AnswerPrompt
-from smartsplit.domain.edits import (
-    AcceptDifference,
+from smartsplit.domain.enums import MatchHow
+from smartsplit.domain.model import BillDraft, ItemAlias, LineItem
+from smartsplit.domain.tools import (
     AddLine,
-    AddParticipants,
+    AddPeople,
     AssignLine,
-    EditOp,
+    BillChange,
+    DraftChange,
+    ExactPart,
     NotThisItem,
     RemoveLine,
-    RemoveParticipants,
+    RemovePeople,
     SetLineAmount,
     SetPayer,
     SetTotal,
     UnassignLine,
 )
-from smartsplit.domain.enums import MatchHow, QuestionReason
-from smartsplit.domain.model import BillDraft, ItemAlias, LineItem
-from smartsplit.domain.prompts import EngineQuestionPayload, Prompt
-from smartsplit.domain.values import EqualSplit, GroupContext, LineRef, Override, Weight, Weighted
-from smartsplit.services.drafting import exact_override, manual_line, split_of
+from smartsplit.domain.values import EqualSplit, GroupContext, Override, Weight, Weighted
+from smartsplit.engine import amounts_to_weights
+from smartsplit.services.drafting import line_at, manual_line, split_of
 from smartsplit.services.errors import NotAllowedError
-from smartsplit.services.names import Directory
-from smartsplit.services.prompting import record_answer
+from smartsplit.services.handles import line_number
+from smartsplit.services.money_args import parse_money
 from smartsplit.services.scopes import local_scope_for
 from smartsplit.services.speaker import current_member_ids
 from smartsplit.services.turn import Turn
 
+MAX_WEIGHT = 1000
+"""Weights are small whole numbers ("2 for Sam, 1 for Raj", "70/30")."""
 
-def save(turn: Turn, before: BillDraft, after: BillDraft) -> BillDraft:
-    """Write the change if the draft is still in the state it was read in."""
-    changed = replace(after, last_activity_at=turn.now)
-    turn.uow.drafts.update(changed, expected_state=before.state)
-    return changed
+type PersonOf = Callable[[str], str]
+"""A person reference → a person id."""
 
 
-def apply_edit(turn: Turn, draft: BillDraft, op: EditOp, directory: Directory) -> BillDraft:
-    """Apply one review edit and return the changed draft (not yet presented)."""
-    match op:
-        case SetLineAmount() | RemoveLine() | AddLine() | SetTotal() | AcceptDifference():
-            return _line_edit(turn, draft, op)
+def apply_change(turn: Turn, draft: BillDraft, change: DraftChange, person: PersonOf) -> BillDraft:
+    """The draft after one review edit (not yet stored)."""
+    match change:
+        case SetLineAmount() | RemoveLine() | AddLine() | SetTotal():
+            return _line_edit(turn, draft, change)
         case NotThisItem(line, item_said):
-            return _not_this_item(turn, draft, find_line(draft, line), item_said)
+            return _not_this_item(turn, draft, line_at(draft, line_number(line)), item_said)
         case AssignLine() | UnassignLine():
-            return _assignment_edit(turn, draft, op, directory)
-        case AddParticipants() | RemoveParticipants() | SetPayer():
-            return _people_edit(turn, draft, op, directory)
+            return _assignment(turn, draft, change, person)
+        case AddPeople() | RemovePeople() | SetPayer():
+            return _people(turn, draft, change, person)
 
 
 def _line_edit(
-    turn: Turn,
-    draft: BillDraft,
-    op: SetLineAmount | RemoveLine | AddLine | SetTotal | AcceptDifference,
+    turn: Turn, draft: BillDraft, change: SetLineAmount | RemoveLine | AddLine | SetTotal
 ) -> BillDraft:
-    match op:
+    limit = turn.settings.max_amount_cents
+    match change:
         case SetLineAmount(line, amount):  # a person read it now: no longer flagged as unclear
-            target = find_line(draft, line)
-            lines = tuple(
-                replace(x, amount_cents=amount, confidence=1.0) if x.id == target.id else x
-                for x in draft.lines
-            )
-            return replace(draft, lines=lines)
+            target = line_at(draft, line_number(line))
+            cents = parse_money(amount, limit, allow_negative=target.amount_cents < 0)
+            return _replace_line(draft, replace(target, amount_cents=cents, confidence=1.0))
         case RemoveLine(line):
-            target = find_line(draft, line)
+            target = line_at(draft, line_number(line))
+            if len(draft.lines) == 1:
+                raise NotAllowedError("That's the only line: cancel the bill instead.")
             return replace(
                 draft,
                 lines=tuple(x for x in draft.lines if x.id != target.id),
                 overrides=tuple(o for o in draft.overrides if o[0] != target.id),
             )
         case AddLine(name, amount):
-            added = replace(manual_line(turn, name, amount), position=len(draft.lines) + 1)
-            return replace(draft, lines=(*draft.lines, added))
-        case SetTotal(amount):
-            return replace(draft, total_cents=amount, accepted_difference_cents=0)
-        case AcceptDifference():
-            difference = split_of(turn, draft).difference_cents
+            cents = parse_money(amount, limit, allow_negative=True)
+            added = manual_line(turn, name, cents, draft.next_position)
             return replace(
-                draft, accepted_difference_cents=draft.accepted_difference_cents + difference
+                draft, lines=(*draft.lines, added), next_position=draft.next_position + 1
             )
+        case SetTotal(amount):
+            return replace(draft, total_cents=parse_money(amount, limit))
 
 
-def _assignment_edit(
-    turn: Turn, draft: BillDraft, op: AssignLine | UnassignLine, directory: Directory
+def map_people[C: BillChange](change: C, person: PersonOf) -> C:
+    """The same change with every person reference mapped (handles → ids for storing)."""
+    match change:
+        case AssignLine(_, people, weights, exact):
+            return replace(
+                change,
+                people=tuple(person(p) for p in people),
+                weights=tuple(replace(w, person=person(w.person)) for w in weights),
+                exact=tuple(replace(e, person=person(e.person)) for e in exact),
+            )
+        case UnassignLine(_, people) | AddPeople(people) | RemovePeople(people):
+            return replace(change, people=tuple(person(p) for p in people))
+        case SetPayer(said):
+            return replace(change, person=person(said))
+        case _:
+            return change
+
+
+def _replace_line(draft: BillDraft, line: LineItem) -> BillDraft:
+    return replace(draft, lines=tuple(line if x.id == line.id else x for x in draft.lines))
+
+
+def _assignment(
+    turn: Turn, draft: BillDraft, change: AssignLine | UnassignLine, person: PersonOf
 ) -> BillDraft:
-    region = turn.settings.default_region
-    match op:
+    match change:
         case AssignLine(line, people, weights, exact):
-            target = find_line(draft, line)
+            target = line_at(draft, line_number(line))
             if weights:
+                if any(w.weight < 1 or w.weight > MAX_WEIGHT for w in weights):
+                    raise NotAllowedError("Weights are whole numbers from 1 to 1000.")
                 override: Override = Weighted(
-                    tuple(Weight(directory.resolve(n, region), w) for n, w in weights)
+                    tuple(Weight(person(w.person), w.weight) for w in weights)
                 )
             elif exact:
                 override = exact_override(
-                    directory, region, target.amount_cents, exact, draft.participants
+                    turn, target.amount_cents, exact, draft.participants, person
                 )
+            elif people:
+                override = EqualSplit(tuple(dict.fromkeys(person(p) for p in people)))
             else:
-                override = EqualSplit(tuple(directory.resolve(p, region) for p in people))
+                raise NotAllowedError("Say who shares that line.")
             _check_in_bill(draft, override)
             return with_override(draft, target.id, override)
         case UnassignLine(line, people):
-            removed = {directory.resolve(p, region) for p in people}
-            targets = [find_line(draft, line)] if line is not None else list(draft.lines)
+            removed = {person(p) for p in people}
+            targets = [line_at(draft, line_number(line))] if line is not None else list(draft.lines)
             for target in targets:
                 draft = _without(turn, draft, target, removed)
             return draft
 
 
-def _people_edit(
+def exact_override(
     turn: Turn,
-    draft: BillDraft,
-    op: AddParticipants | RemoveParticipants | SetPayer,
-    directory: Directory,
+    line_cents: int,
+    exact: Sequence[ExactPart],
+    participants: Sequence[str],
+    person: PersonOf,
+) -> Override:
+    """ "Sam 12000, me 9000": fixed people get their amount; the rest share what is left."""
+    limit = turn.settings.max_amount_cents
+    fixed = [(person(e.person), parse_money(e.amount, limit)) for e in exact]
+    if len({p for p, _ in fixed}) != len(fixed):
+        raise NotAllowedError("Each person can have one amount.")
+    fixed_ids = {p for p, _ in fixed}
+    if any(p not in participants for p in fixed_ids):
+        raise NotAllowedError("Add them to the bill first.")
+    others = [p for p in participants if p not in fixed_ids]
+    try:
+        return Weighted(amounts_to_weights(line_cents, fixed, others))
+    except ValueError as error:
+        raise NotAllowedError("Those amounts don't add up to the total.") from error
+
+
+def _people(
+    turn: Turn, draft: BillDraft, change: AddPeople | RemovePeople | SetPayer, person: PersonOf
 ) -> BillDraft:
-    region = turn.settings.default_region
-    match op:
-        case AddParticipants(people) | RemoveParticipants(people):
-            return _participants(turn, draft, op, [directory.resolve(p, region) for p in people])
-        case SetPayer(person):
+    match change:
+        case AddPeople(people):
+            added = [person(p) for p in people]
+            if isinstance(draft.context, GroupContext):
+                members = current_member_ids(turn.uow, draft.context.group_id)
+                if any(p not in members for p in added):
+                    raise NotAllowedError("Only current members of this group can be in its bills.")
+            return replace(draft, participants=tuple(dict.fromkeys([*draft.participants, *added])))
+        case RemovePeople(people):
+            removed = {person(p) for p in people}
+            left = tuple(p for p in draft.participants if p not in removed)
+            if draft.payer_id not in left or not left:
+                raise NotAllowedError("The one who paid stays in the bill.")
+            return replace(draft, participants=left)
+        case SetPayer(said):
             if not isinstance(draft.context, GroupContext):
                 raise NotAllowedError("In your own splits you're always the one who paid.")
-            payer = directory.resolve(person, region)
+            payer = person(said)
             if payer not in current_member_ids(turn.uow, draft.context.group_id):
                 raise NotAllowedError("The payer has to be a current member of this group.")
             return replace(draft, payer_id=payer)
 
 
 def _check_in_bill(draft: BillDraft, override: Override) -> None:
-    people = (
-        override.people
-        if isinstance(override, EqualSplit)
-        else tuple(w.person_id for w in override.weights)
-    )
-    if any(p not in draft.participants for p in people):
+    if any(p not in draft.participants for p in people_of(override)):
         raise NotAllowedError("Add them to the bill first.")
 
 
-def find_line(draft: BillDraft, ref: LineRef) -> LineItem:
-    """By number in the shown list, or by name (exact, then partial)."""
-    if isinstance(ref, int):
-        if 1 <= ref <= len(draft.lines):
-            return draft.lines[ref - 1]
-        raise NotAllowedError(f"There's no line {ref}.")
-    wanted = normalize_item_name(ref)
-    exact = [x for x in draft.lines if wanted in (normalize_item_name(x.name), x.canonical)]
-    partial = [x for x in draft.lines if wanted in normalize_item_name(x.name)]
-    found = exact or partial
-    if not found:
-        raise NotAllowedError(f"I can't find a line called {ref}.")
-    return found[0]
+def people_of(override: Override) -> tuple[str, ...]:
+    if isinstance(override, EqualSplit):
+        return override.people
+    return tuple(w.person_id for w in override.weights)
 
 
 def with_override(draft: BillDraft, line_id: str, override: Override) -> BillDraft:
@@ -169,55 +206,12 @@ def current_assignees(turn: Turn, draft: BillDraft, line_id: str) -> tuple[str, 
     return next(a.member_ids for a in split.result.assignments if a.item_id == line_id)
 
 
-def answer_question(
-    turn: Turn, draft: BillDraft, prompt: Prompt, answer: AnswerPrompt, directory: Directory
-) -> BillDraft:
-    """An answer changes that line's current assignment; other questions stay open (G2), and
-    the question stays in its batch so a later answer can replace it (G3)."""
-    payload = prompt.payload
-    if not isinstance(payload, EngineQuestionPayload):
-        raise NotAllowedError("That isn't a question about a line.")
-    line = next((x for x in draft.lines if x.id == payload.line_id), None)
-    if line is None:
-        raise NotAllowedError("That line is gone.")
-    now_on = current_assignees(turn, draft, line.id)
-    region = turn.settings.default_region
-    if answer.people or answer.excluding:
-        chosen = [directory.resolve(p, region) for p in answer.people] or list(draft.participants)
-        out = {directory.resolve(p, region) for p in answer.excluding}
-        people = tuple(p for p in draft.participants if p in chosen and p not in out)
-    elif payload.reason is QuestionReason.SOFT_RULE and payload.member_id and answer.yes is False:
-        people = tuple(p for p in now_on if p != payload.member_id)
-    elif payload.reason is QuestionReason.SOFT_RULE and payload.member_id and answer.yes:
-        with_member = {*now_on, payload.member_id}
-        people = tuple(p for p in draft.participants if p in with_member)
-    else:
-        raise NotAllowedError('Say who shares it, like "1: Sam and Raj".')
-    if not people:
-        raise NotAllowedError("Someone has to share it.")
-    record_answer(turn, prompt, answer)
-    return with_override(draft, line.id, EqualSplit(people))
-
-
 def _without(turn: Turn, draft: BillDraft, line: LineItem, removed: set[str]) -> BillDraft:
     """ "Raj had none of the wine": the others on the line share it."""
     left = tuple(p for p in current_assignees(turn, draft, line.id) if p not in removed)
     if not left:
         raise NotAllowedError(f"Someone has to share the {line.name}.")
     return with_override(draft, line.id, EqualSplit(left))
-
-
-def _participants(turn: Turn, draft: BillDraft, op: EditOp, people: list[str]) -> BillDraft:
-    if isinstance(op, AddParticipants):
-        if isinstance(draft.context, GroupContext):
-            members = current_member_ids(turn.uow, draft.context.group_id)
-            if any(p not in members for p in people):
-                raise NotAllowedError("Only current members of this group can be in its bills.")
-        return replace(draft, participants=tuple(dict.fromkeys([*draft.participants, *people])))
-    left = tuple(p for p in draft.participants if p not in people)
-    if draft.payer_id not in left or not left:
-        raise NotAllowedError("The one who paid stays in the bill.")
-    return replace(draft, participants=left)
 
 
 def _not_this_item(
@@ -228,6 +222,8 @@ def _not_this_item(
     scope = local_scope_for(draft.context, draft.added_by)
     raw = normalize_item_name(line.name)
     key = normalize_item_name(item_said) if item_said else raw
+    if not key:
+        raise NotAllowedError("Which item is it, then?")
     if item_said:
         turn.uow.aliases.put(ItemAlias(scope, raw, key))
     else:

@@ -1,22 +1,23 @@
 """The outbox: messages to people's own chats, written now and rendered when sent (10.5, 10.8).
 
 Rendering at send time means the balance in a message is the balance when it arrives. Several
-bills to one person in one delivery become one numbered message ("details 2").
+bills to one person in one delivery become one numbered message; its transcript references
+let "details on the second one" resolve (SPEC 8.6).
 """
 
 from collections.abc import Sequence
-from dataclasses import replace
 
 from smartsplit.domain.enums import NotificationKind
-from smartsplit.domain.model import Bill, Conversation
+from smartsplit.domain.model import Bill
 from smartsplit.domain.prompts import Notification, NotificationArgs
+from smartsplit.domain.values import PersonalContext
 from smartsplit.ports.repository import UnitOfWork
 from smartsplit.services.ledgers import between_net, share_of
 from smartsplit.services.text import day_label, money, name_for
 from smartsplit.services.turn import Turn
 
-REPLY_HINT = 'Reply "ok", "details", "not mine", or tell me what to fix.'
-MANY_HINT = 'Reply "details 2", "not mine 2", or "ok".'
+REPLY_HINT = 'Reply "details", "not mine", or tell me what to fix.'
+MANY_HINT = 'Reply "details on the second one", "not mine", or tell me what to fix.'
 
 
 def notify(
@@ -61,8 +62,9 @@ def tell_participants(
 
 
 def invites_for(turn: Turn, bill: Bill) -> list[str]:
-    """People in this bill who have never used the bot, on the adder's first bill with them."""
-    names = []
+    """People in this personal split who have never used the bot, on the adder's first
+    personal split with them; group bills don't count, as they were posted in the group (D7)."""
+    invited = []
     for person_id in bill.participants:
         person = turn.uow.people.get(person_id)
         if person is None or person.has_used_bot or person_id == turn.speaker.id:
@@ -70,18 +72,20 @@ def invites_for(turn: Turn, bill: Bill) -> list[str]:
         earlier = [
             b
             for b in turn.uow.bills.for_participant(person_id)
-            if b.id != bill.id and turn.speaker.id in b.participants
+            if b.id != bill.id
+            and isinstance(b.context, PersonalContext)
+            and turn.speaker.id in b.participants
         ]
         if not earlier:
-            names.append(name_for(turn.uow, turn.speaker.id, person_id))
-    return names
+            invited.append(person_id)
+    return invited
 
 
 def render(
     uow: UnitOfWork, recipient_id: str, batch: Sequence[Notification], currency: str
 ) -> tuple[str, tuple[str, ...]]:
-    """One message for everything claimed for one person, and the bills it numbers, in
-    order ("details 2"). Each person's overall balance is said once, at the end."""
+    """One message for everything claimed for one person, and the bills it shows, in order
+    (its transcript references). Each person's overall balance is said once, at the end."""
     added = [n for n in batch if n.kind is NotificationKind.BILL_ADDED]
     others = [n for n in batch if n.kind is not NotificationKind.BILL_ADDED]
     parts: list[str] = []
@@ -124,7 +128,7 @@ def _bills_added(
 def _one(uow: UnitOfWork, me: str, notification: Notification, currency: str) -> str:
     """One non-bill message; the overall balance is added once by `render`."""
     actor = name_for(uow, me, notification.actor_id)
-    args = notification.text_args
+    args = notification.args
     amount = money(args.amount_cents or 0, currency)
     because = f" ({args.reason})" if args.reason else ""
     match notification.kind:
@@ -139,9 +143,8 @@ def _one(uow: UnitOfWork, me: str, notification: Notification, currency: str) ->
             return f"{actor} undid the {amount} payment between you two{because}."
         case NotificationKind.SQUARE_UP | NotificationKind.REMINDER:
             return _SIMPLE[notification.kind].format(actor=actor)
-        case NotificationKind.BILL_ADDED | NotificationKind.REQUESTED_REPLY:
-            # bills added are rendered together by `render`; a requested reply carries text
-            return args.body or ""
+        case NotificationKind.BILL_ADDED:  # rendered together by `render`
+            return ""
 
 
 _SIMPLE = {
@@ -152,7 +155,7 @@ _SIMPLE = {
 
 def _bill_changed(uow: UnitOfWork, me: str, notification: Notification, currency: str) -> str:
     actor = name_for(uow, me, notification.actor_id)
-    reason = notification.text_args.reason
+    reason = notification.args.reason
     because = f" ({reason})" if reason else ""
     bill = uow.bills.get(notification.bill_ids[0]) if notification.bill_ids else None
     if bill is None or bill.reverses_id is not None:
@@ -170,9 +173,3 @@ def _overall(uow: UnitOfWork, me: str, other: str, currency: str) -> str:
     if net < 0:
         return f"Overall you owe {name} {money(-net, currency)}."
     return f"You and {name} are settled up."
-
-
-def remember_listed(uow: UnitOfWork, chat: Conversation, bill_ids: Sequence[str]) -> None:
-    """So "details 2" and "not mine 2" mean the bills just listed in that chat."""
-    if bill_ids:
-        uow.conversations.update(replace(chat, last_listed_bill_ids=tuple(bill_ids)))

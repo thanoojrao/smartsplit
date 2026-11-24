@@ -12,6 +12,9 @@ from smartsplit.ports.repository import UnitOfWork
 from smartsplit.services.splitting import DraftSplit
 from smartsplit.services.text import join_names, money, name_for
 
+MATCHES_SHOWN = 3
+"""New item matches listed in a summary; a long receipt would otherwise list every line."""
+
 
 class Renderer:
     """Renders for one viewer (None in a group chat, where display names are used)."""
@@ -27,14 +30,30 @@ class Renderer:
     def money(self, cents: int) -> str:
         return money(cents, self._currency)
 
+    def _new_matches(self, draft: BillDraft) -> list[str]:
+        matched = [
+            f"{x.name} → {x.canonical}" for x in draft.lines if x.match_is_new and x.canonical
+        ]
+        if not matched:
+            return []
+        shown = "; ".join(matched[:MATCHES_SHOWN])
+        more = len(matched) - MATCHES_SHOWN
+        tail = f" (and {more} more)" if more > 0 else ""
+        return [f"Read as: {shown}{tail}. Say if one is wrong."]
+
     def summary(
         self,
         draft: BillDraft,
         split: DraftSplit,
-        open_prompts: Sequence[Prompt],
+        asked: Sequence[Prompt],
         min_confidence: float,
+        only_member: bool = False,
+        *,
+        new_matches: bool = True,
     ) -> str:
-        """Totals, who was skipped, new matches, unclear lines, the difference, questions."""
+        """Totals, who was skipped, new matches (the first time the draft is shown, a few at
+        most: they are for spotting a wrong one, F11), unclear lines, the difference, a
+        possible duplicate, and the questions being asked (worded by line)."""
         title = draft.description or "This bill"
         lines = [
             f"{title}, {self.money(split.lines_total_cents)}, paid by {self.name(draft.payer_id)}."
@@ -44,22 +63,24 @@ class Renderer:
             for person, cents in split.result.shares.items()
         ]
         lines += self._skipped(draft, split.resolved, split)
+        if new_matches:
+            lines += self._new_matches(draft)
         lines += [
-            f"New match: {line.name} → {line.canonical}?"
+            f"Couldn't read line {line.position} clearly: {line.name} "
+            f"{self.money(line.amount_cents)}?"
             for line in draft.lines
-            if line.match_is_new and line.canonical
-        ]
-        lines += [
-            f"Couldn't read line {n} clearly: {line.name} {self.money(line.amount_cents)}?"
-            for n, line in enumerate(draft.lines, 1)
             if line.confidence < min_confidence
         ]
         if split.difference_cents:
             lines.append(
                 f"The lines add up to {self.money(split.lines_total_cents)} but the total says "
-                f'{self.money(draft.total_cents)}. Fix a line, or say "accept the difference".'
+                f"{self.money(draft.total_cents)}. Fix a line, or keep the difference as a tip."
             )
-        lines += self.questions(draft, open_prompts)
+        if draft.possible_duplicate_of is not None:
+            lines.append(self._duplicate(draft))
+        if only_member:
+            lines.append("You're the only one here so far: ask the others to join.")
+        lines += self.questions(draft, asked)
         lines.append('Say "yes" to save it, or "details" to see every line.')
         return "\n".join(lines)
 
@@ -67,35 +88,43 @@ class Renderer:
         """The numbered list; lines can then be referred to by number or name."""
         who = {a.item_id: a.member_ids for a in split.result.assignments}
         rows = [
-            f"{n}. {line.name} {self.money(line.amount_cents)}: "
+            f"{line.position}. {line.name} {self.money(line.amount_cents)}: "
             f"{join_names([self.name(p) for p in who.get(line.id, ())])}"
-            for n, line in enumerate(draft.lines, 1)
+            for line in draft.lines
         ]
         if draft.tax_cents:
             rows.append(f"Tax {self.money(draft.tax_cents)}")
-        extras = draft.other_adjustments_cents + draft.accepted_difference_cents
-        if extras:
-            rows.append(f"Tip, charges and discounts {self.money(extras)}")
+        if draft.other_adjustments_cents:
+            rows.append(f"Tip, charges and discounts {self.money(draft.other_adjustments_cents)}")
         return "\n".join(rows)
 
-    def questions(self, draft: BillDraft, batch: Sequence[Prompt]) -> list[str]:
-        """The batch's questions still unanswered, numbered by their place in the batch, so
-        "2 no" means the same question to everyone who saw it."""
+    def questions(self, draft: BillDraft, asked: Sequence[Prompt]) -> list[str]:
+        """ "Line 4, chips: is Sam in?" for each question being asked."""
         by_id = {line.id: line for line in draft.lines}
-        asked: list[str] = []
-        for n, prompt in enumerate(batch, 1):
+        texts: list[str] = []
+        for prompt in asked:
             payload = prompt.payload
             if not isinstance(payload, EngineQuestionPayload) or payload.line_id not in by_id:
                 continue
-            if prompt.answers:
-                continue
             line = by_id[payload.line_id]
-            what = f"{line.name} ({self.money(line.amount_cents)})"
+            where = f"Line {line.position}, {line.name}"
             if payload.reason is QuestionReason.SOFT_RULE and payload.member_id:
-                asked.append(f"{n}) Does {self.name(payload.member_id)} share the {what}?")
+                texts.append(f"{where}: is {self.name(payload.member_id)} in?")
             else:
-                asked.append(f"{n}) Who shares the {what}? Rules leave nobody for it.")
-        return asked
+                texts.append(f"{where}: who is it for? Rules leave nobody for it.")
+        return texts
+
+    def _duplicate(self, draft: BillDraft) -> str:
+        found = draft.possible_duplicate_of
+        adder: str | None = None
+        if found is not None and found.bill_id is not None:
+            bill = self._uow.bills.get(found.bill_id)
+            adder = bill.added_by if bill else None
+        elif found is not None and found.draft_id is not None:
+            other = self._uow.drafts.get(found.draft_id)
+            adder = other.added_by if other else None
+        who = self.name(adder) if adder else "someone"
+        return f"Looks like {who} already added this. Keep it anyway?"
 
     def _skipped(
         self, draft: BillDraft, resolved: Sequence[ResolvedRule], split: DraftSplit

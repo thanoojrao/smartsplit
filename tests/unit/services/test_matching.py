@@ -1,6 +1,7 @@
 """Matching receipt lines to item keys, remembered per place (SPEC section 6.4)."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import pytest
 
@@ -11,6 +12,7 @@ from smartsplit.domain.model import ItemAlias, LineItem
 from smartsplit.domain.values import GroupScope, LocalScope, NotesScope
 from smartsplit.ports.llm import Canonicalizer, LlmUnavailableError
 from smartsplit.services.matching import (
+    ItemKeys,
     MatchedLines,
     load_match_inputs,
     match_lines,
@@ -32,15 +34,27 @@ def repo_with_items(*keys: str) -> InMemoryRepository:
     return repo
 
 
+@dataclass(frozen=True, slots=True)
+class Unmetered:
+    """The model port as matching sees it; the deadline and the meter are the turn's."""
+
+    inner: Canonicalizer
+
+    def canonicalize(self, name: str, known_keys: Sequence[str]) -> str:
+        return self.inner.canonicalize(name, known_keys, 30.0, lambda: None)
+
+
 def run(
     repo: InMemoryRepository,
     scope: LocalScope,
     lines: list[LineItem],
-    model: Canonicalizer | None = None,
+    model: FakeCanonicalizer | ItemKeys | None = None,
 ) -> MatchedLines:
     with repo.unit_of_work() as uow:
         inputs = load_match_inputs(uow, scope)
-    matched = match_lines(lines, inputs, model or FakeCanonicalizer(), threshold=85)
+    model = model or FakeCanonicalizer()
+    keys = Unmetered(model) if isinstance(model, FakeCanonicalizer) else model
+    matched = match_lines(lines, inputs, keys, threshold=85)
     with repo.unit_of_work() as uow:
         remember_matches(uow, matched)
     return matched

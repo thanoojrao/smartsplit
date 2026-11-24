@@ -36,7 +36,6 @@ class DraftState(StrEnum):
 
     QUEUED = "queued"
     AWAITING_PEOPLE = "awaiting_people"
-    PARSING = "parsing"
     REVIEWING = "reviewing"
     SAVED = "saved"
     CANCELLED = "cancelled"
@@ -44,20 +43,14 @@ class DraftState(StrEnum):
 
 
 class PromptKind(StrEnum):
+    """What code tracks for the bot (SPEC 4.5); the model's own questions are in the transcript."""
+
     ENGINE_QUESTION = "engine_question"
-    WHO_WITH = "who_with"
+    PENDING_ACTION = "pending_action"
     WHICH_PERSON = "which_person"
-    NEED_CONTACT = "need_contact"
-    CONFIRM_TOTAL = "confirm_total"
-    CONFIRM_LINE = "confirm_line"
-    CONFIRM_ACTION = "confirm_action"
-    JOIN_GROUP = "join_group"
-    DUPLICATE_WARNING = "duplicate_warning"
 
 
 class PromptStatus(StrEnum):
-    PENDING = "pending"
-    """Not asked yet, e.g. a later batch of questions."""
     OPEN = "open"
     ANSWERED = "answered"
     DROPPED = "dropped"
@@ -93,4 +86,11 @@ class NotificationKind(StrEnum):
     PAYMENT_REVERSED = "payment_reversed"
     SQUARE_UP = "square_up"
     REMINDER = "reminder"
-    REQUESTED_REPLY = "requested_reply"
+
+
+class PhotoOutcome(StrEnum):
+    """What reading one inbound photo found (SPEC 7)."""
+
+    RECEIPT = "receipt"
+    NOT_A_RECEIPT = "not_a_receipt"
+    UNREADABLE = "unreadable"
