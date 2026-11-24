@@ -57,10 +57,15 @@ def lock_id(key: ConversationKey) -> int:
 
 
 class SqlRepository:
-    """The Repository port on Postgres; every unit of work is one transaction."""
+    """The Repository port on Postgres; every unit of work is one transaction.
 
-    def __init__(self, engine: Engine) -> None:
+    Usage counts go through `usage_engine` when given: a turn holds a pooled connection for
+    its whole transaction and counts each model call on a second one, so with one shared pool,
+    a full pool of turns would all wait for a connection none of them gives back."""
+
+    def __init__(self, engine: Engine, usage_engine: Engine | None = None) -> None:
         self._engine = engine
+        self._usage_engine = usage_engine or engine
 
     @contextmanager
     def unit_of_work(
@@ -96,7 +101,7 @@ class SqlRepository:
 
     def count_usage(self, counter: str, day: date) -> int:
         """Its own connection and transaction, committed at once (SPEC 12.5)."""
-        with self._engine.begin() as connection:
+        with self._usage_engine.begin() as connection:
             return rule_stores.LlmUsageStore(connection).increment(counter, day)
 
 
@@ -123,6 +128,17 @@ def _take_lock(
 LOCK_NOT_AVAILABLE = "55P03"
 
 
+USAGE_POOL_SIZE = 2
+"""Usage writes are one short statement each, never waiting on anything else."""
+
+
 def connect(database_url: str) -> SqlRepository:
-    """A repository on a pooled engine; stale pooled connections are replaced transparently."""
-    return SqlRepository(create_engine(database_url, pool_pre_ping=True))
+    """A repository on pooled engines (one for turns, a small one for usage counts); stale
+    pooled connections are replaced transparently. Statement parameters are kept out of
+    error messages and logs: they hold message text and phone numbers (SPEC 12.4)."""
+    return SqlRepository(
+        create_engine(database_url, pool_pre_ping=True, hide_parameters=True),
+        create_engine(
+            database_url, pool_pre_ping=True, hide_parameters=True, pool_size=USAGE_POOL_SIZE
+        ),
+    )

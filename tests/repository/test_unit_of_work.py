@@ -2,16 +2,18 @@
 
 import threading
 import time
-from datetime import timedelta
+from dataclasses import replace
+from datetime import date, timedelta
 
 import pytest
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import Engine, create_engine, inspect, select, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from smartsplit.adapters.db.migrate import alembic_config
-from smartsplit.adapters.db.repository import SqlRepository, lock_id
+from smartsplit.adapters.db.repository import SqlRepository, connect, lock_id
 from smartsplit.adapters.db.tables import metadata
 from smartsplit.adapters.fakes.repository import InMemoryRepository
 from smartsplit.domain.enums import ConversationKind
@@ -184,3 +186,37 @@ def test_ready_when_the_database_answers_and_is_migrated(pg_url: str, clean_pg: 
     gone = create_engine("postgresql+psycopg://nobody@127.0.0.1:1/none")
     assert not SqlRepository(gone).ready()
     gone.dispose()
+
+
+@pytest.mark.db
+def test_turns_holding_every_pooled_connection_can_still_count_usage(
+    pg_url: str, clean_pg: Engine
+) -> None:
+    # SPEC 12.2, 12.5: each turn holds a connection and counts its model calls on another
+    repo = connect(pg_url)
+    turns = 15  # the main pool's size plus its overflow
+    everyone_in = threading.Barrier(turns, timeout=10)
+    counted: list[int] = []
+
+    def turn(number: int) -> None:
+        with repo.unit_of_work(lock=ConversationKey("cli", f"chat-{number}")):
+            everyone_in.wait()
+            counted.append(repo.count_usage("install", date(2026, 11, 24)))
+
+    workers = [threading.Thread(target=turn, args=(n,)) for n in range(turns)]
+    started = time.monotonic()
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    assert sorted(counted) == list(range(1, turns + 1))
+    assert time.monotonic() - started < 10
+
+
+@pytest.mark.db
+def test_a_failed_statement_doesnt_carry_its_parameters(pg_url: str, clean_pg: Engine) -> None:
+    # SPEC 12.4: errors get logged, and parameters hold message text and phone numbers
+    repo = connect(pg_url)
+    with pytest.raises(SQLAlchemyError) as raised, repo.unit_of_work() as uow:
+        uow.people.add(replace(person("sam"), display_name="Sam\0 +919876500002"))
+    assert "+919876500002" not in str(raised.value)

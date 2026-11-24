@@ -304,6 +304,8 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 
 - **Saved split = shown split:** a draft summary's (and details') reference carries a fingerprint of the shares shown; `confirm_draft` re-shows and refuses when the current split's fingerprint differs, even at the same version. Why: covers every rule write (said here, applied by a pending yes, learned from another bill) in one place, instead of bumping every affected draft from each writer.
 - **Personal bill version:** a pending change to a personal bill is pinned to the bills among exactly that bill's people, not every personal bill in the install. Why: other people's bills made a "yes" stale.
+- **Usage pool:** `connect` gives usage counts their own engine with a pool of 2 (plus overflow); a turn holds its transaction's connection and counts each model call on a second one, so one shared pool deadlocked once every connection was held by a turn. Why: no sizing rule to keep in step with worker concurrency.
+- **Hidden parameters:** every engine is created with `hide_parameters=True`. Why: SQL errors and logs otherwise carry message text and phone numbers (SPEC 12.4).
 
 
 (nothing open)

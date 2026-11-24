@@ -25,7 +25,7 @@ MIGRATION_LOCK_ID = 0x534D53_4D49475241
 
 def upgrade_to_head(database_url: str) -> None:
     """Bring the database schema up to date; several workers starting at once take turns."""
-    engine = create_engine(database_url)
+    engine = create_engine(database_url, hide_parameters=True)
     try:
         with engine.connect() as connection:
             connection.execute(select(func.pg_advisory_lock(MIGRATION_LOCK_ID)))
