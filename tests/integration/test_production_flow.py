@@ -509,3 +509,31 @@ def test_the_one_tap_link_is_kept_in_the_transcript_and_never_posted_unasked() -
     quiet = replace(world.message(RAJ, FLAT, event=left, addressed=False), sender_ref="lid:raj")
     assert world.send(replace(quiet, sender_phone=None)) == ""
     assert world.transcript(FLAT)[-1].text == reply
+
+
+def test_nul_characters_never_reach_the_model_or_the_transcript() -> None:
+    # Postgres can't store NUL; the gateway or CLI may pass one through
+    world = World()
+    world.say(YOU, None, "hi")
+    message = replace(world.message(YOU, None, "lunch\x00 300"), sender_name="Al\x00ex")
+    world.send(message, [say("Got it.")])
+    assert "lunch 300" in world.turn_input and "\x00" not in world.turn_input
+    assert world.transcript(None, YOU)[-2].text == "lunch 300"
+
+
+def test_two_refs_of_one_person_map_to_them_and_a_1_1_message_links_the_hidden_id() -> None:
+    # A6: number and hidden id together; A7: someone told "message me 1:1" does, and their
+    # hidden id from then on means them
+    world = World()
+    flat(world, YOU, SAM)
+    hidden = replace(world.message(RAJ, FLAT, "hi"), sender_ref="lid:raj", sender_phone=None)
+    assert world.send(hidden) == NEEDS_NUMBER.format(link=world.settings.bot_link)
+    first = replace(world.message(RAJ, None, "hi"), sender_alt_ref="lid:raj")
+    world.send(first, [say("Hi Raj.")])
+    raj = world.person(RAJ)
+    with world.repository.unit_of_work() as uow:
+        identities = {i.external_ref: i.person_id for i in uow.identities.for_person(raj.id)}
+    assert identities == {RAJ.phone: raj.id, "lid:raj": raj.id}
+    again = replace(world.message(RAJ, FLAT, "join"), sender_ref="lid:raj", sender_phone=None)
+    world.send(again, [call("join_group")])
+    assert "Raj joined Flat 4B." in world.in_chat(FLAT)

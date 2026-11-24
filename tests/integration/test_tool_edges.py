@@ -107,13 +107,17 @@ def test_a_queued_bill_cant_be_edited_yet() -> None:
     flat(world, YOU, SAM)
     manual(world)
     world.say(YOU, FLAT, "another", call("start_receipt"), image=receipt("restaurant_tip"))
+    before = world.drafts(FLAT)
+    assert before[1].state is DraftState.QUEUED
     world.say(
         YOU,
         FLAT,
         "edit the second",
         call("edit_draft", draft="D2", change={"type": "SetTotal", "amount": "10"}),
     )
-    assert result(world).error is not None
+    # a queued bill gets no handle until it starts, so the model can't even name it
+    assert result(world).error == "D2 isn't a D handle from this conversation."
+    assert world.drafts(FLAT) == before
 
 
 def test_filing_refusals() -> None:
