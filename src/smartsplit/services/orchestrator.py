@@ -8,7 +8,7 @@ person is asked to try again; the photo read and the usage counts survive. A cha
 busy longer than the lock wait is answered "busy" (HTTP 503), and the gateway retries.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 
 from smartsplit.domain.enums import ConversationKind, PhotoOutcome
@@ -106,10 +106,17 @@ class Orchestrator:
             unacked = uow.tick_batches.unacked_before(now - UNACKED_AFTER)
         if unacked:
             return unacked[0]
-        messages = tuple(self._ticker.tick())
-        batch = TickBatch(self._ids.new_id(), messages, now, None if messages else now)
+        batch_id = self._ids.new_id()
         with self._repository.unit_of_work() as uow:
-            uow.tick_batches.add(batch)
+            uow.tick_batches.add(TickBatch(batch_id, (), now, None))
+        self._ticker.tick(batch_id)
+        with self._repository.unit_of_work() as uow:
+            batch = uow.tick_batches.get(batch_id)
+            if batch is None:
+                raise KeyError(batch_id)
+            if not batch.messages:
+                uow.tick_batches.ack(batch_id, now)
+                batch = replace(batch, acked_at=now)
             uow.tick_batches.delete_acked_before(now - BATCHES_KEPT)
         return batch
 

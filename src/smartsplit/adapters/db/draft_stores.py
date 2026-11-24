@@ -1,9 +1,10 @@
 """Postgres stores for receipts, drafts, prompts and processed messages."""
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from datetime import datetime
 
-from sqlalchemy import Row, delete, insert, select, update
+from sqlalchemy import Row, bindparam, delete, insert, select, update
+from sqlalchemy.dialects.postgresql import JSONB
 
 from smartsplit.adapters.db import tables as t
 from smartsplit.adapters.db.base import Store, require_one
@@ -422,6 +423,20 @@ class TickBatchStore(Store):
                 acked_at=batch.acked_at,
             )
         )
+
+    def get(self, batch_id: str) -> TickBatch | None:
+        row = self._execute(select(t.tick_batches).where(t.tick_batches.c.id == batch_id)).first()
+        return _tick_batch(row) if row else None
+
+    def append(self, batch_id: str, messages: Sequence[OutboundMessage]) -> None:
+        c = t.tick_batches.c
+        added = bindparam("added", encode(tuple(messages)), type_=JSONB)
+        result = self._execute(
+            update(t.tick_batches)
+            .where(c.id == batch_id)
+            .values(messages=c.messages.op("||")(added))
+        )
+        require_one(result.rowcount)
 
     def unacked_before(self, when: datetime) -> tuple[TickBatch, ...]:
         c = t.tick_batches.c

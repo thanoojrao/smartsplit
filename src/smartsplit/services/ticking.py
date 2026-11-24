@@ -3,7 +3,9 @@ and pruning old chat (SPEC 8.6, 10.4, 10.8; CONTRACTS section 5).
 
 Each step uses its own transactions. Delivery takes no conversation lock (the claim has its
 own), so it never waits behind a chat; a draft is changed only under its chat's lock and only
-if nothing happened to it meanwhile. Everything sent is stored in its chat's transcript.
+if nothing happened to it meanwhile. Everything sent is stored in its chat's transcript, and
+added to the tick's batch in the same transaction, so a tick that fails halfway loses nothing
+it already marked sent.
 """
 
 from dataclasses import dataclass, replace
@@ -11,7 +13,6 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from smartsplit.domain.enums import DraftState
-from smartsplit.domain.messages import OutboundMessage
 from smartsplit.domain.model import BillDraft
 from smartsplit.domain.prompts import ChatRef, Notification
 from smartsplit.ports.errors import ChatBusyError, StaleDraftError
@@ -32,16 +33,16 @@ class Ticker:
     ids: IdGenerator
     settings: OrchestratorSettings
 
-    def tick(self) -> list[OutboundMessage]:
-        """Messages for any chat; safe to run often, and from more than one process."""
+    def tick(self, batch_id: str) -> None:
+        """Messages for any chat, added to the stored batch; safe to run often, and from more
+        than one process."""
         now = self.clock.now()
-        replies = self.deliver(now)
-        replies += self.idle_drafts(now)
+        self.deliver(now, batch_id)
+        self.idle_drafts(now, batch_id)
         with self.repository.unit_of_work() as uow:
             uow.chat.delete_older_than(now - timedelta(days=self.settings.chat_history_days))
-        return replies
 
-    def deliver(self, now: datetime) -> list[OutboundMessage]:
+    def deliver(self, now: datetime, batch_id: str) -> None:
         """Claim what may be sent, one message per person, rendered with today's balances."""
         zone = ZoneInfo(self.settings.timezone)
         day_start = datetime.combine(now.astimezone(zone).date(), time(), zone)
@@ -65,27 +66,26 @@ class Ticker:
                 payments = dict.fromkeys(n.payment_id for n in batch if n.payment_id)
                 refs += tuple(ChatRef("payment", p) for p in payments if p)
                 said.append(Said(chat, text, refs))
-            return send(uow, said, now, self.settings.chat_history_keep)
+            sent = send(uow, said, now, self.settings.chat_history_keep)
+            uow.tick_batches.append(batch_id, sent)
 
-    def idle_drafts(self, now: datetime) -> list[OutboundMessage]:
+    def idle_drafts(self, now: datetime, batch_id: str) -> None:
         """One reminder after a day without activity; expired after three (SPEC 10.4)."""
         with self.repository.unit_of_work() as uow:
             due = uow.drafts.due_for_reminder_or_expiry(now - self.settings.draft_reminder_after)
-        out: list[OutboundMessage] = []
         for draft in due:
             try:
-                out += self._idle(draft, now)
+                self._idle(draft, now, batch_id)
             except (StaleDraftError, ChatBusyError):
                 continue  # someone answered meanwhile, or is talking now: next tick
-        return out
 
-    def _idle(self, seen: BillDraft, now: datetime) -> list[OutboundMessage]:
+    def _idle(self, seen: BillDraft, now: datetime, batch_id: str) -> None:
         with self.repository.unit_of_work(lock=seen.conversation, try_lock=True) as uow:
             draft = uow.drafts.get(seen.id)
             chat = uow.conversations.get(seen.conversation)
             adder = uow.people.get(seen.added_by)
             if draft != seen or chat is None or adder is None:
-                return []
+                return
             turn = Turn(uow, self.ids, now, self.settings, adder, chat)
             ref = (ChatRef("draft", draft.id, draft.version),)
             if now - draft.last_activity_at >= self.settings.draft_expires_after:
@@ -96,7 +96,8 @@ class Ticker:
                 # not a change to the bill: same version, and no new activity
                 uow.drafts.update(replace(draft, reminded_at=now), expected_version=draft.version)
                 turn.show(_nudge(draft, adder.display_name), ref)
-            return send(uow, [*turn.shown, *turn.elsewhere], now, self.settings.chat_history_keep)
+            sent = send(uow, [*turn.shown, *turn.elsewhere], now, self.settings.chat_history_keep)
+            uow.tick_batches.append(batch_id, sent)
 
 
 def _nudge(draft: BillDraft, adder: str) -> str:

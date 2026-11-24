@@ -4,12 +4,13 @@ Stores return frozen domain records; a change is written back with `update`/`put
 Queries return tuples in a stable order (stated per method).
 """
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from contextlib import AbstractContextManager
 from datetime import date, datetime
 from typing import Protocol
 
 from smartsplit.domain.enums import DraftState, NotificationKind, PromptStatus
+from smartsplit.domain.messages import OutboundMessage
 from smartsplit.domain.model import (
     AnswerObservation,
     Bill,
@@ -278,6 +279,12 @@ class NotificationStore(Protocol):
 
 class TickBatchStore(Protocol):
     def add(self, batch: TickBatch) -> None: ...
+    def get(self, batch_id: str) -> TickBatch | None: ...
+    def append(self, batch_id: str, messages: Sequence[OutboundMessage]) -> None:
+        """Add messages at the end, in the transaction that decided to send them, so nothing
+        is marked sent without being in a batch (SPEC 10.8)."""
+        ...
+
     def unacked_before(self, when: datetime) -> tuple[TickBatch, ...]:
         """Batches not acknowledged that were created before `when`, oldest first."""
         ...

@@ -3,13 +3,16 @@ mentions, quoted replies, the bot being added, daily limits, busy chats, tick ba
 per-turn report (SPEC 7, 10.1-10.3, 10.8, 12.2, 12.4, 12.5)."""
 
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
+
+import pytest
 
 from smartsplit.adapters.fakes.agent import call, say
 from smartsplit.adapters.fakes.repository import InMemoryRepository
 from smartsplit.domain.messages import ChatEvent, ContactAttachment, Mention
 from smartsplit.ports.llm import LlmUnavailableError, ParsedReceipt
 from smartsplit.services.text import NEEDS_NUMBER, OVER_LIMIT, TRY_AGAIN
+from smartsplit.services.ticking import Ticker
 from smartsplit.services.turn import OrchestratorSettings
 from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, World, calling, flat, receipt
 
@@ -263,6 +266,33 @@ def test_a_tick_batch_comes_back_until_it_is_acknowledged() -> None:
     world.clock.advance(timedelta(minutes=3))
     assert world.bot.tick().id != first.id
     assert not world.bot.ack("no-such-batch")
+
+
+def test_notices_claimed_before_a_tick_failed_still_come_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # SPEC 10.8: a notice marked sent is always in a stored batch
+    world = World()
+    for someone in (YOU, SAM):
+        world.say(someone, None, "hi")
+    world.say(YOU, None, "add Sam", call("add_person", name="Sam", phone=SAM.phone))
+    world.say(
+        YOU,
+        None,
+        "taxi",
+        calling("add_manual_bill", description="taxi", amount="300", people=["@Sam"]),
+    )
+    world.say(YOU, None, "yes", SAVE)
+
+    def broken(self: Ticker, now: datetime, batch_id: str) -> None:
+        raise RuntimeError("database went away")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(Ticker, "idle_drafts", broken)
+        with pytest.raises(RuntimeError):
+            world.bot.tick()
+    world.clock.advance(timedelta(minutes=3))
+    assert "Alex added taxi" in world.tick()
 
 
 def test_an_empty_tick_batch_can_be_acknowledged_too() -> None:

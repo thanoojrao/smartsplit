@@ -1,12 +1,13 @@
 """In-memory stores for receipts, drafts, prompts, bills, payments and the outbox."""
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from dataclasses import replace
 from datetime import datetime
 
 from smartsplit.adapters.fakes.base import insert, replace_existing, require_reference
 from smartsplit.adapters.fakes.people_stores import PeopleStore
 from smartsplit.domain.enums import DraftState, NotificationKind, PhotoOutcome, PromptStatus
+from smartsplit.domain.messages import OutboundMessage
 from smartsplit.domain.model import Bill, BillDraft, PhotoRead, Receipt, Settlement
 from smartsplit.domain.prompts import (
     ChatMessage,
@@ -272,6 +273,13 @@ class TickBatchStore:
 
     def add(self, batch: TickBatch) -> None:
         insert(self.records, batch.id, batch)
+
+    def get(self, batch_id: str) -> TickBatch | None:
+        return self.records.get(batch_id)
+
+    def append(self, batch_id: str, messages: Sequence[OutboundMessage]) -> None:
+        batch = self.records[batch_id]
+        self.records[batch_id] = replace(batch, messages=(*batch.messages, *messages))
 
     def unacked_before(self, when: datetime) -> tuple[TickBatch, ...]:
         found = [b for b in self.records.values() if b.acked_at is None and b.created_at < when]

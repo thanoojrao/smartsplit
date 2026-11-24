@@ -140,3 +140,20 @@ def test_tick_batches_wait_for_their_ack(repo: Repository) -> None:
         assert not uow.tick_batches.ack("b1", at(11))
         assert not uow.tick_batches.ack("done", at(11))
         assert uow.tick_batches.unacked_before(at(10)) == (batch("b2", 1),)
+
+
+def test_a_tick_batch_grows_as_each_step_commits(repo: Repository) -> None:
+    # SPEC 10.8: what one step sent is in the batch even if a later step fails
+    later = OutboundMessage(CHAT, "sam", "reminder")
+    with repo.unit_of_work() as uow:
+        uow.tick_batches.add(batch("b1", 0))
+        uow.tick_batches.append("b1", [later])
+        uow.tick_batches.append("b1", [])
+    with pytest.raises(ValueError), repo.unit_of_work() as uow:
+        uow.tick_batches.append("b1", [later])
+        raise ValueError("the step failed")
+    with repo.unit_of_work() as uow:
+        stored = uow.tick_batches.get("b1")
+        assert stored is not None
+        assert stored.messages == (*batch("b1", 0).messages, later)
+        assert uow.tick_batches.get("nope") is None
