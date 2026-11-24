@@ -55,3 +55,15 @@ def test_an_unaddressed_message_from_someone_waited_on_carries_a_hint() -> None:
     assert "[not addressed to you" not in world.turn_input
     world.say(SAM, None, "hi", say("Hi."))
     assert "[not addressed to you" not in world.turn_input
+
+
+def test_which_sam_in_a_group_shows_group_names_not_the_adders_nicknames() -> None:
+    # SPEC 6.1: the adder's own nicknames are private to their chat
+    world = World()
+    flat(world, YOU, SAM, OTHER_SAM, RAJ)
+    world.say(
+        YOU, None, "gym sam", call("add_person", name="Sam from the gym", phone=OTHER_SAM.phone)
+    )
+    asked = world.say(YOU, FLAT, "dinner 900 with Sam", DINNER)
+    assert asked.startswith("Which Sam?\n1. Sam, +91•••••00002\n2. Sam, +91•••••00010")
+    assert "gym" not in world.turn_input

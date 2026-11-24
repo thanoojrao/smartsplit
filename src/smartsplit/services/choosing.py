@@ -117,11 +117,13 @@ def which_questions(turn: Turn, draft: BillDraft) -> list[tuple[Prompt, WhichPer
 def option_labels(
     turn: Turn, adder_id: str, group_id: str | None, options: tuple[str, ...]
 ) -> list[str]:
-    """How each option reads, always telling them apart: the name, in a personal chat the
-    groups the adder shares with them, and a masked number when that still isn't enough."""
+    """How each option reads, always telling them apart: the name (in a group, the one the
+    group sees, never the adder's own nickname), in a personal chat the groups the adder
+    shares with them, and a masked number when that still isn't enough."""
+    viewer = None if group_id else adder_id
     labels = []
     for person_id in options:
-        name = name_for(turn.uow, adder_id, person_id)
+        name = name_for(turn.uow, viewer, person_id)
         groups = [] if group_id else known_from(turn, adder_id, person_id)
         labels.append(f"{name} ({', '.join(groups)})" if groups else name)
     clashing = {label for label in labels if labels.count(label) > 1}
