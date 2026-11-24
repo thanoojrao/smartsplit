@@ -3,6 +3,7 @@ transcripts (SPEC 8.1, 8.5, 8.6)."""
 
 from smartsplit.domain.enums import ConversationKind
 from smartsplit.domain.messages import InboundMessage, OutboundMessage
+from smartsplit.domain.prompts import ChatRef
 from smartsplit.services import transcript
 from smartsplit.services.sending import send
 from smartsplit.services.text import WELCOME
@@ -59,18 +60,30 @@ def record(
 
 
 def latest_per_draft(shown: list[Said]) -> list[Said]:
-    """A draft changed twice in one turn gets one review summary, as it ended up: an earlier
-    summary would show a state that no longer exists. Every other block (details, saved,
-    balances, another draft's summary) stays, in order."""
-    later: set[str] = set()
+    """A draft changed in one turn is shown as it ended up: an earlier summary of it, or
+    details of a version that later changed, would show a state that no longer exists.
+    Every other block (saved, balances, another draft's) stays, in order."""
+    summarized: set[str] = set()
+    newest: dict[str, int] = {}
     kept: list[Said] = []
     for block in reversed(shown):
+        if block.summary_of is not None and block.summary_of in summarized:
+            continue
+        if any(_older(ref, newest) for ref in block.refs):
+            continue
         if block.summary_of is not None:
-            if block.summary_of in later:
-                continue
-            later.add(block.summary_of)
+            summarized.add(block.summary_of)
+        for ref in block.refs:
+            if ref.kind == "draft" and ref.version is not None:
+                newest.setdefault(ref.id, ref.version)
         kept.append(block)
     return kept[::-1]
+
+
+def _older(ref: ChatRef, newest: dict[str, int]) -> bool:
+    if ref.kind != "draft" or ref.version is None:
+        return False
+    return ref.id in newest and ref.version < newest[ref.id]
 
 
 def inbound_text(message: InboundMessage) -> str:

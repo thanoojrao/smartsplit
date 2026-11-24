@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from smartsplit.adapters.fakes.repository import InMemoryRepository
 from smartsplit.adapters.llm.agent import AnthropicAgent
 from smartsplit.adapters.llm.canonicalizer import AnthropicCanonicalizer
 from smartsplit.adapters.llm.receipts import AnthropicReceiptParser, anthropic_client
@@ -15,6 +16,7 @@ from smartsplit.domain.enums import DraftState, PromptKind, PromptStatus
 from smartsplit.domain.messages import ImageAttachment
 from smartsplit.domain.model import Bill
 from smartsplit.ports.agent import AgentModel, AgentRequest, ModelStep
+from smartsplit.ports.repository import Repository
 from smartsplit.services.handles import HANDLE
 from smartsplit.services.reports import group_report, person_report
 from tests.integration.world import Someone, World, flat
@@ -115,11 +117,15 @@ class Live:
         ]
 
 
-def live(request: pytest.FixtureRequest, *people: Someone) -> Live:
-    """Flat 4B with these people (scripted), then the real chat model from here on."""
+def live(
+    request: pytest.FixtureRequest, *people: Someone, repository: Repository | None = None
+) -> Live:
+    """Flat 4B with these people (scripted), then the real chat model from here on; on the
+    in-memory fakes unless a repository (Postgres) is given."""
     client = anthropic_client(live_key(), timeout_seconds=60)
     switch = Switch()
     world = World(
+        repository=repository or InMemoryRepository(),
         model=switch,
         receipts=AnthropicReceiptParser(
             client, model=RECEIPT_MODEL, max_tokens=16000, max_lines=150
@@ -135,6 +141,14 @@ def live(request: pytest.FixtureRequest, *people: Someone) -> Live:
     session = Live(world, switch, real, log)
     session.go_live()
     return session
+
+
+GROCERY = Path(__file__).parents[1] / "fixtures" / "receipts" / "live_grocery_receipt.png"
+"""19 lines, ₹5,967.00 + 5% GST = ₹6,265.35 (Freshmart, 22-11-2026)."""
+
+
+def grocery() -> ImageAttachment:
+    return ImageAttachment("image/png", GROCERY.read_bytes())
 
 
 def photo() -> ImageAttachment:

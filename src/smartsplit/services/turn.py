@@ -82,6 +82,8 @@ class Turn:
     """A contact card that came with this message."""
     canonicalizer: Canonicalizer | None = None
     """Item names for receipt lines; counted and never failing the turn (SPEC 8.7)."""
+    quoted: tuple[ChatRef, ...] = ()
+    """What the bot message this one replies to showed (SPEC 8.6)."""
     handles: Handles = field(default_factory=Handles)
     shown: list[Said] = field(default_factory=list)
     """Blocks rendered by code for this chat, appended to the model's reply as they are."""

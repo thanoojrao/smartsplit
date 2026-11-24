@@ -12,6 +12,9 @@ from smartsplit.ports.repository import UnitOfWork
 from smartsplit.services.splitting import DraftSplit
 from smartsplit.services.text import join_names, money, name_for
 
+MATCHES_SHOWN = 3
+"""New item matches listed in a summary; a long receipt would otherwise list every line."""
+
 
 class Renderer:
     """Renders for one viewer (None in a group chat, where display names are used)."""
@@ -27,6 +30,17 @@ class Renderer:
     def money(self, cents: int) -> str:
         return money(cents, self._currency)
 
+    def _new_matches(self, draft: BillDraft) -> list[str]:
+        matched = [
+            f"{x.name} → {x.canonical}" for x in draft.lines if x.match_is_new and x.canonical
+        ]
+        if not matched:
+            return []
+        shown = "; ".join(matched[:MATCHES_SHOWN])
+        more = len(matched) - MATCHES_SHOWN
+        tail = f" (and {more} more)" if more > 0 else ""
+        return [f"Read as: {shown}{tail}. Say if one is wrong."]
+
     def summary(
         self,
         draft: BillDraft,
@@ -34,9 +48,12 @@ class Renderer:
         asked: Sequence[Prompt],
         min_confidence: float,
         only_member: bool = False,
+        *,
+        new_matches: bool = True,
     ) -> str:
-        """Totals, who was skipped, new matches, unclear lines, the difference, a possible
-        duplicate, and the questions being asked (worded by line)."""
+        """Totals, who was skipped, new matches (the first time the draft is shown, a few at
+        most: they are for spotting a wrong one, F11), unclear lines, the difference, a
+        possible duplicate, and the questions being asked (worded by line)."""
         title = draft.description or "This bill"
         lines = [
             f"{title}, {self.money(split.lines_total_cents)}, paid by {self.name(draft.payer_id)}."
@@ -46,11 +63,8 @@ class Renderer:
             for person, cents in split.result.shares.items()
         ]
         lines += self._skipped(draft, split.resolved, split)
-        lines += [
-            f"New match: {line.name} → {line.canonical}?"
-            for line in draft.lines
-            if line.match_is_new and line.canonical
-        ]
+        if new_matches:
+            lines += self._new_matches(draft)
         lines += [
             f"Couldn't read line {line.position} clearly: {line.name} "
             f"{self.money(line.amount_cents)}?"

@@ -320,6 +320,7 @@ class Orchestrator:
         quoted = quoted_message(
             turn.uow, turn.conversation.key, message.quoted_text, settings.chat_history_keep
         )
+        turn.quoted = quoted.refs if quoted else ()
         turn_input = build_turn_input(
             turn, message, incoming.photo, welcomed=welcomed, mentions=people, quoted=quoted
         )

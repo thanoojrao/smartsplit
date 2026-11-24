@@ -124,9 +124,14 @@ def _confirm_draft(turn: Turn, args: ConfirmDraft) -> Data:
     seen = last_shown_version(
         turn.uow, turn.conversation.key, found.id, turn.settings.chat_history_keep
     )
-    if seen != found.version:
+    answered = [r.version for r in turn.quoted if r.kind == "draft" and r.id == found.id]
+    if seen != found.version or any(version != found.version for version in answered):
+        # a "yes" quoting an older summary answers that one, not what the bill is now (G4)
         present(turn, found)
-        return {"saved": False, "why": "it changed since the adder saw it; the new split is shown"}
+        return {
+            "saved": False,
+            "why": "it changed since the summary the adder said yes to; the new split is shown",
+        }
     if found.possible_duplicate_of is not None and not args.keep_duplicate:
         return {"saved": False, "why": "it looks like a duplicate: ask whether to keep it"}
     difference = split_of(turn, found).difference_cents
@@ -154,7 +159,8 @@ SAVING_TOOLS: tuple[Tool[Any], ...] = (
     ),
     Tool(
         "file_into_group",
-        "File a draft from the speaker's own chat into one of their groups.",
+        "File a draft from the speaker's own chat into one of their groups. If they named the "
+        "group for a new bill, do it in the same turn the bill is started, before they see it.",
         FileIntoGroup,
         _file_into_group,
     ),

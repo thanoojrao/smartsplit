@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import timedelta
 
 from smartsplit.adapters.fakes.agent import call, say
+from smartsplit.adapters.fakes.llm import FakeCanonicalizer
 from smartsplit.domain.enums import DraftState
 from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, World, calling, flat, receipt
 
@@ -477,3 +478,34 @@ def test_a_draft_changed_twice_in_one_turn_is_shown_once() -> None:
     )
     assert shown.count("Toit, ") == 1
     assert "paid by Sam" in shown
+
+
+def test_new_matches_are_listed_once_and_briefly() -> None:
+    # F11: shown the first time, at most three by name, so a long receipt stays readable
+    names = {"2% MLK GAL": "milk", "Bread": "loaf", "Red Wine": "wine", "Chips": "crisps"}
+    world = World(canonical=FakeCanonicalizer(names))
+    flat(world, YOU, SAM)
+    first = photo(world, "grocery_taxed_mix")
+    assert "Read as: 2% MLK GAL → milk; Bread → loaf; Red Wine → wine (and 1 more)." in first
+    again = edit(world, {"type": "SetLineAmount", "line": "L2", "amount": "50"})
+    assert "Read as:" not in again
+
+
+def test_a_yes_quoting_an_older_summary_is_not_a_yes_to_the_new_one() -> None:
+    # G4: Sam changed the bill; Alex's yes answers the summary he quoted
+    world = World()
+    flat(world, YOU, SAM, RAJ)
+    first = photo(world)
+    world.say(
+        SAM,
+        FLAT,
+        "raj wasn't there",
+        calling("edit_draft", draft="@D", change={"type": "RemovePeople", "people": ["@Raj"]}),
+    )
+    quoting = world.message(
+        YOU, FLAT, "yes", addressed=False, reply_to_bot=True, quoted_text=first[:40]
+    )
+    reshown = world.send(quoting, [SAVE])
+    assert [d.state for d in world.drafts(FLAT)] == [DraftState.REVIEWING]
+    assert "Toit, ₹2,047.00, paid by Alex." in reshown
+    assert "Raj" not in reshown.split("paid by Alex.", 1)[1]

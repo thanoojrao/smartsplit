@@ -17,6 +17,7 @@ from smartsplit.ports.repository import ACTIVE_DRAFT_STATES
 from smartsplit.services.errors import NotAllowedError
 from smartsplit.services.splitting import DraftSplit, compute_split
 from smartsplit.services.summary import Renderer
+from smartsplit.services.transcript import last_shown_version
 from smartsplit.services.turn import Turn
 
 
@@ -139,8 +140,16 @@ def present(turn: Turn, draft: BillDraft) -> None:
     split = split_of(turn, draft)
     questions = sync_questions(turn, draft, split)
     asked = [q for q in questions if not q.answers][: turn.settings.questions_shown]
+    shown_before = last_shown_version(
+        turn.uow, draft.conversation, draft.id, turn.settings.chat_history_keep
+    )
     text = renderer_for(turn).summary(
-        draft, split, asked, turn.settings.min_line_confidence, _single_member(turn, draft)
+        draft,
+        split,
+        asked,
+        turn.settings.min_line_confidence,
+        _single_member(turn, draft),
+        new_matches=shown_before is None,
     )
     refs = (
         ChatRef("draft", draft.id, draft.version),
