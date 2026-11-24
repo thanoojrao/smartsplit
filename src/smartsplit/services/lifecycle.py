@@ -6,7 +6,7 @@ from smartsplit.domain.enums import DraftState
 from smartsplit.domain.model import BillDraft
 from smartsplit.domain.prompts import ChatRef
 from smartsplit.domain.values import PersonalContext
-from smartsplit.services.choosing import show_waiting
+from smartsplit.services.choosing import ask_which
 from smartsplit.services.drafting import change, drop_prompts, present
 from smartsplit.services.turn import Turn
 
@@ -39,7 +39,7 @@ def start_next(turn: Turn, ended: BillDraft) -> None:
         present(turn, started)
     elif started.waiting_for:
         turn.post(chat, f"Next up, the {started.description} bill.")
-        show_waiting(turn, started)
+        ask_which(turn, started)
     else:
         ref = ChatRef("draft", started.id, started.version)
         turn.post(chat, f"Next up, the {started.description} bill. Who's it with?", (ref,))

@@ -47,6 +47,7 @@ class PromptKind(StrEnum):
 
     ENGINE_QUESTION = "engine_question"
     PENDING_ACTION = "pending_action"
+    WHICH_PERSON = "which_person"
 
 
 class PromptStatus(StrEnum):

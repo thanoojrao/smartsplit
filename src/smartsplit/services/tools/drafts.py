@@ -24,7 +24,7 @@ from smartsplit.services.bill_start import (
     start_bill,
     with_duplicate_check,
 )
-from smartsplit.services.choosing import choices, show_waiting
+from smartsplit.services.choosing import ask_which, pick
 from smartsplit.services.drafting import (
     Totals,
     change,
@@ -150,19 +150,10 @@ def _edit_draft(turn: Turn, args: EditDraft) -> Data:
 
 
 def _pick_person(turn: Turn, args: PickPerson) -> Data:
-    """One of the numbered people code listed for a name: added like "add Sam", and that
-    name means them for the speaker from now on (L5)."""
-    found = refs.reviewable(turn, args.draft)
-    wanted = args.name.strip().casefold()
-    name = next((n for n in found.waiting_for if n.casefold() == wanted), None)
-    if name is None:
-        raise NotAllowedError(f"That bill isn't waiting to know who {args.name} is.")
-    meant = choices(turn, name)
-    if not 1 <= args.option <= len(meant):
-        raise NotAllowedError(f"Pick a number from 1 to {len(meant)}.")
-    picked = meant[args.option - 1]
-    edited = apply_change(turn, found, AddPeople((picked,)), lambda person_id: person_id)
-    return _show_changed(turn, found, _found_people(turn, found, edited))
+    """The adder's answer to a "Which Sam?" list (L5)."""
+    found, edited = pick(turn, refs.question(turn, args.question), args.option)
+    refs.reviewable(turn, refs.draft_handle(turn, found))  # in this chat, still open
+    return _show_changed(turn, found, edited)
 
 
 def _show_changed(turn: Turn, found: BillDraft, edited: BillDraft) -> Data:
@@ -171,7 +162,7 @@ def _show_changed(turn: Turn, found: BillDraft, edited: BillDraft) -> Data:
         shown = with_duplicate_check(turn, shown)
         present(turn, shown)
     elif shown.state is DraftState.AWAITING_PEOPLE:
-        show_waiting(turn, shown)
+        ask_which(turn, shown)
     return {"draft": refs.draft_handle(turn, shown), "state": shown.state.value}
 
 
@@ -183,11 +174,11 @@ def _found_people(turn: Turn, before: BillDraft, after: BillDraft) -> BillDraft:
     region = turn.settings.default_region
     left: list[str] = []
     for name in after.waiting_for:
-        meant = set(candidates(turn.uow, turn.speaker.id, name, region))
+        meant = set(candidates(turn.uow, after.added_by, name, region))
         picked = added & meant
         if not picked:
             left.append(name)
-        elif len(meant) > 1 and len(picked) == 1:
+        elif len(meant) > 1 and len(picked) == 1 and turn.speaker.id == after.added_by:
             set_nickname(turn, picked.pop(), name)
     personal_alone = isinstance(after.context, PersonalContext) and len(after.participants) == 1
     state = after.state
@@ -227,8 +218,8 @@ DRAFT_TOOLS: tuple[Tool[Any], ...] = (
     ),
     Tool(
         "pick_person",
-        'The answer to a numbered "Which Sam?" list shown for a bill: the name and the number '
-        'picked ("2", "the Goa one" → the option shown with Goa).',
+        'The adder\'s answer to a "Which Sam?" list for a bill: the question (Q) and the '
+        'number picked ("2", or "the Goa one" for the option shown with Goa).',
         PickPerson,
         _pick_person,
     ),

@@ -167,3 +167,13 @@ def test_chatter_in_the_group_is_left_alone(request: pytest.FixtureRequest) -> N
     calls = s.world.model_calls("install")
     assert s.world.say(SAM, FLAT, "bro the wifi is down again", addressed=False) == ""
     assert s.world.model_calls("install") == calls
+
+
+def test_which_sam_in_a_group(request: pytest.FixtureRequest) -> None:
+    # L5 in a group: the list is code's, the adder picks, only the adder and that Sam pay
+    other_sam = Someone("Sam", "+919876500010")
+    s = live(request, YOU, SAM, other_sam, RAJ)
+    asked = s.say(YOU, FLAT, "dinner 900 with sam")
+    assert "Which Sam?" in asked
+    s.say(YOU, FLAT, "the second one")
+    assert s.participants(FLAT) == {s.world.person(YOU).id, s.world.person(other_sam).id}

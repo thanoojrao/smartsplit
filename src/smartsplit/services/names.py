@@ -42,20 +42,32 @@ def candidates(
     within: Collection[str] | None = None,
 ) -> tuple[str, ...]:
     """Who `said` can mean: a number, else the speaker's nickname, else display names."""
+    return meant_by(uow, speaker_id, said, region, within)[0]
+
+
+def meant_by(
+    uow: UnitOfWork,
+    speaker_id: str,
+    said: str,
+    region: str,
+    within: Collection[str] | None = None,
+) -> tuple[tuple[str, ...], bool]:
+    """Who `said` can mean, and whether that is sure: a number, the speaker's nickname or a
+    full display name is; a word of a longer name ("Sam" for "Sam Rao") isn't."""
     people = known_people(uow, speaker_id, within)
     by_phone = _by_phone(uow, people, said, region)
     if by_phone is not None:
-        return (by_phone,)
+        return (by_phone,), True
     key = normalize_item_name(said)
     if not key:
-        return ()
+        return (), False
     nicknamed = [
         n.subject_id
         for n in uow.nicknames.for_owner(speaker_id)
         if n.name == key and n.subject_id in people
     ]
     if nicknamed:
-        return tuple(dict.fromkeys(nicknamed))
+        return tuple(dict.fromkeys(nicknamed)), True
     exact: list[str] = []
     partial: list[str] = []
     for person_id in people:
@@ -65,7 +77,7 @@ def candidates(
             exact.append(person_id)
         elif key in name.split():
             partial.append(person_id)
-    return tuple(exact or partial)
+    return (tuple(exact), True) if exact else (tuple(partial), False)
 
 
 def _by_phone(uow: UnitOfWork, people: Collection[str], said: str, region: str) -> str | None:

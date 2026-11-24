@@ -1,5 +1,6 @@
 """Personal splits in a 1:1 chat with the bot (use cases D1-D9, L1, L5)."""
 
+from dataclasses import replace
 from datetime import timedelta
 
 from smartsplit.adapters.fakes.agent import call, calls, say
@@ -300,23 +301,25 @@ def two_sams(world: World) -> Someone:
     return other_sam
 
 
+LUNCH = call("add_manual_bill", description="lunch", amount="600", unknown_names=["Sam"])
+
+
 def test_a_name_for_several_people_gets_a_numbered_choice_and_is_remembered() -> None:
     # L5: code lists the choices; the model only picks a number; the pick becomes a nickname
     world = World()
     other_sam = two_sams(world)
-    lunch = call("add_manual_bill", description="lunch", amount="600", unknown_names=["Sam"])
-    asked = world.say(YOU, None, "lunch 600 with Sam", lunch)
+    asked = world.say(YOU, None, "lunch 600 with Sam", LUNCH)
     assert asked == "Which Sam?\n1. Sam (Flat 4B)\n2. Sam (Goa trip)"
     assert world.drafts(None, YOU)[0].state is DraftState.AWAITING_PEOPLE
-    shown = world.say(
-        YOU, None, "the goa one", calling("pick_person", draft="@D", name="sam", option=2)
-    )
+    world.say(YOU, None, "hm", say(""))
+    assert "which Sam? Q1 (answer with pick_person): 1. P" in world.turn_input
+    shown = world.say(YOU, None, "the goa one", calling("pick_person", question="@Q", option=2))
     assert "Sam: ₹300.00" in shown
     draft = world.drafts(None, YOU)[0]
     assert (draft.state, draft.waiting_for) == (DraftState.REVIEWING, ())
     assert world.person(other_sam).id in draft.participants
-    coffee = call("add_manual_bill", description="coffee", amount="300", unknown_names=["Sam"])
     world.say(YOU, None, "yes", calling("confirm_draft", draft="@D"))
+    coffee = call("add_manual_bill", description="coffee", amount="300", unknown_names=["Sam"])
     again = world.say(YOU, None, "coffee 300 with Sam", coffee)
     assert "Which Sam?" not in again
     assert "Sam: ₹150.00" in again
@@ -324,26 +327,69 @@ def test_a_name_for_several_people_gets_a_numbered_choice_and_is_remembered() ->
     assert world.person(other_sam).id in newest.participants
 
 
-def test_a_pick_outside_the_list_or_for_another_name_is_refused() -> None:
+def test_the_numbers_mean_who_was_shown_even_if_names_change() -> None:
+    # the list is stored with the question, not rebuilt
+    world = World()
+    other_sam = two_sams(world)
+    world.say(YOU, None, "lunch 600 with Sam", LUNCH)
+    goa_sam = world.person(other_sam).id
+    with world.repository.unit_of_work() as uow:
+        person = uow.people.get(goa_sam)
+        assert person is not None
+        uow.people.update(replace(person, display_name="Aaron Sam"))
+    world.say(YOU, None, "2", calling("pick_person", question="@Q", option=2))
+    assert goa_sam in world.drafts(None, YOU)[0].participants
+
+
+def test_a_pick_outside_the_list_or_by_someone_else_is_refused() -> None:
     world = World()
     two_sams(world)
-    lunch = call("add_manual_bill", description="lunch", amount="600", unknown_names=["Sam"])
-    world.say(YOU, None, "lunch 600 with Sam", lunch)
-    world.say(YOU, None, "3", calling("pick_person", draft="@D", name="Sam", option=3))
+    world.say(YOU, None, "lunch 600 with Sam", LUNCH)
+    world.say(YOU, None, "3", calling("pick_person", question="@Q", option=3))
     assert world.agent.requests[-1].history[-1][1][0].error == "Pick a number from 1 to 2."
-    world.say(YOU, None, "raj", calling("pick_person", draft="@D", name="Raj", option=1))
-    error = world.agent.requests[-1].history[-1][1][0].error
-    assert error == "That bill isn't waiting to know who Raj is."
 
 
 def test_a_name_that_means_one_person_joins_the_bill_at_once() -> None:
     # the model wasn't sure; code finds exactly one Sam
     world = World()
     flat(world, YOU, SAM)
-    lunch = call("add_manual_bill", description="lunch", amount="600", unknown_names=["Sam"])
-    shown = world.say(YOU, None, "lunch 600 with Sam", lunch)
+    shown = world.say(YOU, None, "lunch 600 with Sam", LUNCH)
     assert "Sam: ₹300.00" in shown
     assert world.drafts(None, YOU)[0].state is DraftState.REVIEWING
+
+
+def test_a_partial_name_match_is_asked_not_assumed() -> None:
+    # "Sam" for "Sam Rao" might be someone new
+    world = World()
+    sam_rao = Someone("Sam Rao", SAM.phone)
+    flat(world, YOU, sam_rao)
+    asked = world.say(YOU, None, "lunch 600 with Sam", LUNCH)
+    assert asked == "Which Sam?\n1. Sam Rao (Flat 4B)"
+    assert world.drafts(None, YOU)[0].state is DraftState.AWAITING_PEOPLE
+
+
+def test_people_with_the_same_name_and_groups_are_told_apart() -> None:
+    world = World()
+    other_sam = Someone("Sam", "+919876500010")
+    flat(world, YOU, SAM, other_sam)
+    asked = world.say(YOU, None, "lunch 600 with Sam", LUNCH)
+    assert asked == ("Which Sam?\n1. Sam (Flat 4B), +91•••••00002\n2. Sam (Flat 4B), +91•••••00010")
+
+
+def test_two_unsure_names_are_settled_one_at_a_time() -> None:
+    world = World()
+    other_sam = two_sams(world)
+    world.say(YOU, None, "hi", say(""))
+    both = call(
+        "add_manual_bill", description="lunch", amount="900", unknown_names=["Sam", "Meera"]
+    )
+    asked = world.say(YOU, None, "lunch 900 with Sam and Meera", both)
+    assert "Which Sam?" in asked and "I don't know Meera yet" in asked
+    left = world.say(YOU, None, "2", calling("pick_person", question="@Q", option=2))
+    assert left == "I don't know Meera yet: send their contact card or number."
+    draft = world.drafts(None, YOU)[0]
+    assert draft.waiting_for == ("Meera",)
+    assert world.person(other_sam).id in draft.participants
 
 
 def test_a_name_that_means_nobody_asks_for_a_number() -> None:

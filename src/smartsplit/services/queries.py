@@ -21,15 +21,8 @@ def get_balances(turn: Turn, other: str | None, group_id: str | None, overall: b
     """Show balances; True if (part of) the answer went to the asker's personal chat."""
     uow, me, currency = turn.uow, turn.speaker.id, turn.settings.currency
     here = turn.conversation.group_id
-    if here is not None:
-        if group_id is not None and group_id != here:
-            wider = (
-                between_text(uow, me, other, currency)
-                if other
-                else group_balances_text(uow, group_id, currency)
-            )
-            return send_privately(turn, wider)
-        if not overall or group_id == here:
+    if here is not None:  # a group turn only has this group's handle (SPEC 10.7)
+        if not overall or group_id is not None:
             turn.show(
                 _pair_here(turn, here, other) if other else group_balances_text(uow, here, currency)
             )

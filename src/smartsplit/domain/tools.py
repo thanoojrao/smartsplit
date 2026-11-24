@@ -175,9 +175,8 @@ type DraftChange = (
 class PickPerson:
     """The answer to a "Which Sam?" list the bot showed for a bill."""
 
-    draft: Handle
-    name: str
-    """The name the list was for, as shown ("Sam")."""
+    question: Handle
+    """The "which person" question (Q) the list belongs to."""
     option: int
     """The number of the person picked (1 for the first)."""
 

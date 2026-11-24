@@ -78,7 +78,11 @@ def _find_person(turn: Turn, args: FindPerson) -> Data:
             {
                 "person": refs.person_handle(turn, person_id),
                 "name": name_for(turn.uow, turn.viewer, person_id),
-                "known_from": known_from(turn, person_id),
+                "known_from": (
+                    [turn.conversation.name or "this group"]
+                    if group_id
+                    else known_from(turn, turn.speaker.id, person_id)
+                ),
             }
         )
     return {"matches": people}
@@ -88,7 +92,7 @@ READ_TOOLS: tuple[Tool[Any], ...] = (
     Tool(
         "get_balances",
         "Show balances: here (default), with one person, for one group, or overall. In a "
-        "group chat, overall or other groups are sent privately.",
+        "group chat the overall answer is sent privately; this group plus overall shows both.",
         GetBalances,
         _get_balances,
         "past_members",

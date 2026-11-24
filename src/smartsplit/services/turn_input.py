@@ -14,7 +14,9 @@ from smartsplit.domain.enums import DraftState, PhotoOutcome
 from smartsplit.domain.messages import InboundMessage, Mention
 from smartsplit.domain.model import BillDraft, PhotoRead
 from smartsplit.domain.prompts import ChatMessage, ChatRef, PendingActionPayload
+from smartsplit.domain.values import PersonalContext
 from smartsplit.ports.repository import OPEN_DRAFT_STATES
+from smartsplit.services.choosing import option_labels, which_questions
 from smartsplit.services.drafting import open_questions, split_of
 from smartsplit.services.gating import addressed
 from smartsplit.services.names import known_people
@@ -135,6 +137,15 @@ def _draft(turn: Turn, draft: BillDraft) -> list[str]:
     rows = [head]
     if draft.waiting_for:
         rows.append(f"  names not found yet: {_text(', '.join(draft.waiting_for))}")
+    group_id = None if isinstance(draft.context, PersonalContext) else draft.context.group_id
+    for prompt, payload in which_questions(turn, draft):
+        q = turn.handles.issue("question", prompt.id, "that question")
+        labels = option_labels(turn, draft.added_by, group_id, payload.options)
+        options = ", ".join(
+            f"{n}. {turn.handles.issue('person', p, label)} {_text(label)}"
+            for n, (p, label) in enumerate(zip(payload.options, labels, strict=True), start=1)
+        )
+        rows.append(f"  which {_text(payload.name)}? {q} (answer with pick_person): {options}")
     rows.append(f"  paid by {_person(turn, draft.payer_id)}")
     if draft.state is not DraftState.REVIEWING:
         rows.append(f"  people so far: {', '.join(_person(turn, p) for p in draft.participants)}")

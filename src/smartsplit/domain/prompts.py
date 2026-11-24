@@ -53,7 +53,16 @@ class PendingActionPayload:
     """A proposal is never confirmed in the turn that made it (SPEC 8.4)."""
 
 
-type PromptPayload = EngineQuestionPayload | PendingActionPayload
+@dataclass(frozen=True, slots=True)
+class WhichPersonPayload:
+    """ "Which Sam?" for a bill: the name as said and the people offered, in the order shown,
+    so the answer's number means exactly who was listed (L5)."""
+
+    name: str
+    options: tuple[str, ...]
+
+
+type PromptPayload = EngineQuestionPayload | PendingActionPayload | WhichPersonPayload
 
 
 @dataclass(frozen=True, slots=True)
