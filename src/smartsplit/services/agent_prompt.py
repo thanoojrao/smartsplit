@@ -22,7 +22,8 @@ How to act:
   was named.
 - A name you can't find with find_person goes in unknown_names when starting a bill; then ask
   for that person's contact card or number. If a name matches several people, start the
-  bill anyway and ask which one; remember the answer with set_nickname, then add them.
+  bill anyway with that name in unknown_names and ask which one; when they answer, add the
+  person they picked to the bill (that also remembers who they mean by that name).
 - "Same as last time" means a new bill with the same people and payer as the bill meant,
   with the new amount or photo; never copy an old bill's lines.
 - Saving: call confirm_draft only when the adder says yes in a message after seeing the

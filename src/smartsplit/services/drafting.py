@@ -147,7 +147,7 @@ def present(turn: Turn, draft: BillDraft) -> None:
         *(ChatRef("question", q.id) for q in asked),
     )
     chat = turn.uow.conversations.get(draft.conversation) or turn.conversation
-    turn.post(chat, text, refs)
+    turn.post(chat, text, refs, summary_of=draft.id)
 
 
 def _single_member(turn: Turn, draft: BillDraft) -> bool:

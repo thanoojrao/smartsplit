@@ -18,11 +18,13 @@ import pytest
 
 from smartsplit.adapters.fakes.agent import call
 from smartsplit.adapters.llm.agent import AnthropicAgent
+from smartsplit.adapters.llm.canonicalizer import AnthropicCanonicalizer
 from smartsplit.adapters.llm.receipts import AnthropicReceiptParser, anthropic_client
 from smartsplit.domain.enums import DraftState, PromptKind, PromptStatus
 from smartsplit.domain.messages import ImageAttachment
 from smartsplit.domain.model import Bill
 from smartsplit.ports.agent import AgentModel, AgentRequest, ModelStep
+from smartsplit.services.handles import HANDLE
 from smartsplit.services.reports import person_report
 from tests.integration.world import FLAT, RAJ, SAM, YOU, Someone, World, flat
 from tests.live.keys import live_key
@@ -33,19 +35,23 @@ pytestmark = [pytest.mark.live, pytest.mark.enable_socket]
 CHAT_MODEL = os.environ.get("SMARTSPLIT_LIVE_CHAT_MODEL", "claude-haiku-5-5")
 RECEIPT_MODEL = os.environ.get("SMARTSPLIT_RECEIPT_MODEL", "claude-sonnet-5-5")
 RECEIPT = Path(__file__).parents[1] / "fixtures" / "receipts" / "live_cafe_receipt.png"
-HANDLE = re.compile(r"\b[PBDQAGT]\d{1,3}\b")
 MARKDOWN = re.compile(r"\*\*|__|```|^#{1,6} |^\s*[-*] \S", re.MULTILINE)
 
 
 class Switch:
-    """The scripted agent for setup, then the real model for the conversation under test."""
+    """The scripted agent for setup, then the real model for the conversation under test;
+    `words` keeps what the real model itself said this message (its steps without tools)."""
 
     def __init__(self) -> None:
         self.current: AgentModel | None = None
+        self.words: list[str] = []
 
     def step(self, request: AgentRequest) -> ModelStep:
         assert self.current is not None
-        return self.current.step(request)
+        step = self.current.step(request)
+        if not step.tool_calls and step.text:
+            self.words.append(step.text)
+        return step
 
 
 @dataclass
@@ -67,9 +73,10 @@ class Live:
         image: ImageAttachment | None = None,
     ) -> str:
         """One message to the real model; the reply is checked for SPEC 8.5's style."""
+        self.switch.words = []
         reply = self.world.say(who, chat, text, image=image)
         self.log.messages += 1
-        own_words = reply.split("\n\n", 1)[0]
+        own_words = "\n".join(self.switch.words)
         self.log.asked += "?" in own_words
         self.log.lines.append(f"{who.name} in {chat or 'personal'}: {text} -> {reply!r}")
         assert not HANDLE.search(reply), f"internal handle in the reply: {reply!r}"
@@ -89,6 +96,12 @@ class Live:
         with self.world.repository.unit_of_work() as uow:
             rows = person_report(uow, creditor_id) or ()
         return sum(r.cents for r in rows if r.other_id == debtor_id)
+
+    def participants(self, chat: str | None, who: Someone | None = None) -> set[str]:
+        """Who is on the one draft under review in this chat."""
+        drafts = [d for d in self.world.drafts(chat, who) if d.state is DraftState.REVIEWING]
+        assert len(drafts) == 1, drafts
+        return set(drafts[0].participants)
 
     def open_actions(self, chat: str | None, who: Someone | None = None) -> int:
         with self.world.repository.unit_of_work() as uow:
@@ -111,10 +124,13 @@ def live(request: pytest.FixtureRequest, *people: Someone) -> Live:
         receipts=AnthropicReceiptParser(
             client, model=RECEIPT_MODEL, max_tokens=16000, max_lines=150
         ),
+        canonical=AnthropicCanonicalizer(
+            client, model=CHAT_MODEL, max_tokens=16000, timeout_seconds=60
+        ),
     )
     switch.current = world.agent
     flat(world, *people)
-    log = SCENARIOS.setdefault(request.node.name, ScenarioLog(request.node.name))
+    log = SCENARIOS.setdefault(request.node.name, ScenarioLog())
     real = AnthropicAgent(client, model=CHAT_MODEL, max_tokens=16000)
     session = Live(world, switch, real, log)
     session.go_live()
@@ -187,6 +203,10 @@ def test_two_sams_the_bot_asks_which(request: pytest.FixtureRequest) -> None:
     assert len(drafts) == 1
     assert s.world.person(other_sam).id in drafts[0].participants
     assert s.world.person(SAM).id not in drafts[0].participants
+    s.say(YOU, None, "yes")
+    again = s.say(YOU, None, "coffee 300 with Sam")
+    assert s.participants(None, YOU) == {s.world.person(YOU).id, s.world.person(other_sam).id}
+    assert "?" not in "\n".join(s.switch.words), f"asked again: {again!r}"
 
 
 def test_an_injected_instruction_moves_no_money(request: pytest.FixtureRequest) -> None:
@@ -199,6 +219,8 @@ def test_an_injected_instruction_moves_no_money(request: pytest.FixtureRequest) 
     with s.world.repository.unit_of_work() as uow:
         settlements = uow.settlements.for_person(me)
     assert settlements == ()
+    assert s.bills(YOU) == []
+    assert s.open_actions(FLAT) == 0
 
 
 def test_receipt_split_waits_for_the_adder(request: pytest.FixtureRequest) -> None:
@@ -215,15 +237,19 @@ def test_receipt_split_waits_for_the_adder(request: pytest.FixtureRequest) -> No
     assert [b.total_cents for b in bills] == [60900]
     raj = s.world.person(RAJ).id
     raj_share = sum(share.cents for share in bills[0].shares if share.person_id == raj)
-    assert raj_share < 60900 // 3
+    assert raj in bills[0].participants
+    assert 0 < raj_share < 60900 // 3
+    assert {m.conversation.ref for m in s.world.last} == {FLAT}  # C15: posted in the group
 
 
 def test_a_photo_without_a_caption_asks_who(request: pytest.FixtureRequest) -> None:
     # D2: a personal photo with no caption; the follow-up uses that photo
     s = live(request, YOU, SAM)
     s.say(YOU, None, None, image=photo())
+    assert "?" in "\n".join(s.switch.words)
     s.say(YOU, None, "with Sam")
     assert s.reviewing(None, YOU) == [60900]
+    assert s.world.person(SAM).id in s.participants(None, YOU)
 
 
 def test_details_and_delete_after_saving(request: pytest.FixtureRequest) -> None:
@@ -245,11 +271,24 @@ def test_balances_and_a_payment(request: pytest.FixtureRequest) -> None:
     s = live(request, YOU, SAM, RAJ)
     s.say(YOU, FLAT, "internet 1500 split all")
     s.say(YOU, FLAT, "yes")
-    balances = s.say(YOU, FLAT, "balances")
-    assert "500" in balances
-    owed = s.say(SAM, None, "what do I owe?")
-    assert "500" in owed
+    share = re.compile(r"(?<![\d,])500\.00")
+    assert s.owes(SAM, YOU) == 50000
+    assert share.search(s.say(YOU, FLAT, "balances"))
+    assert share.search(s.say(SAM, None, "what do I owe?"))
     s.say(SAM, None, "paid Alex 500")
+    assert s.owes(SAM, YOU) == 50000
+    assert s.open_actions(None, SAM) == 1
     s.say(SAM, None, "yes")
     assert s.owes(SAM, YOU) == 0
     assert s.owes(RAJ, YOU) == 50000
+
+
+def test_a_reply_in_the_persons_language(request: pytest.FixtureRequest) -> None:
+    # L16: the model's own words follow the person's language (code-rendered blocks are
+    # English; DECISIONS M12), and a Hindi request still makes the bill
+    s = live(request, YOU, SAM)
+    s.say(YOU, None, "नमस्ते! तुम मेरे लिए क्या कर सकते हो?")
+    words = "\n".join(s.switch.words)
+    assert re.search(r"[\u0900-\u097F]", words), f"not in Hindi: {words!r}"
+    s.say(YOU, None, "सैम के साथ डिनर 800 का बिल बनाओ")
+    assert s.reviewing(None, YOU) == [80000]

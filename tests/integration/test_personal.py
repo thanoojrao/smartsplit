@@ -288,3 +288,33 @@ def test_raj_is_known_through_a_group_without_being_added() -> None:
     world.say(YOU, None, "who is Raj", call("find_person", name="Raj"))
     match = world.agent.requests[-1].history[-1][1][0].data["matches"]
     assert match == [{"person": "P2", "name": "Raj", "known_from": [FLAT]}]
+
+
+def test_picking_one_of_two_sams_remembers_the_choice() -> None:
+    # L5: adding the picked Sam to the draft is enough; next time "Sam" means that Sam
+    world = World()
+    other_sam = Someone("Sam", "+919876500010")
+    flat(world, YOU, SAM)
+    world.say(other_sam, None, "hi")
+    world.say(YOU, "Goa trip", "hi")
+    world.say(other_sam, "Goa trip", "join", call("join_group"))
+    world.say(
+        YOU,
+        None,
+        "lunch 600 with Sam",
+        call("add_manual_bill", description="lunch", amount="600", unknown_names=["Sam"]),
+        say("Which Sam?"),
+    )
+    world.say(YOU, None, "the Goa one", call("find_person", name="Sam"), _add_goa_sam)
+    assert world.drafts(None, YOU)[0].waiting_for == ()
+    world.say(YOU, None, "who is Sam?", call("find_person", name="Sam"), say(""))
+    found = world.agent.requests[-1].history[-1][1][0].data["matches"]
+    assert isinstance(found, list)
+    assert [m["known_from"] for m in found] == [["Goa trip"]]
+
+
+def _add_goa_sam(request: AgentRequest) -> ModelStep:
+    found = request.history[-1][1][0].data["matches"]
+    assert isinstance(found, list)
+    goa = next(m["person"] for m in found if m["known_from"] == ["Goa trip"])
+    return call("edit_draft", draft="D1", change={"type": "AddPeople", "people": [goa]})

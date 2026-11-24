@@ -292,6 +292,12 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - **Reply:** a draft changed twice in one turn is shown once, as it ended up (seen live: a total fix then a line fix showed two summaries). The prompt gives a bad/good example against repeating what tools showed.
 - **Live harness:** the scenarios set people and groups up with the scripted agent, then switch to the real model, so only the conversation under test is paid for; checks are on state, and every reply is checked for handles, markdown and more than one question. `SMARTSPLIT_LIVE_CHAT_MODEL` picks the chat model for the comparison run.
 
+- **M12 review fixes:** only review summaries of the same draft collapse (`Said.summary_of`); details, saved and balance blocks always stay. Live checks take the model's own words from its steps (not the joined reply), use the app's handle pattern, and assert state for I5, D2, G6, L7 and C15; the receipt scenarios use the real canonicalizer on the chat model. Code-rendered blocks are English; L16 checks the model's own words. Picking one of several people with the same name for a draft's waiting name makes it the speaker's nickname in code (L5), so remembering doesn't depend on the model calling set_nickname.
+
 ## Open (waiting for the user)
 
-(nothing open)
+- **L5 ("which Sam?") on Haiku.** Haiku asks which Sam correctly but handles the answer unreliably: 1 of 6 live runs passed (it skips `unknown_names`, once added both Sams, once couldn't use `known_from`), so it asks again next time. Sonnet as the chat model passed 2 of 2. Everything else passes on Haiku. Options:
+  (a) **Escalate to Sonnet for this case:** when `find_person` returns several matches in a turn, the rest of that turn and the next turn in that chat run on Sonnet. A few cents now and then; small code change in the loop (chosen per turn, so no thinking blocks cross models).
+  (b) **Accept on Haiku:** safe (nothing is saved with the wrong person without the summary showing it), but the bot may ask "which Sam?" every time.
+  (c) Sonnet for all chat (~15× the chat cost: about $0.007 per message instead of $0.0005).
+  **Recommendation:** (a).

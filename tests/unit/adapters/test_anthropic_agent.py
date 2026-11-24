@@ -21,7 +21,7 @@ def client_for(api: ScriptedApi) -> anthropic.Anthropic:
 
 
 def agent_for(api: ScriptedApi) -> AnthropicAgent:
-    return AnthropicAgent(client_for(api), model="claude-sonnet-5-5", max_tokens=16000)
+    return AnthropicAgent(client_for(api), model="claude-haiku-5-5", max_tokens=16000)
 
 
 def tool_use_answer() -> httpx2.Response:
@@ -31,7 +31,7 @@ def tool_use_answer() -> httpx2.Response:
             "id": "msg_2",
             "type": "message",
             "role": "assistant",
-            "model": "claude-sonnet-5-5",
+            "model": "claude-haiku-5-5",
             "content": [
                 {"type": "thinking", "thinking": "", "signature": "sig"},
                 {"type": "text", "text": "Starting it."},
@@ -70,7 +70,7 @@ def test_the_request_has_the_cached_prefix_and_no_forced_tool_choice() -> None:
     api = ScriptedApi(message("Hi."))
     agent_for(api).step(REQUEST)
     sent = api.requests[0]
-    assert sent["model"] == "claude-sonnet-5-5"
+    assert sent["model"] == "claude-haiku-5-5"
     assert sent["system"][0]["cache_control"] == {"type": "ephemeral"}
     assert sent["tools"][-1]["cache_control"] == {"type": "ephemeral"}
     assert [t["name"] for t in sent["tools"]] == [s.name for s in TOOL_SPECS]
@@ -133,7 +133,7 @@ def test_errors_that_can_pass_are_retried_once_and_setup_errors_are_not() -> Non
 
 def canonicalizer_for(api: ScriptedApi) -> AnthropicCanonicalizer:
     return AnthropicCanonicalizer(
-        client_for(api), model="claude-sonnet-5-5", max_tokens=1000, timeout_seconds=9
+        client_for(api), model="claude-haiku-5-5", max_tokens=1000, timeout_seconds=9
     )
 
 

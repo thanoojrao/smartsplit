@@ -59,15 +59,16 @@ def record(
 
 
 def latest_per_draft(shown: list[Said]) -> list[Said]:
-    """A draft changed twice in one turn is shown once, as it ended up: an earlier summary of
-    it would only show a state that no longer exists."""
+    """A draft changed twice in one turn gets one review summary, as it ended up: an earlier
+    summary would show a state that no longer exists. Every other block (details, saved,
+    balances, another draft's summary) stays, in order."""
     later: set[str] = set()
     kept: list[Said] = []
     for block in reversed(shown):
-        drafts = {ref.id for ref in block.refs if ref.kind == "draft"}
-        if drafts and drafts <= later:
-            continue
-        later |= drafts
+        if block.summary_of is not None:
+            if block.summary_of in later:
+                continue
+            later.add(block.summary_of)
         kept.append(block)
     return kept[::-1]
 

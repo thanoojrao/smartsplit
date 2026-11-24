@@ -30,6 +30,7 @@ from smartsplit.services.drafting import (
     present,
 )
 from smartsplit.services.errors import NotAllowedError
+from smartsplit.services.membership import set_nickname
 from smartsplit.services.money_args import parse_money
 from smartsplit.services.names import candidates
 from smartsplit.services.review import (
@@ -152,19 +153,23 @@ def _edit_draft(turn: Turn, args: EditDraft) -> Data:
 
 def _found_people(turn: Turn, before: BillDraft, after: BillDraft) -> BillDraft:
     """Names still to be found that now mean someone added: the draft can be reviewed once
-    nobody is missing (L5)."""
+    nobody is missing. A name that meant several people becomes the speaker's nickname for
+    the one picked, so "Sam" means that Sam next time without asking (L5)."""
     added = set(after.participants) - set(before.participants)
     region = turn.settings.default_region
-    left = tuple(
-        name
-        for name in after.waiting_for
-        if not added & set(candidates(turn.uow, turn.speaker.id, name, region))
-    )
+    left: list[str] = []
+    for name in after.waiting_for:
+        meant = set(candidates(turn.uow, turn.speaker.id, name, region))
+        picked = added & meant
+        if not picked:
+            left.append(name)
+        elif len(meant) > 1 and len(picked) == 1:
+            set_nickname(turn, picked.pop(), name)
     personal_alone = isinstance(after.context, PersonalContext) and len(after.participants) == 1
     state = after.state
     if state is DraftState.AWAITING_PEOPLE and not left and not personal_alone:
         state = DraftState.REVIEWING
-    return replace(after, waiting_for=left, state=state)
+    return replace(after, waiting_for=tuple(left), state=state)
 
 
 DRAFT_TOOLS: tuple[Tool[Any], ...] = (

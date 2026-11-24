@@ -63,6 +63,8 @@ class Said:
     stored: str | None = None
     """What the transcript keeps, if not the compacted text (the model's own words are kept
     whole; only code-rendered blocks are shortened)."""
+    summary_of: str | None = None
+    """The draft this block is the review summary of: a later summary of it replaces it."""
 
 
 @dataclass(slots=True)
@@ -104,16 +106,25 @@ class Turn:
         """Whose names to use: the speaker's own in a personal chat, display names in a group."""
         return None if self.in_group else self.speaker.id
 
-    def show(self, text: str, refs: tuple[ChatRef, ...] = ()) -> None:
+    def show(
+        self, text: str, refs: tuple[ChatRef, ...] = (), *, summary_of: str | None = None
+    ) -> None:
         """A block for this chat, rendered by code."""
-        self.shown.append(Said(self.conversation, text, refs))
+        self.shown.append(Said(self.conversation, text, refs, summary_of=summary_of))
 
-    def post(self, conversation: Conversation, text: str, refs: tuple[ChatRef, ...] = ()) -> None:
+    def post(
+        self,
+        conversation: Conversation,
+        text: str,
+        refs: tuple[ChatRef, ...] = (),
+        *,
+        summary_of: str | None = None,
+    ) -> None:
         """Say it in the given chat: this one, or another (a group post, a DM)."""
         if conversation.key == self.conversation.key:
-            self.show(text, refs)
+            self.show(text, refs, summary_of=summary_of)
         else:
-            self.elsewhere.append(Said(conversation, text, refs))
+            self.elsewhere.append(Said(conversation, text, refs, summary_of=summary_of))
 
     def direct(self, person_id: str, text: str, refs: tuple[ChatRef, ...] = ()) -> bool:
         """Send to the person's own chat ("sent you a DM"); False if they have none yet."""

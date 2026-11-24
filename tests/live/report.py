@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 
 @dataclass
 class ScenarioLog:
-    name: str
     messages: int = 0
     """Messages that reached the real model (setup with the scripted agent isn't counted)."""
     asked: int = 0

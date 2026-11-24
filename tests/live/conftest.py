@@ -68,12 +68,13 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     grand = chat = 0.0
     for (model, purpose), row in sorted(totals.items()):
         cost = _cost(model, row)
-        grand += cost
-        chat += cost if purpose != "receipt" else 0.0
+        grand += cost or 0.0
+        chat += (cost or 0.0) if purpose != "receipt" else 0.0
+        shown = f"{cost:>9.4f}" if cost is not None else "  no price"
         write(
             f"{model + ' / ' + purpose:<34}{row['calls']:>6}{row['input_tokens']:>9}"
             f"{row['cache_read_tokens']:>10}{row['cache_write_tokens']:>10}"
-            f"{row['output_tokens']:>9}{cost:>9.4f}"
+            f"{row['output_tokens']:>9}{shown}"
         )
     write(f"{'total':<34}{len(_collector.calls):>6}{'':>38}{grand:>9.4f}  (estimate)")
     _scenarios(write, chat)
@@ -102,10 +103,11 @@ def _model(raw: object) -> str:
     return next((known for known in PRICES_PER_MTOK if name.startswith(known)), name)
 
 
-def _cost(model: str, row: dict[str, int]) -> float:
+def _cost(model: str, row: dict[str, int]) -> float | None:
+    """None for a model with no price here (the totals then leave it out)."""
     prices = PRICES_PER_MTOK.get(model)
     if prices is None:
-        return 0.0
+        return None
     return (
         row["input_tokens"] * prices["input"]
         + row["cache_read_tokens"] * prices["cache_read"]

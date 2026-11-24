@@ -28,7 +28,7 @@ from smartsplit.domain.model import BillDraft, Person
 from smartsplit.domain.prompts import ChatMessage
 from smartsplit.domain.values import ConversationKey
 from smartsplit.ports.agent import AgentModel, AgentRequest, ModelStep
-from smartsplit.ports.llm import ReceiptParser
+from smartsplit.ports.llm import Canonicalizer, ReceiptParser
 from smartsplit.ports.repository import Repository
 from smartsplit.services.orchestrator import Orchestrator
 from smartsplit.services.outcomes import HandleOutcome
@@ -91,7 +91,7 @@ class World:
 
     clock: FixedClock = field(default_factory=lambda: FixedClock(T0))
     repository: Repository = field(default_factory=InMemoryRepository)
-    canonical: FakeCanonicalizer = field(default_factory=FakeCanonicalizer)
+    canonical: Canonicalizer = field(default_factory=FakeCanonicalizer)
     images: InMemoryImageStore | None = None
     """Share one between Worlds on one database."""
     receipts: ReceiptParser | None = None
