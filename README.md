@@ -5,7 +5,7 @@ It remembers house rules like "don't add milk to Raj", asks when it isn't sure,
 and keeps a running ledger of who owes whom. It's self-hostable and open source.
 A WhatsApp bot front end is planned.
 
-> Status: revision 2 in progress: the bot is a conversation agent (CLI and HTTP API; WhatsApp gateway not yet). See `PROGRESS.md` and `docs/SPEC.md`.
+> Status: revision 2 built: the bot is a conversation agent (CLI and HTTP API; the WhatsApp gateway is not built yet). See `PROGRESS.md` and `docs/SPEC.md`.
 
 ## Quick start (local)
 
@@ -50,6 +50,26 @@ uv run smartsplit tick                          # deliver messages, nudge idle b
 
 Each reply is printed under the chat it went to: `[Flat 4B]`, `[you]`, or `[to Sam]` for
 someone else's personal chat.
+
+### Models and cost
+
+Chat (the agent loop and item-name matching) runs on `claude-haiku-5-5`
+(`SMARTSPLIT_LLM_MODEL`); receipt photos are read by `claude-sonnet-5-5`
+(`SMARTSPLIT_RECEIPT_MODEL`), since a misread goes straight into the numbers. Measured on the
+live scenarios (34 messages, 2026-11-24): about $0.0005 per chat message on Haiku (about
+$0.007 with Sonnet as the chat model) and about $0.005 per receipt photo, with the cached
+system prompt and tools making up most of each call's input. Daily caps:
+`SMARTSPLIT_LLM_CALLS_PER_PERSON_PER_DAY` and `SMARTSPLIT_LLM_CALLS_PER_DAY`.
+
+The live scenarios are opt-in and cost a few cents per run:
+
+```bash
+SMARTSPLIT_LIVE_LLM=1 uv run pytest tests/live                       # chat on Haiku
+SMARTSPLIT_LIVE_LLM=1 SMARTSPLIT_LIVE_CHAT_MODEL=claude-sonnet-5-5 uv run pytest tests/live
+SMARTSPLIT_LIVE_VERBOSE=1 ...                                         # print every conversation
+```
+
+They print a usage table per model, the questions the bot asked and the cost per message.
 
 ## Run the API
 

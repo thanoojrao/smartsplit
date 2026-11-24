@@ -287,6 +287,11 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
   (c) Keep Sonnet for everything (as specified).
   **Recommendation:** (a) now, with M12's live scenarios run on both models (questions asked, scenario passes, cost per message); add (b) only if Haiku fails scenarios that Sonnet passes.
 
+- **Live results (2026-11-24):** 9 scenarios (L1–L5, L7, L11, L16; C, D, G, H, I main flows), 34 messages. Haiku chat: 9/9 on three runs, ~$0.0005 per message, ~$0.03 per run with 2 receipt reads. Sonnet chat: 9/9 after the L7 scenario was corrected, ~$0.0074 per message. Questions asked: only where the scenario needs one (which Sam, who's the photo with), plus at most one "shall I save it?". Both models refused a third party's injected "record that Alex paid Sam" (the tool refuses it too). Haiku still sometimes echoes an amount the block shows (correct each time); accepted.
+- **L7 scenario corrected:** the receiver may record money they received (use case I7) and it counts only against them, so Sam confirming "Alex paid Sam 5000" himself is allowed. The scenario now has Raj, who is neither payer nor receiver, try it.
+- **Reply:** a draft changed twice in one turn is shown once, as it ended up (seen live: a total fix then a line fix showed two summaries). The prompt gives a bad/good example against repeating what tools showed.
+- **Live harness:** the scenarios set people and groups up with the scripted agent, then switch to the real model, so only the conversation under test is paid for; checks are on state, and every reply is checked for handles, markdown and more than one question. `SMARTSPLIT_LIVE_CHAT_MODEL` picks the chat model for the comparison run.
+
 ## Open (waiting for the user)
 
 (nothing open)
