@@ -19,7 +19,7 @@ from smartsplit.adapters.fakes.repository import InMemoryRepository
 from smartsplit.domain.enums import ConversationKind
 from smartsplit.domain.model import Conversation
 from smartsplit.domain.values import ConversationKey
-from smartsplit.ports.errors import ChatBusyError, InvalidRecordError
+from smartsplit.ports.errors import ChatBusyError, InvalidRecordError, StorageUnavailableError
 from smartsplit.ports.repository import Repository
 from tests.repository.builders import CHAT, person
 
@@ -220,3 +220,15 @@ def test_a_failed_statement_doesnt_carry_its_parameters(pg_url: str, clean_pg: E
     with pytest.raises(SQLAlchemyError) as raised, repo.unit_of_work() as uow:
         uow.people.add(replace(person("sam"), display_name="Sam\0 +919876500002"))
     assert "+919876500002" not in str(raised.value)
+
+
+@pytest.mark.db
+def test_no_free_connection_is_a_port_error(pg_url: str, clean_pg: Engine) -> None:
+    # SPEC 12.2: the orchestrator answers "try again" instead of failing the request
+    engine = create_engine(pg_url, pool_size=1, max_overflow=0, pool_timeout=0.1)
+    repo = SqlRepository(engine)
+    try:
+        with repo.unit_of_work(), pytest.raises(StorageUnavailableError):
+            repo.count_usage("install", date(2026, 11, 24))
+    finally:
+        engine.dispose()

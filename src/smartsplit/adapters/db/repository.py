@@ -7,12 +7,13 @@ from datetime import date
 
 from sqlalchemy import Connection, Engine, create_engine, func, select, text
 from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from smartsplit.adapters.db import draft_stores, ledger_stores, people_stores, rule_stores
 from smartsplit.adapters.db.base import port_error
 from smartsplit.adapters.db.migrate import at_head
 from smartsplit.domain.values import ConversationKey
-from smartsplit.ports.errors import ChatBusyError
+from smartsplit.ports.errors import ChatBusyError, StorageUnavailableError
 
 
 class SqlUnitOfWork:
@@ -90,6 +91,8 @@ class SqlRepository:
             if translated is None:
                 raise
             raise translated from error
+        except (OperationalError, PoolTimeoutError) as error:
+            raise StorageUnavailableError(type(error).__name__) from error
 
     def ready(self) -> bool:
         """The database answers and its schema is at the newest migration."""
@@ -101,8 +104,11 @@ class SqlRepository:
 
     def count_usage(self, counter: str, day: date) -> int:
         """Its own connection and transaction, committed at once (SPEC 12.5)."""
-        with self._usage_engine.begin() as connection:
-            return rule_stores.LlmUsageStore(connection).increment(counter, day)
+        try:
+            with self._usage_engine.begin() as connection:
+                return rule_stores.LlmUsageStore(connection).increment(counter, day)
+        except (OperationalError, PoolTimeoutError) as error:
+            raise StorageUnavailableError(type(error).__name__) from error
 
 
 def _take_lock(

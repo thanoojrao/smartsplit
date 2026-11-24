@@ -10,7 +10,9 @@ import pytest
 from smartsplit.adapters.fakes.agent import call, say
 from smartsplit.adapters.fakes.repository import InMemoryRepository
 from smartsplit.domain.messages import ChatEvent, ContactAttachment, Mention
+from smartsplit.ports.errors import DuplicateKeyError, StorageUnavailableError
 from smartsplit.ports.llm import LlmUnavailableError, ParsedReceipt
+from smartsplit.services import orchestrator
 from smartsplit.services.text import NEEDS_NUMBER, OVER_LIMIT, TRY_AGAIN
 from smartsplit.services.ticking import Ticker
 from smartsplit.services.turn import OrchestratorSettings
@@ -448,3 +450,22 @@ def test_a_failed_turn_reports_its_time() -> None:
     world.say(YOU, None, "hi")
     world.say(YOU, None, "split", image=receipt("restaurant_tip"))
     assert outcome_of(world) == "failed"
+
+
+def test_a_database_error_mid_turn_asks_to_try_again_and_records_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # SPEC 12.2: the same new person writing in two chats at once, a deadlock, no connection
+    world = World()
+    message = world.message(YOU, None, "hi")
+    for error in (DuplicateKeyError("phone taken"), StorageUnavailableError("deadlock")):
+
+        def failing(*args: object, failure: Exception = error, **kwargs: object) -> None:
+            raise failure
+
+        with monkeypatch.context() as patched:
+            patched.setattr(orchestrator, "arrive", failing)
+            assert world.send(message) == TRY_AGAIN
+        assert outcome_of(world) == "failed"
+    retried = world.send(message, [say("Hi Alex!")])
+    assert retried.startswith("Hi Alex! I split bills")  # still the first message: a welcome

@@ -21,6 +21,11 @@ class InvalidRecordError(ConstraintViolationError):
     """The record breaks a check, e.g. a conversation with both a group and a person."""
 
 
+class StorageUnavailableError(Exception):
+    """The database failed the transaction (a deadlock, a lost connection, no free pooled
+    connection); everything in it rolled back, so the work can be tried again."""
+
+
 class ChatBusyError(Exception):
     """The conversation lock wasn't free in time (HTTP 503, the gateway retries)."""
 

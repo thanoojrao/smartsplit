@@ -3,8 +3,9 @@
 Read-only checks come first: a repeat, whether the bot reacts, and the daily limits. Then the
 photo is read outside the lock and stored on its own. Then the whole turn runs in one locked
 transaction: the agent loop, the replies, the transcript and the processed-message record.
-If a model call fails or the deadline passes, everything the turn did rolls back and the
-person is asked to try again; the photo read and the usage counts survive. A chat that stays
+If a model call fails, the deadline passes or the database fails the transaction (a deadlock,
+a clash with the same person's message in another chat), everything the turn did rolls back
+and the person is asked to try again; the photo read and the usage counts survive. A chat that stays
 busy longer than the lock wait is answered "busy" (HTTP 503), and the gateway retries.
 """
 
@@ -16,7 +17,12 @@ from smartsplit.domain.messages import ImageAttachment, InboundMessage, Outbound
 from smartsplit.domain.model import PhotoRead
 from smartsplit.domain.prompts import ProcessedMessage, TickBatch
 from smartsplit.ports.agent import AgentModel
-from smartsplit.ports.errors import ChatBusyError, StaleDraftError
+from smartsplit.ports.errors import (
+    ChatBusyError,
+    ConstraintViolationError,
+    StaleDraftError,
+    StorageUnavailableError,
+)
 from smartsplit.ports.images import ImageStore
 from smartsplit.ports.llm import Canonicalizer, LlmUnavailableError, ReceiptParser
 from smartsplit.ports.repository import Repository, UnitOfWork
@@ -144,7 +150,13 @@ class Orchestrator:
             replies, result = self._turn(_Incoming(message, now, deadline, meter, photo, over))
         except ChatBusyError:
             return HandleOutcome((), TurnReport(chat, "busy", seconds=self._since(now)), busy=True)
-        except (LlmUnavailableError, StaleDraftError):
+        except (
+            LlmUnavailableError,
+            StaleDraftError,
+            ConstraintViolationError,
+            StorageUnavailableError,
+        ):
+            # rolled back; nothing recorded, so a retry of this message runs it again
             outcome: Outcome = "deadline" if self._clock.now() >= deadline else "failed"
             report = TurnReport(chat, outcome, seconds=self._since(now))
             return try_again(message, checked.speaker_id, report)
