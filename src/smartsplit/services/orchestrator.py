@@ -192,7 +192,8 @@ class Orchestrator:
             except LlmUnavailableError:
                 if _unaddressed_group_photo(message):
                     return HandleOutcome((), TurnReport(chat, "failed", seconds=self._since(now)))
-                return try_again(message, checked.speaker_id, TurnReport(chat, "failed"))
+                report = TurnReport(chat, "failed", seconds=self._since(now))
+                return try_again(message, checked.speaker_id, report)
         if _unaddressed_group_photo(message) and (
             photo is None or photo.outcome is not PhotoOutcome.RECEIPT
         ):

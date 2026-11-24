@@ -2,13 +2,14 @@
 mentions, quoted replies, the bot being added, daily limits, busy chats, tick batches and the
 per-turn report (SPEC 7, 10.1-10.3, 10.8, 12.2, 12.4, 12.5)."""
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 import pytest
 
 from smartsplit.adapters.fakes.agent import call, say
 from smartsplit.adapters.fakes.repository import InMemoryRepository
+from smartsplit.adapters.fakes.system import FixedClock
 from smartsplit.domain.messages import ChatEvent, ContactAttachment, Mention
 from smartsplit.ports.errors import DuplicateKeyError, StorageUnavailableError
 from smartsplit.ports.llm import LlmUnavailableError, ParsedReceipt
@@ -16,7 +17,7 @@ from smartsplit.services import orchestrator
 from smartsplit.services.text import NEEDS_NUMBER, OVER_LIMIT, TRY_AGAIN
 from smartsplit.services.ticking import Ticker
 from smartsplit.services.turn import OrchestratorSettings
-from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, World, calling, flat, receipt
+from tests.integration.world import FLAT, PRIYA, RAJ, SAM, T0, YOU, World, calling, flat, receipt
 
 SAVE = calling("confirm_draft", draft="@D")
 
@@ -339,12 +340,17 @@ def outcome_of(world: World) -> str:
     return world.outcome.report.outcome
 
 
+@dataclass
 class DownParser:
-    """The receipt reader is down."""
+    """The receipt reader is down, after a while if given a clock."""
+
+    clock: FixedClock | None = None
 
     def parse(
         self, image: bytes, mime_type: str, currency: str, timeout_seconds: float
     ) -> ParsedReceipt:
+        if self.clock is not None:
+            self.clock.advance(timedelta(seconds=7))
         raise LlmUnavailableError("down")
 
 
@@ -446,10 +452,12 @@ def test_the_limit_notice_survives_a_busy_retry() -> None:
 
 
 def test_a_failed_turn_reports_its_time() -> None:
-    world = World(receipts=DownParser())
+    clock = FixedClock(T0)
+    world = World(clock=clock, receipts=DownParser(clock))
     world.say(YOU, None, "hi")
     world.say(YOU, None, "split", image=receipt("restaurant_tip"))
     assert outcome_of(world) == "failed"
+    assert world.outcome is not None and world.outcome.report.seconds == 7.0
 
 
 def test_a_database_error_mid_turn_asks_to_try_again_and_records_nothing(
