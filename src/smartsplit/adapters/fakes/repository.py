@@ -10,6 +10,7 @@ from smartsplit.adapters.fakes import bill_stores as b
 from smartsplit.adapters.fakes import people_stores as p
 from smartsplit.adapters.fakes import rule_stores as r
 from smartsplit.domain.values import ConversationKey
+from smartsplit.ports.errors import ChatBusyError
 
 
 @dataclass
@@ -57,13 +58,15 @@ class InMemoryUnitOfWork:
 class InMemoryRepository:
     """Each unit of work runs on a copy that replaces the committed state only on success.
 
-    The fake is single-threaded, so the conversation lock needs no implementation.
+    The fake is single-threaded, so the conversation lock is only a "busy" switch for tests.
     """
 
     def __init__(self) -> None:
         self._committed = InMemoryUnitOfWork()
         self._open = False
         self._working: InMemoryUnitOfWork | None = None
+        self.busy: set[ConversationKey] = set()
+        """Chats whose lock someone else holds: locking them raises ChatBusyError."""
 
     @contextmanager
     def unit_of_work(
@@ -74,9 +77,12 @@ class InMemoryRepository:
         try_lock: bool = False,
     ) -> Iterator[InMemoryUnitOfWork]:
         """Nested units of work would silently lose writes here, so they are refused. One
-        thread at a time, so a lock is always free (the wait and try-lock never fail)."""
+        thread at a time, so a lock is free unless a test marks the chat `busy` (another
+        process holding it)."""
         if self._open:
             raise RuntimeError("a unit of work is already open")
+        if lock is not None and lock in self.busy:
+            raise ChatBusyError("chat busy")
         self._open = True
         try:
             working = copy.deepcopy(self._committed)

@@ -1,14 +1,18 @@
 """The HTTP API around an orchestrator on the in-memory fakes (SPEC section 11, K3-K4)."""
 
 import base64
+import logging
 from collections.abc import Callable
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
-from smartsplit.adapters.fakes.agent import call
+from smartsplit.adapters.fakes.agent import call, say
+from smartsplit.adapters.fakes.repository import InMemoryRepository
+from smartsplit.domain.values import ConversationKey
 from smartsplit.entrypoints.api import create_app
+from smartsplit.services.turn import OrchestratorSettings
 from tests.integration.world import FLAT, RAJ, SAM, YOU, World, calling, flat, receipt
 
 TOKEN = "s3cret-token"
@@ -190,3 +194,77 @@ def test_rules_in_someones_notes_name_the_owner() -> None:
     assert [(r["item"], r["scope"], r["author"]) for r in rules] == [
         ("dessert", "Alex's notes", "Alex")
     ]
+
+
+def test_a_busy_chat_answers_503_with_retry_after() -> None:
+    # SPEC 12.2: the gateway retries the same message
+    repository = InMemoryRepository()
+    api = client(World(repository=repository))
+    repository.busy.add(ConversationKey("whatsapp", "1203630@g.us"))
+    busy = api.post("/v1/messages", headers=AUTH, json=message("help"))
+    assert busy.status_code == 503
+    assert busy.headers["Retry-After"] == "5"
+    repository.busy.clear()
+    assert api.post("/v1/messages", headers=AUTH, json=message("help")).status_code == 200
+
+
+def test_ready_only_when_the_database_is() -> None:
+    # SPEC 11: /readyz is open, like /healthz
+    state = {"ready": False}
+    api = client(World(), ready=lambda: state["ready"])
+    assert api.get("/readyz").status_code == 503
+    state["ready"] = True
+    assert api.get("/readyz").json() == {"status": "ready"}
+
+
+def test_tick_batches_are_acknowledged() -> None:
+    # SPEC 10.8
+    api = client(World())
+    batch = api.post("/v1/tick", headers=AUTH).json()
+    assert set(batch) == {"batch_id", "messages"}
+    assert api.post(f"/v1/tick/{batch['batch_id']}/ack", headers=AUTH).status_code == 204
+    assert api.post("/v1/tick/nope/ack", headers=AUTH).status_code == 404
+    assert api.post(f"/v1/tick/{batch['batch_id']}/ack").status_code == 401
+
+
+def test_mentions_quotes_and_the_bot_being_added_come_through() -> None:
+    # SPEC 10.1
+    world = World()
+    api = client(world)
+    added = message(None, message_id="m0", event={"kind": "bot_added"}, addressed_to_bot=False)
+    intro = api.post("/v1/messages", headers=AUTH, json=added).json()
+    assert intro[0]["text"].startswith("Hi Flat 4B! I split bills")
+    world.agent.queue(say("Hi Sam's friend."))
+    mention = {"ref": "lid:7", "name": "Priya", "phone": "+919876500004"}
+    body = message(
+        "hi @lid:7", message_id="m1", mentions=[mention], quoted_text=intro[0]["text"][:40]
+    )
+    assert api.post("/v1/messages", headers=AUTH, json=body).status_code == 200
+    assert "hi @Priya" in world.turn_input
+    assert "[replying to the bot's message" in world.turn_input
+    too_many = message("hi", message_id="m2", mentions=[mention] * 51)
+    assert api.post("/v1/messages", headers=AUTH, json=too_many).status_code == 422
+
+
+def test_each_message_logs_one_line_without_content(caplog: pytest.LogCaptureFixture) -> None:
+    # SPEC 12.4
+    world = World()
+    api = client(world)
+    world.agent.queue(call("get_balances"), say("All square, Alex."))
+    with caplog.at_level(logging.INFO, logger="smartsplit.turns"):
+        api.post("/v1/messages", headers=AUTH, json=message("secret plans"))
+    lines = [r.getMessage() for r in caplog.records if r.name == "smartsplit.turns"]
+    assert len(lines) == 1
+    assert "outcome=replied steps=2 tools=get_balances:ok" in lines[0]
+    for content in ("secret", "Alex", "1203630", "9876500001"):
+        assert content not in lines[0]
+
+
+def test_a_nearly_spent_install_logs_a_warning(caplog: pytest.LogCaptureFixture) -> None:
+    world = World(settings=OrchestratorSettings(llm_calls_per_day=1))
+    api = client(world)
+    world.agent.queue(say("Hi."))
+    api.post("/v1/messages", headers=AUTH, json=message("hi", message_id="m0"))
+    with caplog.at_level(logging.INFO, logger="smartsplit.turns"):
+        api.post("/v1/messages", headers=AUTH, json=message("hi again", message_id="m1"))
+    assert any(r.levelno == logging.WARNING for r in caplog.records)

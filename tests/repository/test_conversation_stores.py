@@ -7,8 +7,9 @@ from datetime import date
 import pytest
 
 from smartsplit.domain.enums import PhotoOutcome
+from smartsplit.domain.messages import OutboundMessage
 from smartsplit.domain.model import PhotoRead
-from smartsplit.domain.prompts import ChatMessage, ChatRef
+from smartsplit.domain.prompts import ChatMessage, ChatRef, TickBatch
 from smartsplit.domain.values import ConversationKey
 from smartsplit.ports.errors import DuplicateKeyError
 from smartsplit.ports.repository import Repository
@@ -113,3 +114,29 @@ def test_a_savepoint_undoes_only_its_own_writes(repo: Repository) -> None:
             uow.chat.append(message("also kept", 2))
     with repo.unit_of_work() as uow:
         assert [m.text for m in uow.chat.recent(CHAT, 10)] == ["kept", "also kept"]
+
+
+def batch(batch_id: str, minutes: int, *, acked: int | None = None) -> TickBatch:
+    sent = (OutboundMessage(CHAT, None, f"hello from {batch_id}"),)
+    return TickBatch(batch_id, sent, at(minutes), at(acked) if acked is not None else None)
+
+
+def test_tick_batches_wait_for_their_ack(repo: Repository) -> None:
+    # SPEC 10.8: an unacknowledged batch is returned again, same id
+    with repo.unit_of_work() as uow:
+        uow.tick_batches.add(batch("b1", 0))
+        uow.tick_batches.add(batch("b2", 1))
+        uow.tick_batches.add(batch("done", 2, acked=2))
+    with repo.unit_of_work() as uow:
+        assert uow.tick_batches.unacked_before(at(1)) == (batch("b1", 0),)
+        assert uow.tick_batches.unacked_before(at(5)) == (batch("b1", 0), batch("b2", 1))
+        assert uow.tick_batches.ack("b1", at(3))
+        assert uow.tick_batches.ack("b1", at(4))  # a repeated ack is fine
+        assert not uow.tick_batches.ack("nope", at(4))
+    with repo.unit_of_work() as uow:
+        assert uow.tick_batches.unacked_before(at(5)) == (batch("b2", 1),)
+        uow.tick_batches.delete_acked_before(at(10))
+    with repo.unit_of_work() as uow:
+        assert not uow.tick_batches.ack("b1", at(11))
+        assert not uow.tick_batches.ack("done", at(11))
+        assert uow.tick_batches.unacked_before(at(10)) == (batch("b2", 1),)

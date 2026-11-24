@@ -66,9 +66,79 @@ curl -s -X POST localhost:8000/v1/messages -H "Authorization: Bearer $SMARTSPLIT
   "reply_to_bot": false, "text": "hi"}'
 ```
 
-`POST /v1/messages` takes the gateway's message and returns the replies to deliver;
-call `POST /v1/tick` every minute or so. `GET /v1/groups/{id}/balances`,
-`GET /v1/people/{id}/balances` and `GET /v1/people/{id}/rules` are operator reads.
+- `POST /v1/messages` takes the gateway's message and returns the replies to deliver. The
+  body may also carry `quoted_text` (the start of the message being replied to), `mentions`
+  (`[{"ref", "name", "phone"}]`, with the text naming them as `@<ref>`) and an `event`
+  (`{"kind": "bot_added"}` or `{"kind": "participant_left", "subject_ref": ...}`).
+  A chat that stays busy longer than `SMARTSPLIT_LOCK_WAIT_SECONDS` gets `503` with
+  `Retry-After`: retry the same message. Every other outcome is `200`.
+- `POST /v1/tick` returns `{"batch_id", "messages"}`; deliver the messages, then
+  `POST /v1/tick/{batch_id}/ack`. A batch not acknowledged within 2 minutes comes back.
+- `GET /healthz` (the process is up) and `GET /readyz` (the database answers and is migrated)
+  are open. `GET /v1/groups/{id}/balances`, `GET /v1/people/{id}/balances` and
+  `GET /v1/people/{id}/rules` are operator reads.
+- Each message logs one line (`smartsplit.turns` logger) with a hash of the chat, the outcome,
+  steps, tools, tokens and latency, and never any message text, names or numbers.
+
+## Deploy it
+
+```bash
+cp .env.example .env                 # set SMARTSPLIT_API_TOKEN, the API key, SMARTSPLIT_BOT_LINK
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
+docker compose --profile app up -d --build
+curl -s localhost:8000/readyz        # {"status":"ready"} once migrations ran
+```
+
+The app container runs migrations at start (under a lock, so several workers can start
+together), listens on `127.0.0.1:8000` and keeps receipt images in the `images` volume.
+Put a TLS proxy in front of it before exposing it. Postgres is bound to `127.0.0.1` only.
+
+### The tick timer
+
+`tick` must run every minute: it sends notifications, nudges and expires idle bills and prunes
+old chat. Without it nothing is delivered and drafts never expire. The chat gateway calls
+`POST /v1/tick` every minute, sends the batch, and acknowledges it. Without a gateway (CLI use),
+run the CLI's tick from cron or a systemd timer; it prints the messages and acknowledges them:
+
+```bash
+# crontab -e
+* * * * * cd /srv/smartsplit && set -a && . ./.env && set +a && uv run smartsplit tick >> tick.log 2>&1
+```
+
+```ini
+# /etc/systemd/system/smartsplit-tick.service
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/smartsplit
+EnvironmentFile=/srv/smartsplit/.env
+ExecStart=/usr/local/bin/uv run smartsplit tick
+
+# /etc/systemd/system/smartsplit-tick.timer  (then: systemctl enable --now smartsplit-tick.timer)
+[Timer]
+OnCalendar=*-*-* *:*:00
+[Install]
+WantedBy=timers.target
+```
+
+### Backups and restore
+
+The ledger in Postgres is the source of truth; receipt images are the only other state.
+
+```bash
+# back up
+docker compose exec -T db pg_dump -U postgres -Fc smartsplit > smartsplit-$(date +%F).dump
+docker compose run --rm --no-deps -v "$PWD:/backup" app \
+  tar czf /backup/images-$(date +%F).tgz -C /data images
+
+# restore (into an empty database), then check it
+docker compose exec -T db pg_restore -U postgres -d smartsplit --clean --if-exists < smartsplit-2026-11-24.dump
+docker compose run --rm --no-deps -v "$PWD:/backup" app tar xzf /backup/images-2026-11-24.tgz -C /data
+docker compose exec -T db psql -U postgres smartsplit -c "select count(*) from bills"
+curl -s localhost:8000/readyz
+```
+
+Check a restore now and then on a spare machine: the bill count should match and
+`/readyz` should say ready.
 
 ## How it's built
 

@@ -261,6 +261,20 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - **Migration 0003** deletes old prompts (their payloads have no new form; a draft's questions are asked again when it is next shown), cancels drafts stuck in `parsing`, and drops `requested_reply` notifications.
 - **Group chats in M10** react to messages addressed to the bot, photos, contact cards and events; a group's first message gets a short intro. M11 adds the waited-on window, mentions, quoted replies and `bot_added`.
 
+## M11 — production flow
+
+- **Order of a message:** read-only checks (repeat, does the bot react, daily limits) → the photo read (own transaction) → the locked turn. A group photo nobody addressed goes on only if it is a receipt; one that wasn't read (non-member, unknown sender, over a limit, too big) goes nowhere. An addressed photo that wasn't read reaches the model as "[photo: not read]".
+- **Waited-on people** (SPEC 10.2) are computed from the open drafts, open prompts and the transcript of the chat, only for current members, and only if the bot's last message there is under 10 minutes old.
+- **Mentions** with a phone create (or find) the person and link the mention's ref as an identity, but add them to no group: "add @Priya" is still the model's `add_person` call. Without a phone and unknown, the model is told so. The transcript keeps the text with names (`@Priya`), never refs.
+- **Quoted replies** are matched by the first 40 characters (whitespace folded) against the bot's messages in the kept transcript; the matched message's refs are issued first and shown in `<message>`.
+- **`bot_added`** posts the fixed intro without a model call; the sender (who added the bot) is in at once. Replies to the intro are `reply_to_bot`, so "join" needs no mention.
+- **Limits:** the "limit reached" notice is counted with a `limit-notice:<person>` usage counter (no new table), so it goes out once a day per person and only to someone who addressed the bot. An unknown first-time sender over the install cap gets silence (there is no one to count the notice against).
+- **Busy chats:** the lock wait is `min(SMARTSPLIT_LOCK_WAIT_SECONDS, time left)`, via `SET LOCAL lock_timeout` around `pg_advisory_xact_lock` (reset to 0 right after, so model calls under the lock aren't limited). `tick`'s draft steps use `pg_try_advisory_xact_lock` and skip a busy chat until the next tick. The fake repository has a `busy` set for tests.
+- **Tick batches:** every tick stores its batch (an empty one already acknowledged, so a gateway may ack any batch); the oldest unacknowledged batch older than 2 minutes is returned instead of doing new work; acknowledged batches are deleted after a day. The batch is stored after the outbox claim commits, so a crash between the two loses that batch: accepted, as the window is milliseconds.
+- **The per-turn log line** is written by the API (logging is banned in services): the orchestrator returns a `TurnReport` with every `HandleOutcome`. The chat is a 12-hex-digit BLAKE2b hash. A warning is logged on any turn once the install has used 80% of its daily calls.
+- **`/readyz`** asks Alembic whether the database's revision is the newest packaged one (`SqlRepository.ready`); the app gets it as a plain callable.
+- **Deploying:** one image (uv, non-root, healthcheck on `/readyz`), a compose `app` service behind a profile so `docker compose up -d db` stays the dev command. No compose tick loop: the gateway owns `tick` (it must deliver and ack the batch); without one, the README gives a cron line and a systemd timer for `smartsplit tick`, which prints and acknowledges. Docker has no daemon in the build sessions, so CI builds the image and checks `/readyz` against Postgres.
+
 ## Open (waiting for the user)
 
 (nothing open)

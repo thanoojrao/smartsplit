@@ -1,6 +1,7 @@
 """Transactions, the conversation lock and the migration (SPEC section 12.2)."""
 
 import threading
+import time
 from datetime import timedelta
 
 import pytest
@@ -16,7 +17,7 @@ from smartsplit.adapters.fakes.repository import InMemoryRepository
 from smartsplit.domain.enums import ConversationKind
 from smartsplit.domain.model import Conversation
 from smartsplit.domain.values import ConversationKey
-from smartsplit.ports.errors import InvalidRecordError
+from smartsplit.ports.errors import ChatBusyError, InvalidRecordError
 from smartsplit.ports.repository import Repository
 from tests.repository.builders import CHAT, person
 
@@ -154,3 +155,32 @@ def test_the_fake_refuses_nested_units_of_work() -> None:
     repo = InMemoryRepository()
     with pytest.raises(RuntimeError), repo.unit_of_work(), repo.unit_of_work():
         pass
+
+
+@pytest.mark.db
+def test_a_busy_chat_is_refused_after_the_lock_wait_or_at_once(clean_pg: Engine) -> None:
+    # SPEC 12.2: a bounded wait (then 503), and tick's try-lock never waits
+    repo = SqlRepository(clean_pg)
+    with repo.unit_of_work(lock=CHAT):
+        started = time.monotonic()
+        with pytest.raises(ChatBusyError), repo.unit_of_work(lock=CHAT, lock_wait_seconds=0.2):
+            pass
+        assert 0.15 < time.monotonic() - started < 2
+        with pytest.raises(ChatBusyError), repo.unit_of_work(lock=CHAT, try_lock=True):
+            pass
+        with repo.unit_of_work(lock=ConversationKey("cli", "elsewhere"), try_lock=True) as uow:
+            uow.people.add(person("sam"))
+    with repo.unit_of_work(lock=CHAT, lock_wait_seconds=0.2) as uow:
+        assert uow.people.get("sam") is not None
+
+
+@pytest.mark.db
+def test_ready_when_the_database_answers_and_is_migrated(pg_url: str, clean_pg: Engine) -> None:
+    # SPEC 11: /readyz
+    assert SqlRepository(clean_pg).ready()
+    command.downgrade(alembic_config(pg_url), "-1")
+    assert not SqlRepository(clean_pg).ready()
+    command.upgrade(alembic_config(pg_url), "head")
+    gone = create_engine("postgresql+psycopg://nobody@127.0.0.1:1/none")
+    assert not SqlRepository(gone).ready()
+    gone.dispose()

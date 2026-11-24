@@ -61,3 +61,23 @@ jobs:
         run: PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE smartsplit_test"
       - name: Quality gate
         run: bash scripts/check.sh
+
+  image:
+    name: Container image starts and is ready
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start Postgres and the app with compose
+        run: |
+          cp .env.example .env
+          sed -i 's/^SMARTSPLIT_API_TOKEN=$/SMARTSPLIT_API_TOKEN=ci-token/; s/^ANTHROPIC_API_KEY=$/ANTHROPIC_API_KEY=not-a-real-key/' .env
+          docker compose --profile app up -d --build --wait
+      - name: Ready, and the API answers with its token
+        run: |
+          for i in $(seq 30); do curl -fs localhost:8000/readyz && break; sleep 2; done
+          curl -fs localhost:8000/readyz | grep -q ready
+          curl -fs -X POST localhost:8000/v1/tick -H "Authorization: Bearer ci-token" \
+            -H 'Content-Length: 0' | grep -q batch_id
+      - name: Logs on failure
+        if: failure()
+        run: docker compose --profile app logs
