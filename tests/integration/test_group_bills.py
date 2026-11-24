@@ -457,3 +457,23 @@ def test_two_edits_in_one_turn_then_yes_saves() -> None:
         calling("edit_draft", draft="@D", change={"type": "SetPayer", "person": "@Sam"}),
     )
     assert "Saved: wine" in world.say(YOU, FLAT, "yes", SAVE)
+
+
+def test_a_draft_changed_twice_in_one_turn_is_shown_once() -> None:
+    # SPEC 8.5: only the summary as it ended up
+    world = World()
+    flat(world, YOU, SAM)
+    photo(world)
+    shown = world.say(
+        YOU,
+        FLAT,
+        "line 2 is 120 and Sam paid",
+        calling(
+            "edit_draft",
+            draft="@D",
+            change={"type": "SetLineAmount", "line": "L2", "amount": "120"},
+        ),
+        calling("edit_draft", draft="@D", change={"type": "SetPayer", "person": "@Sam"}),
+    )
+    assert shown.count("Toit, ") == 1
+    assert "paid by Sam" in shown

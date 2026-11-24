@@ -36,10 +36,11 @@ def record(
     on isn't stored (SPEC 10.2)."""
     keep = turn.settings.chat_history_keep
     said = list(first)
-    blocks = [s.text for s in turn.shown]
+    shown = latest_per_draft(turn.shown)
+    blocks = [s.text for s in shown]
     main = "\n\n".join(part for part in (text, *blocks) if part)
     if main:
-        refs = tuple(ref for s in turn.shown for ref in s.refs)
+        refs = tuple(ref for s in shown for ref in s.refs)
         kept = "\n\n".join(p for p in (text, *map(transcript.compact, blocks)) if p)
         said.append(Said(turn.conversation, main, refs, kept))
     said += turn.elsewhere
@@ -55,6 +56,20 @@ def record(
         )
         turn.uow.chat.prune(turn.conversation.key, keep)
     return tuple(send(turn.uow, said, turn.now, keep))
+
+
+def latest_per_draft(shown: list[Said]) -> list[Said]:
+    """A draft changed twice in one turn is shown once, as it ended up: an earlier summary of
+    it would only show a state that no longer exists."""
+    later: set[str] = set()
+    kept: list[Said] = []
+    for block in reversed(shown):
+        drafts = {ref.id for ref in block.refs if ref.kind == "draft"}
+        if drafts and drafts <= later:
+            continue
+        later |= drafts
+        kept.append(block)
+    return kept[::-1]
 
 
 def inbound_text(message: InboundMessage) -> str:
