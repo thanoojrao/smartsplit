@@ -290,31 +290,65 @@ def test_raj_is_known_through_a_group_without_being_added() -> None:
     assert match == [{"person": "P2", "name": "Raj", "known_from": [FLAT]}]
 
 
-def test_picking_one_of_two_sams_remembers_the_choice() -> None:
-    # L5: adding the picked Sam to the draft is enough; next time "Sam" means that Sam
-    world = World()
+def two_sams(world: World) -> Someone:
+    """Alex knows Sam from Flat 4B and another Sam from the Goa trip."""
     other_sam = Someone("Sam", "+919876500010")
     flat(world, YOU, SAM)
     world.say(other_sam, None, "hi")
     world.say(YOU, "Goa trip", "hi")
     world.say(other_sam, "Goa trip", "join", call("join_group"))
-    world.say(
-        YOU,
-        None,
-        "lunch 600 with Sam",
-        call("add_manual_bill", description="lunch", amount="600", unknown_names=["Sam"]),
-        say("Which Sam?"),
+    return other_sam
+
+
+def test_a_name_for_several_people_gets_a_numbered_choice_and_is_remembered() -> None:
+    # L5: code lists the choices; the model only picks a number; the pick becomes a nickname
+    world = World()
+    other_sam = two_sams(world)
+    lunch = call("add_manual_bill", description="lunch", amount="600", unknown_names=["Sam"])
+    asked = world.say(YOU, None, "lunch 600 with Sam", lunch)
+    assert asked == "Which Sam?\n1. Sam (Flat 4B)\n2. Sam (Goa trip)"
+    assert world.drafts(None, YOU)[0].state is DraftState.AWAITING_PEOPLE
+    shown = world.say(
+        YOU, None, "the goa one", calling("pick_person", draft="@D", name="sam", option=2)
     )
-    world.say(YOU, None, "the Goa one", call("find_person", name="Sam"), _add_goa_sam)
-    assert world.drafts(None, YOU)[0].waiting_for == ()
-    world.say(YOU, None, "who is Sam?", call("find_person", name="Sam"), say(""))
-    found = world.agent.requests[-1].history[-1][1][0].data["matches"]
-    assert isinstance(found, list)
-    assert [m["known_from"] for m in found] == [["Goa trip"]]
+    assert "Sam: ₹300.00" in shown
+    draft = world.drafts(None, YOU)[0]
+    assert (draft.state, draft.waiting_for) == (DraftState.REVIEWING, ())
+    assert world.person(other_sam).id in draft.participants
+    coffee = call("add_manual_bill", description="coffee", amount="300", unknown_names=["Sam"])
+    world.say(YOU, None, "yes", calling("confirm_draft", draft="@D"))
+    again = world.say(YOU, None, "coffee 300 with Sam", coffee)
+    assert "Which Sam?" not in again
+    assert "Sam: ₹150.00" in again
+    newest = next(d for d in world.drafts(None, YOU) if d.state is DraftState.REVIEWING)
+    assert world.person(other_sam).id in newest.participants
 
 
-def _add_goa_sam(request: AgentRequest) -> ModelStep:
-    found = request.history[-1][1][0].data["matches"]
-    assert isinstance(found, list)
-    goa = next(m["person"] for m in found if m["known_from"] == ["Goa trip"])
-    return call("edit_draft", draft="D1", change={"type": "AddPeople", "people": [goa]})
+def test_a_pick_outside_the_list_or_for_another_name_is_refused() -> None:
+    world = World()
+    two_sams(world)
+    lunch = call("add_manual_bill", description="lunch", amount="600", unknown_names=["Sam"])
+    world.say(YOU, None, "lunch 600 with Sam", lunch)
+    world.say(YOU, None, "3", calling("pick_person", draft="@D", name="Sam", option=3))
+    assert world.agent.requests[-1].history[-1][1][0].error == "Pick a number from 1 to 2."
+    world.say(YOU, None, "raj", calling("pick_person", draft="@D", name="Raj", option=1))
+    error = world.agent.requests[-1].history[-1][1][0].error
+    assert error == "That bill isn't waiting to know who Raj is."
+
+
+def test_a_name_that_means_one_person_joins_the_bill_at_once() -> None:
+    # the model wasn't sure; code finds exactly one Sam
+    world = World()
+    flat(world, YOU, SAM)
+    lunch = call("add_manual_bill", description="lunch", amount="600", unknown_names=["Sam"])
+    shown = world.say(YOU, None, "lunch 600 with Sam", lunch)
+    assert "Sam: ₹300.00" in shown
+    assert world.drafts(None, YOU)[0].state is DraftState.REVIEWING
+
+
+def test_a_name_that_means_nobody_asks_for_a_number() -> None:
+    world = World()
+    flat(world, YOU, SAM)
+    lunch = call("add_manual_bill", description="lunch", amount="600", unknown_names=["Meera"])
+    asked = world.say(YOU, None, "lunch 600 with Meera", lunch)
+    assert asked == "I don't know Meera yet: send their contact card or number."

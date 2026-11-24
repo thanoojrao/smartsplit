@@ -10,6 +10,7 @@ from smartsplit.domain.prompts import ChatRef
 from smartsplit.domain.tools import FindPerson, GetBalances, GetBill, ListBills, ListRules
 from smartsplit.domain.values import GroupContext
 from smartsplit.services.bill_changes import bill_details
+from smartsplit.services.choosing import known_from
 from smartsplit.services.drafting import renderer_for, split_of
 from smartsplit.services.errors import NotAllowedError
 from smartsplit.services.names import candidates
@@ -77,25 +78,10 @@ def _find_person(turn: Turn, args: FindPerson) -> Data:
             {
                 "person": refs.person_handle(turn, person_id),
                 "name": name_for(turn.uow, turn.viewer, person_id),
-                "known_from": _known_from(turn, person_id),
+                "known_from": known_from(turn, person_id),
             }
         )
     return {"matches": people}
-
-
-def _known_from(turn: Turn, person_id: str) -> list[str]:
-    """Groups both are in (only this one, in a group chat), so "which Sam?" can be asked."""
-    if turn.conversation.group_id is not None:
-        return [turn.conversation.name or "this group"]
-    mine = {
-        m.group_id for m in turn.uow.memberships.for_person(turn.speaker.id) if m.left_at is None
-    }
-    shared = []
-    for membership in turn.uow.memberships.for_person(person_id):
-        group = turn.uow.groups.get(membership.group_id)
-        if membership.left_at is None and membership.group_id in mine and group is not None:
-            shared.append(group.name)
-    return shared
 
 
 READ_TOOLS: tuple[Tool[Any], ...] = (

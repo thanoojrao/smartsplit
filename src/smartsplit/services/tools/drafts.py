@@ -10,6 +10,7 @@ from smartsplit.domain.tools import (
     AddManualBill,
     AddPeople,
     EditDraft,
+    PickPerson,
     SetDraftPeople,
     StartReceipt,
 )
@@ -23,6 +24,7 @@ from smartsplit.services.bill_start import (
     start_bill,
     with_duplicate_check,
 )
+from smartsplit.services.choosing import choices, show_waiting
 from smartsplit.services.drafting import (
     Totals,
     change,
@@ -144,10 +146,32 @@ def _edit_draft(turn: Turn, args: EditDraft) -> Data:
     edited = apply_change(turn, found, args.change, lambda h: refs.person(turn, h))
     if isinstance(args.change, AddPeople):
         edited = _found_people(turn, found, edited)
+    return _show_changed(turn, found, edited)
+
+
+def _pick_person(turn: Turn, args: PickPerson) -> Data:
+    """One of the numbered people code listed for a name: added like "add Sam", and that
+    name means them for the speaker from now on (L5)."""
+    found = refs.reviewable(turn, args.draft)
+    wanted = args.name.strip().casefold()
+    name = next((n for n in found.waiting_for if n.casefold() == wanted), None)
+    if name is None:
+        raise NotAllowedError(f"That bill isn't waiting to know who {args.name} is.")
+    meant = choices(turn, name)
+    if not 1 <= args.option <= len(meant):
+        raise NotAllowedError(f"Pick a number from 1 to {len(meant)}.")
+    picked = meant[args.option - 1]
+    edited = apply_change(turn, found, AddPeople((picked,)), lambda person_id: person_id)
+    return _show_changed(turn, found, _found_people(turn, found, edited))
+
+
+def _show_changed(turn: Turn, found: BillDraft, edited: BillDraft) -> Data:
     shown = change(turn, found, edited)
     if shown.state is DraftState.REVIEWING:
         shown = with_duplicate_check(turn, shown)
         present(turn, shown)
+    elif shown.state is DraftState.AWAITING_PEOPLE:
+        show_waiting(turn, shown)
     return {"draft": refs.draft_handle(turn, shown), "state": shown.state.value}
 
 
@@ -200,5 +224,12 @@ DRAFT_TOOLS: tuple[Tool[Any], ...] = (
         'One review edit of a draft. Lines are L1, L2… as shown; amounts like "120".',
         EditDraft,
         _edit_draft,
+    ),
+    Tool(
+        "pick_person",
+        'The answer to a numbered "Which Sam?" list shown for a bill: the name and the number '
+        'picked ("2", "the Goa one" → the option shown with Goa).',
+        PickPerson,
+        _pick_person,
     ),
 )

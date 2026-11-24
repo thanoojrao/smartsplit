@@ -13,6 +13,7 @@ from smartsplit.domain.model import BillDraft, DuplicateRef, LineItem, Receipt
 from smartsplit.domain.values import Context, GroupContext, Override, PersonalContext
 from smartsplit.engine import DuplicateCandidate, find_likely_duplicate
 from smartsplit.services.bill_changes import is_live
+from smartsplit.services.choosing import show_waiting, sort_names
 from smartsplit.services.drafting import (
     Totals,
     Who,
@@ -94,7 +95,12 @@ def receipt_lines(turn: Turn, receipt: Receipt, context: Context) -> tuple[LineI
 
 
 def start_bill(turn: Turn, said: WhoSaid, bill: NewBill) -> BillDraft:
-    """Create the draft (reviewing, waiting for people, or queued) and show what's next."""
+    """Create the draft (reviewing, waiting for people, or queued) and show what's next.
+
+    Names the model wasn't sure of are looked up here: one match joins the bill, the rest
+    wait, with a numbered choice or a request for a number (L5)."""
+    sure, still = sort_names(turn, said.unknown_names)
+    said = replace(said, people=(*said.people, *sure), unknown_names=still)
     who = resolve_who(turn, said)
     context = context_here(turn)
     waiting = bool(said.unknown_names) or (
@@ -122,6 +128,8 @@ def start_bill(turn: Turn, said: WhoSaid, bill: NewBill) -> BillDraft:
     if state is DraftState.REVIEWING:
         draft = with_duplicate_check(turn, draft)
         present(turn, draft)
+    elif state is DraftState.AWAITING_PEOPLE:
+        show_waiting(turn, draft)
     return draft
 
 

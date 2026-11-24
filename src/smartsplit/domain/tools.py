@@ -172,6 +172,17 @@ type DraftChange = (
 
 
 @dataclass(frozen=True, slots=True)
+class PickPerson:
+    """The answer to a "Which Sam?" list the bot showed for a bill."""
+
+    draft: Handle
+    name: str
+    """The name the list was for, as shown ("Sam")."""
+    option: int
+    """The number of the person picked (1 for the first)."""
+
+
+@dataclass(frozen=True, slots=True)
 class EditDraft:
     draft: Handle
     change: DraftChange
