@@ -110,6 +110,8 @@ def _decline_pending(turn: Turn, args: DeclinePending) -> Data:
 
 def _remind(turn: Turn, args: Remind) -> Data:
     remind(turn, refs.person(turn, args.person))
+    if turn.in_group:
+        return {"reminder": "the speaker was told in their own chat whether it goes"}
     return {"reminder": "will be sent"}
 
 

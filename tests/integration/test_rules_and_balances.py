@@ -245,3 +245,19 @@ def test_daily_cap_holds_extra_messages() -> None:
         world.tick()
         sent += sum(1 for m in world.last if m.recipient_id == sam)
     assert sent == world.settings.max_notifications_per_day
+
+
+def test_remind_in_a_group_answers_privately_either_way() -> None:
+    # SPEC 12.3: whether Sam owes Alex overall isn't the group's business
+    world = World()
+    flat(world, YOU, SAM)
+    bill(world, FLAT)
+    world.say(SAM, FLAT, "remind Alex", calling("remind", person="@Alex"))
+    refused = result(world)
+    assert refused.ok and refused.shown == ()
+    assert world.in_chat(FLAT) == ""
+    assert world.in_chat(None, SAM) == "I can only remind people who owe you overall."
+    world.say(YOU, FLAT, "remind Sam", calling("remind", person="@Sam"))
+    assert result(world).data == refused.data
+    assert world.in_chat(None, YOU) == "I'll remind Sam."
+    assert "A friendly nudge from Alex." in world.tick()

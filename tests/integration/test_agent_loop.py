@@ -34,7 +34,7 @@ def test_two_requests_in_one_message_get_one_reply() -> None:
         say("Done, and I'll nudge Sam."),
     )
     assert reply.startswith("Done, and I'll nudge Sam.\n\ndinner, ₹600.00")
-    assert len(world.last) == 1
+    assert [m.conversation.ref for m in world.last] == [FLAT, f"dm:{YOU.phone}"]  # see J1
     assert [r.ok for r in results(world)] == [True, True]
 
 

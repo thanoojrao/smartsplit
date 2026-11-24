@@ -23,22 +23,37 @@ HISTORY_MAX = 20
 
 def remind(turn: Turn, other: str) -> None:
     """A friendly nudge with their balance: once a day per pair, and only to people who use
-    the bot and haven't said "stop" (SPEC 10.8)."""
-    person = turn.uow.people.get(other)
-    name = name_for(turn.uow, turn.viewer, other)
-    if person is None or other == turn.speaker.id:
+    the bot and haven't said "stop" (SPEC 10.8). Asked in a group, the outcome goes to the
+    speaker's own chat either way: whether it can be sent depends on balances elsewhere,
+    which the group mustn't learn (SPEC 12.3)."""
+    if turn.uow.people.get(other) is None or other == turn.speaker.id:
         raise NotAllowedError("Remind whom?")
-    if not person.has_used_bot or not person.notifications_enabled:
+    name = name_for(turn.uow, turn.speaker.id, other)
+    try:
+        _check_remindable(turn, other, name)
+    except NotAllowedError as refused:
+        if not turn.in_group:
+            raise
+        turn.direct(turn.speaker.id, str(refused))
+        turn.acted = True
+        return
+    notify(turn, other, NotificationKind.REMINDER)
+    if turn.in_group:
+        turn.direct(turn.speaker.id, f"I'll remind {name}.")
+    turn.acted = True
+
+
+def _check_remindable(turn: Turn, other: str, name: str) -> None:
+    person = turn.uow.people.get(other)
+    if person is None or not person.has_used_bot or not person.notifications_enabled:
         raise NotAllowedError(f"{name} doesn't get messages from me, so I can't remind them.")
     if between_net(turn.uow, turn.speaker.id, other) <= 0:
-        # said in a group too, so it mustn't reveal balances from elsewhere
         raise NotAllowedError("I can only remind people who owe you overall.")
     since = turn.now - turn.settings.remind_once_per
-    kind = NotificationKind.REMINDER
-    if turn.uow.notifications.exists_since(turn.speaker.id, other, kind, since):
+    if turn.uow.notifications.exists_since(
+        turn.speaker.id, other, NotificationKind.REMINDER, since
+    ):
         raise NotAllowedError(f"I already reminded {name} today.")
-    notify(turn, other, kind)
-    turn.acted = True
 
 
 def set_notifications(turn: Turn, on: bool) -> None:
