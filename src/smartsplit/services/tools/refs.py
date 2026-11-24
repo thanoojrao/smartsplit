@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from smartsplit.domain.enums import DraftState
 from smartsplit.domain.model import Bill, BillDraft
 from smartsplit.domain.prompts import Prompt
+from smartsplit.domain.values import GroupContext
 from smartsplit.ports.repository import OPEN_DRAFT_STATES
 from smartsplit.services.errors import NotAllowedError
 from smartsplit.services.text import name_for
@@ -46,9 +47,13 @@ def draft_handle(turn: Turn, found: BillDraft) -> str:
 
 
 def bill(turn: Turn, handle: str) -> Bill:
+    """A saved bill; in a group chat, only one of that group's (SPEC 12.3)."""
     found = turn.uow.bills.get(turn.handles.resolve(handle, "bill"))
     if found is None:
         raise NotAllowedError("I can't find that bill.")
+    group_id = turn.conversation.group_id
+    if group_id is not None and found.context != GroupContext(group_id):
+        raise NotAllowedError("That bill isn't from this group.")
     return found
 
 

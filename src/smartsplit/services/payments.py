@@ -164,8 +164,11 @@ def _payment(
     turn: Turn, payment_id: str | None, mine: Callable[[Settlement], bool]
 ) -> tuple[Settlement, ...]:
     """The rows of one live payment (not a square-up) involving the speaker: the one named,
-    or the newest matching `mine`."""
+    or the newest matching `mine`. In a group chat, only that group's rows (SPEC 12.3)."""
     rows = turn.uow.settlements.for_person(turn.speaker.id)
+    group_id = turn.conversation.group_id
+    if group_id is not None:
+        rows = tuple(s for s in rows if s.context == GroupContext(group_id))
     reversed_ids = {s.reverses_id for s in rows if s.reverses_id}
     live = [
         s

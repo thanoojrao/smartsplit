@@ -8,11 +8,9 @@ from typing import Any
 
 from smartsplit.domain.prompts import ChatRef
 from smartsplit.domain.tools import FindPerson, GetBalances, GetBill, ListBills, ListRules
-from smartsplit.domain.values import GroupContext
 from smartsplit.services.bill_changes import bill_details
 from smartsplit.services.choosing import known_from
 from smartsplit.services.drafting import renderer_for, split_of
-from smartsplit.services.errors import NotAllowedError
 from smartsplit.services.names import candidates
 from smartsplit.services.personal import list_bills
 from smartsplit.services.queries import get_balances
@@ -41,9 +39,6 @@ def _get_bill(turn: Turn, args: GetBill) -> Data:
         )
         return {"lines": len(found.lines)}
     bill = refs.bill(turn, args.bill)
-    group_id = turn.conversation.group_id
-    if group_id is not None and bill.context != GroupContext(group_id):
-        raise NotAllowedError("That bill isn't from this group.")
     turn.show(bill_details(turn, bill), (ChatRef("bill", bill.id),))
     return {"lines": len(bill.lines)}
 

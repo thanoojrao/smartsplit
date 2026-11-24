@@ -3,7 +3,9 @@ on, and leaves nothing half done (SPEC 8.3)."""
 
 from smartsplit.adapters.fakes.agent import call, say
 from smartsplit.domain.enums import DraftState
+from smartsplit.domain.prompts import ChatRef
 from smartsplit.ports.agent import ToolResult
+from smartsplit.services.transcript import append
 from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, World, calling, flat, receipt
 
 
@@ -209,3 +211,62 @@ def test_the_payer_cant_say_not_mine_and_matches_are_fixed_only_in_review() -> N
         calling("change_bill", bill="@B", change={"type": "NotThisItem", "line": "L1"}),
     )
     assert result(world).error == "Item matches can only be fixed while a bill is under review."
+
+
+def _personal_taxi_paid_back(world: World) -> None:
+    """Alex's personal taxi bill with Sam, and Sam's payment for it, both outside the flat."""
+    flat(world, YOU, SAM)
+    world.say(YOU, None, "add Sam", call("add_person", name="Sam", phone=SAM.phone))
+    world.say(
+        YOU,
+        None,
+        "taxi",
+        calling("add_manual_bill", description="taxi", amount="300", people=["@Sam"]),
+    )
+    world.say(YOU, None, "yes", calling("confirm_draft", draft="@D"))
+    world.say(
+        SAM,
+        None,
+        "I paid Alex 150",
+        calling("record_payment", from_person="me", to_person="@Alex", amount="150"),
+    )
+    world.say(SAM, None, "yes", calling("confirm_pending", action="@A"))
+
+
+def _shown_in_the_flat(world: World, ref: ChatRef) -> None:
+    """As if the bot had once shown it in the group chat, so the model gets a handle for it."""
+    with world.repository.unit_of_work() as uow:
+        append(
+            uow, world.key(FLAT), sender_id=None, text="that", refs=(ref,), now=world.clock.now()
+        )
+
+
+def test_a_group_turn_reaches_only_that_groups_payments() -> None:
+    # SPEC 12.3: "undo last payment" said in the flat can't touch a personal payment
+    world = World()
+    _personal_taxi_paid_back(world)
+    world.say(SAM, FLAT, "undo last payment", call("undo_payment"))
+    assert result(world).error == "You haven't recorded a payment to undo."
+    world.say(YOU, FLAT, "not received", call("not_received"))
+    assert result(world).error == "There's no payment someone else recorded with you."
+    sam = world.person(SAM).id
+    with world.repository.unit_of_work() as uow:
+        payment_id = uow.settlements.for_person(sam)[0].payment_id
+    _shown_in_the_flat(world, ChatRef("payment", payment_id))
+    world.say(SAM, FLAT, "undo that", calling("undo_payment", payment="@T"))
+    assert result(world).error == "You haven't recorded a payment to undo."
+    world.say(SAM, None, "undo last payment", call("undo_payment"))
+    assert result(world).ok
+
+
+def test_a_group_turn_reaches_only_that_groups_bills() -> None:
+    world = World()
+    _personal_taxi_paid_back(world)
+    sam = world.person(SAM).id
+    with world.repository.unit_of_work() as uow:
+        taxi = uow.bills.for_participant(sam)[0]
+    _shown_in_the_flat(world, ChatRef("bill", taxi.id))
+    world.say(
+        YOU, FLAT, "delete it", calling("change_bill", bill="@B", change={"type": "DeleteBill"})
+    )
+    assert result(world).error == "That bill isn't from this group."
