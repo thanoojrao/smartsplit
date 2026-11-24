@@ -1,1 +1,2 @@
-"""Anthropic-backed ReceiptParser and CommandInterpreter. The only place that imports anthropic."""
+"""Anthropic-backed ReceiptParser, Canonicalizer and AgentModel. The only place that imports
+anthropic."""

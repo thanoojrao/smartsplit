@@ -36,7 +36,7 @@ Error classes end in `Error` (ruff N818): `ReceiptUnreadableError`, `LlmUnavaila
 | `RuleSource` | `stated`, `learned` |
 | `ConversationKind` | `group`, `personal` |
 | `DraftState` | `queued`, `awaiting_people`, `reviewing`, `saved`, `cancelled`, `expired` |
-| `PromptKind` | `engine_question`, `pending_action` |
+| `PromptKind` | `engine_question`, `pending_action`, `which_person` |
 | `PromptStatus` | `open`, `answered`, `dropped` |
 | `SettlementKind` | `payment`, `square_up` |
 | `AnswerOutcome` | `excluded`, `sole_assignee`, `included` |
@@ -141,13 +141,15 @@ class Settlement: id, payment_id, context: Context, from_id, to_id, amount_cents
 
 ```python
 class Prompt:     id, conversation: ConversationKey, draft_id: str | None, kind: PromptKind,
-                  payload: EngineQuestionPayload | PendingActionPayload, status: PromptStatus,
+                  payload: EngineQuestionPayload | PendingActionPayload | WhichPersonPayload,
+                  status: PromptStatus,
                   asked_of: str | None,          # None = anyone in the context may answer
                   created_by, created_at, expires_at: datetime | None,
                   answers: tuple[PromptAnswer, ...]
 class PromptAnswer: person_id, assignees: tuple[Weight, ...], at: datetime  # the line's new split
 
 class EngineQuestionPayload:  line_id: str, member_id: str | None, reason: QuestionReason
+class WhichPersonPayload:     name: str, options: tuple[str, ...]   # person ids, in the order shown
 class PendingActionPayload:   tool: str, arguments: ToolArgs,    # §1.7, with ids in place of handles
                               effect: Effect, based_on_version: int,
                               proposed_in_message_id: str        # "never in the same turn"
@@ -217,6 +219,7 @@ to ids before running the tool, and stores ids, never handles.
 | `set_draft_people` | draft: D, people, everyone_except, group: G \| None |
 | `edit_draft` | draft: D, change: one of `SetLineAmount(line: L, amount)`, `RemoveLine(line)`, `AddLine(name, amount)`, `SetTotal(amount)`, `AssignLine(line, people, weights: ((P, int), …), exact: ((P, Money), …))`, `UnassignLine(line: L \| None, people)`, `AddPeople(people)`, `RemovePeople(people)`, `NotThisItem(line, item_said: str \| None)`, `SetPayer(person)` |
 | `answer_question` | question: Q, included: bool \| None, people: (P, …) (for "who's this for?") |
+| `pick_person` | question: Q (a "Which Sam?" list), option: int (1 for the first) |
 | `file_into_group` | draft: D, group: G |
 | `confirm_draft` / `cancel_draft` | draft: D (+ keep_duplicate: bool, accept_difference: bool for confirm) |
 | `add_person` | name: str, phone: str \| None, use_contact: bool, mention: P \| None |

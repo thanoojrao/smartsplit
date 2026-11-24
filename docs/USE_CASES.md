@@ -167,7 +167,7 @@ Groups: **Flat 4B** (you, Sam, Raj) and **Goa trip** (you, Raj, Priya).
 | # | Situation | Expected behaviour | Spec | M |
 |---|---|---|---|---|
 | K1 | Try the full flow with no API key | `smartsplit demo` plays a scripted conversation through the real tools and database | §11 | M9, M10 |
-| K2 | Try it with real Claude | CLI `--live` with `ANTHROPIC_API_KEY` | §11 | M9 |
+| K2 | Try it with real Claude | CLI `say` / `receipt add` with `ANTHROPIC_API_KEY` set | §11 | M9, M12 |
 | K3 | Connect a chat gateway later | `POST /v1/messages`, `POST /v1/tick` and its ack, with the API token, per the gateway contract | §11, §12.2 | M9, M11 |
 | K4 | Someone without the token calls the API | Refused (except `/healthz`) | §11 | M9 |
 | K5 | The gateway retries the same message | Processed once; the same reply is returned | §12.2 | M7 |
