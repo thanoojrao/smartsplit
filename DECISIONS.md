@@ -279,4 +279,8 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 
 ## Open (waiting for the user)
 
-(nothing open)
+- **Which model for which call (user's idea: Haiku for chat, Sonnet when needed).** SPEC 12.1 has one `SMARTSPLIT_LLM_MODEL` for every call. Prices per MTok: Haiku 5.5 $0.10 in / $0.50 out; Sonnet 5.5 $2 / $10 (cache reads $0.10). Options:
+  (a) **Split by job:** the agent loop and canonicalize on `claude-haiku-5-5`, receipt photos on `claude-sonnet-5-5`; two settings (`SMARTSPLIT_LLM_MODEL`, `SMARTSPLIT_RECEIPT_MODEL`). About 15–20× cheaper per chat message.
+  (b) **(a) plus escalation:** a Haiku turn that ends badly (a tool error it didn't recover from, or the step limit) is rolled back and rerun on Sonnet. Turns are already one transaction, so a rerun is clean; thinking blocks can't cross models, so it's a full rerun.
+  (c) Keep Sonnet for everything (as specified).
+  **Recommendation:** (a) now, with M12's live scenarios run on both models (questions asked, scenario passes, cost per message); add (b) only if Haiku fails scenarios that Sonnet passes.
