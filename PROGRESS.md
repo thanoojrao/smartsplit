@@ -58,7 +58,6 @@ Revision 2 (SPEC §8: the conversation agent; approved by the user).
 (non-blocking review findings go here)
 
 - (M1 review) `amounts_to_weights` raises on no fixed amounts: the orchestrator (M7) must use a plain list override for an equal split, never route "no exact amounts" here.
-- (M2 review) The fake `claim_due` returns a `requested_reply` for a recipient who doesn't exist, while Postgres (inner join, FK) can't store one; the fake skips FK checks generally. Harmless today.
 - (M3 review) A linked discount shares its parent's key, so a `soft_exclude` would make the engine ask twice; the orchestrator should ask about linked discounts only through the parent line (M7).
 - (Checkpoint A, M8) `claim_due`: rows dropped by the cap still use `limit` slots within one batch.
 - (Checkpoint A) `split_receipt` accepts `bool` amounts (`True` = 1 cent); optionally reject non-int amounts.
@@ -66,19 +65,30 @@ Revision 2 (SPEC §8: the conversation agent; approved by the user).
 - (Fix review, M8) Call `claim_due` only in its own unit of work with no conversation lock (lock order).
 - (M5 review) 429/529 are retried at once; honouring `retry-after` (capped by the timeout) would make the one retry likelier to succeed.
 - (M5 review) Adapter tests import `httpx2`, which comes with `anthropic`; declare it if a future SDK drops it.
-- (M6 review) Literal/enum casing is handled in the codec; apostrophe variants in the keyword fake. "remove Raj" in the fake reads as removing a line named Raj (acceptable for a fake).
 - (M3 review) Stated rules only normalize the item ("I don't drink MLK" → `mlk`); decide in M6/M7 whether stated items go through `match_item`/the model.
 - (M7 review) A photo refused after its image was stored (e.g. not a member) leaves an orphaned image until the image store prunes it.
 - (M7 review) A model-supplied id is echoed back in "X isn't in Flat 4B": harmless (it resolves to nobody), but a generic refusal would read better.
 - (M7) Each group answer re-reads memberships and the directory per message; fine at chat scale, revisit if profiling says otherwise.
-- (M8 review) `tick`'s delivery writes `last_listed_bill_ids` without the chat's lock; a turn in that personal chat at the same moment could overwrite it (only the numbering for "details 2" is affected).
 - (M8 review) `OrchestratorSettings` repeats defaults from `config.Settings`; M9 builds it from config so there is one source.
 - (M8) A model outage leaves a receipt retried every 2 minutes for up to 3 days; a back-off would save calls.
 - (M9 review) `rules_chat.scope_label` and `_scope_name` share a group branch; fold them into one helper.
 - (M9 review) `member add` for a group that doesn't exist yet creates it with that person in it; refuse instead if that surprises people.
-- (M10 review) `LoopResult.steps/tools/usage` are only read by M11's per-turn log line; M11 must use them or drop them.
-- (M10 review) "Limit reached" is said on every over-limit message; M11 makes it once a day (SPEC 12.5).
 - (M10 review) `domain/tools.py` is ~320 lines of plain argument dataclasses; split the `edit_draft` change variants into their own module if it grows.
 - (M11 review) A failed or timed-out turn's log line has only its outcome and time: the loop's steps, tools and usage so far are lost with the rollback; carry them out on the exception if debugging needs them.
 - (M11 review) `mentioned` creates a person for any mention with a phone, even one sent by a non-member; the gateway must not send the bot's own mention (`addressed_to_bot` covers it). Consider creating people only through `add_person`.
 - (M11 review) The 12-hex chat hash in the log line is unsalted; a salt from config would stop someone with the logs and a list of chat ids from matching them.
+- (Checkpoint C) Pin the Dockerfile base image to a patch version or a digest.
+- (Checkpoint C) README gateway notes: mention that a body without Content-Length gets 411.
+- (Checkpoint C) A prompt-cache breakpoint on the turn input would make steps 2–6 of a turn cheaper.
+- (Checkpoint C) Daily caps are checked once per message, so a long turn can overshoot by a turn's calls.
+- (Checkpoint C) Transcript `seq` is assigned at insert, not commit, so two chats' lines can interleave out of commit order.
+- (Checkpoint C) "Waiting for Sam to say yes" is shown to Sam himself; word it for the person asked.
+- (Checkpoint C) The waited-on window counts any bot post, not only replies.
+- (Checkpoint C) The single-member note shows even when the adder narrowed the bill to themselves.
+- (Checkpoint C) The demo's scripted words repeat text the shown blocks already say.
+- (Checkpoint C) `parse_money` assumes 2 decimals; take the currency's exponent if other currencies come.
+- (Checkpoint C) Files over ~300 lines: `adapters/db/draft_stores.py` (~460) first.
+- (Checkpoint C) A per-run test schema would let concurrent gate runs share one Postgres.
+- (Checkpoint C) An unreadable photo in a group gets no reply even when it may have been a receipt.
+- (Checkpoint C) The `set_nickname` tool description still says it answers "which Sam?" (now `pick_person`); change it with a live run.
+- (Checkpoint C) `MatchedLines.model_calls` is only read by tests now that the meter counts calls; drop it.
