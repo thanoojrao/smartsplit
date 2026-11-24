@@ -17,7 +17,7 @@ from smartsplit.ports.repository import ACTIVE_DRAFT_STATES
 from smartsplit.services.errors import NotAllowedError
 from smartsplit.services.splitting import DraftSplit, compute_split
 from smartsplit.services.summary import Renderer
-from smartsplit.services.transcript import last_shown_version
+from smartsplit.services.transcript import last_shown_shares
 from smartsplit.services.turn import Turn
 
 
@@ -111,7 +111,10 @@ def new_draft(
 
 
 def change(turn: Turn, before: BillDraft, after: BillDraft) -> BillDraft:
-    """Write a change as the next version, if the draft is still the one that was read."""
+    """Write a change as the next version, if the draft is still the one that was read. Once
+    its summary was shown in an earlier message, its new matches aren't new any more (F11)."""
+    if any(line.match_is_new for line in after.lines) and _shown_before(turn, before):
+        after = replace(after, lines=tuple(replace(x, match_is_new=False) for x in after.lines))
     changed = replace(after, version=before.version + 1, last_activity_at=turn.now)
     turn.uow.drafts.update(changed, expected_version=before.version)
     turn.changed_drafts.add(changed.id)
@@ -140,16 +143,13 @@ def present(turn: Turn, draft: BillDraft) -> None:
     split = split_of(turn, draft)
     questions = sync_questions(turn, draft, split)
     asked = [q for q in questions if not q.answers][: turn.settings.questions_shown]
-    shown_before = last_shown_version(
-        turn.uow, draft.conversation, draft.id, turn.settings.chat_history_keep
-    )
     text = renderer_for(turn).summary(
         draft,
         split,
         asked,
         turn.settings.min_line_confidence,
         _single_member(turn, draft),
-        new_matches=shown_before is None,
+        new_matches=not _shown_before(turn, draft),
     )
     refs = (
         ChatRef("draft", draft.id, draft.version, split.fingerprint),
@@ -157,6 +157,13 @@ def present(turn: Turn, draft: BillDraft) -> None:
     )
     chat = turn.uow.conversations.get(draft.conversation) or turn.conversation
     turn.post(chat, text, refs, summary_of=draft.id)
+
+
+def _shown_before(turn: Turn, draft: BillDraft) -> bool:
+    """Its split is in its chat's transcript, so an earlier message showed it (a reminder or
+    "who's it with?" doesn't count)."""
+    keep = turn.settings.chat_history_keep
+    return last_shown_shares(turn.uow, draft.conversation, draft.id, keep) is not None
 
 
 def _single_member(turn: Turn, draft: BillDraft) -> bool:

@@ -543,3 +543,15 @@ def test_a_rule_made_after_the_summary_shows_the_new_split_before_saving() -> No
     reshown = world.in_chat(FLAT)
     assert "Sam: ₹1,023.50" not in reshown and "Toit, ₹2,047.00" in reshown
     assert "Saved" in world.say(YOU, FLAT, "yes", SAVE)
+
+
+def test_new_matches_stay_shown_once_after_the_chat_history_is_gone() -> None:
+    # F11: once seen and changed, a match isn't news, whatever the transcript still holds
+    names = {"2% MLK GAL": "milk"}
+    world = World(canonical=FakeCanonicalizer(names))
+    flat(world, YOU, SAM)
+    assert "Read as: 2% MLK GAL → milk." in photo(world, "grocery_taxed_mix")
+    edit(world, {"type": "SetLineAmount", "line": "L2", "amount": "50"})
+    with world.repository.unit_of_work() as uow:
+        uow.chat.prune(world.key(FLAT), 0)
+    assert "Read as:" not in edit(world, {"type": "SetLineAmount", "line": "L2", "amount": "60"})
