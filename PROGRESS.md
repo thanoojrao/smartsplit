@@ -4,11 +4,11 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 ## Next up
 
-M10–M12 are done (DECISIONS "M10 — agent core", "M11 — production flow", "M12 — models").
-**Next: CHECKPOINT C**: a PR from `claude/great-feynman-y9tao9` to `main` is open; wait for the user's
-reply before any further work. Ideas after that, none started: live scenarios for long receipts with
-several questions and many changes in one message; the WhatsApp gateway (SPEC 13). The user's own name
-stays in `docs/USE_CASES.md`, `docs/USE_CASE_TRACE.md` and `LICENSE` by their choice.
+M10–M12 are done, and so are the Checkpoint C review fixes (log line below; DECISIONS "Checkpoint C fixes").
+PR #2 (`claude/great-feynman-y9tao9` → `main`) is open with the gate green. **Next: the user merges PR #2
+(squash) or says to.** Nothing else is started. Ideas after that: the follow-ups below; the WhatsApp gateway
+(SPEC 13). The user's own name stays in `docs/USE_CASES.md`, `docs/USE_CASE_TRACE.md` and `LICENSE` by
+their choice.
 
 ## Milestones
 
@@ -52,6 +52,7 @@ Revision 2 (SPEC §8: the conversation agent; approved by the user).
 - M10: the conversation agent offline: `AgentModel` port + `ScriptedAgent`; ~30 tools over id-based services (handles, `Money` strings, generated schemas, savepoint per call); transcript with refs for every outbound message; pending actions and `confirm_draft` rules in code; photos read on arrival (`PhotoRead`); versioned drafts, one active per adder, `awaiting_people`; loop with tools-off final step, deadline and rollback; reply clean-up; `smartsplit demo`; migration 0003; Anthropic agent/canonicalizer adapters (tuned in M12); old interpretation stack removed; review must-fixes (4) fixed. Range `e4b2f78..31bab22`. Commit `31bab22`.
 - M11: gating (addressed, receipt photos, waited-on people for 10 minutes; unknown groups start only when addressed), photo checks before the read, mentions (names, handles, a phone creates the person), quoted replies (refs first), `bot_added` intro with the adder in, bot link in "message me 1:1 first", install cap and once-a-day limit notice, bounded lock wait → 503, `tick` try-lock + stored `TickBatch` + ack, `/readyz`, per-turn log line (`TurnReport`), Dockerfile + compose `app` + CI image check, README deploy/tick/backups; review must-fixes (4) fixed. Range `d6d05cc..6307239`. Commit `6307239`.
 - M12: chat on Haiku and receipts on Sonnet (user's choice); live harness (scripted setup, real model for the conversation, state checks, style checks, usage per model, questions asked, cost per message) with 23 conversations; "which person" as a stored, code-rendered question answered with `pick_person`; one summary per draft per turn; balances for this group and overall; listening hint; prompt tuned on live transcripts; final live runs 23/23 and 22/23 at ~$0.0004 per chat message; review must-fixes (2 + 4) fixed. Range `310a2e4..adb764b`. Commit `adb764b`.
+- Checkpoint C fixes (review items 1–20, then the fix review's 2 must-fixes): duplicate check for queued drafts, shown-shares fingerprint on save, group-scoped payments and bills, separate usage pool, hidden SQL parameters, tick batches appended per step, DB errors → try again, retries within the time left and counted, refusals fail the turn, scoped personal bill versions, private remind, group names in "which Sam?", held notices on a first message, contact cards and hidden ids in groups, personal-only invites, matches shown once, docs. 681 tests, 95.8% coverage. Range `9658b13..b4484f5`. Commit `b4484f5`.
 
 ## Follow-ups
 

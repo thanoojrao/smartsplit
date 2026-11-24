@@ -308,6 +308,8 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - **Hidden parameters:** every engine is created with `hide_parameters=True`. Why: SQL errors and logs otherwise carry message text and phone numbers (SPEC 12.4).
 - **Model calls and the deadline:** each model port takes a `count_call` callback the adapter calls before every request, so a retry counts against the limits too; a call's timeout covers its retry, which gets only what is left (none under a second); inside a turn, canonicalize gets the message's time left and, past the deadline, a name keeps its normalized form without a call. Why: a timed-out call was retried with a fresh full timeout and canonicalize ignored the deadline, so a message could run well past its 60 seconds.
 - **Model log lines:** the per-call usage line and the "ended early" line put their fields in the message text (`purpose=… input_tokens=…`, `stop_reason=…`). Why: the server's log format prints only the message, so `extra=` fields never appeared.
+- **Remind in a group, no personal chat:** refused with "Message me 1:1 first, and I'll tell you there." before any check, so the answer never depends on balances. Why: the private answer had nowhere to go.
+- **Hidden ids in groups:** "message me 1:1 first" answers an addressed message or their adding the bot; other events stay silent. Why: SPEC 10.3 asks the adder to message 1:1; a stray event shouldn't post in the group.
 
 
 (nothing open)
