@@ -11,3 +11,6 @@ coverage.xml
 htmlcov/
 dist/
 .import_linter_cache/
+data/
+*.dump
+*.tgz
