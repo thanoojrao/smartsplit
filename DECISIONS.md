@@ -294,10 +294,11 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 
 - **M12 review fixes:** only review summaries of the same draft collapse (`Said.summary_of`); details, saved and balance blocks always stay. Live checks take the model's own words from its steps (not the joined reply), use the app's handle pattern, and assert state for I5, D2, G6, L7 and C15; the receipt scenarios use the real canonicalizer on the chat model. Code-rendered blocks are English; L16 checks the model's own words. Picking one of several people with the same name for a draft's waiting name makes it the speaker's nickname in code (L5), so remembering doesn't depend on the model calling set_nickname.
 
-## Open (waiting for the user)
+- **"Which Sam?" in code (the user chose it, 2026-11-24):** a name the model isn't sure of goes in `unknown_names` as said; code adds a single match at once, lists several as a numbered choice it renders itself ("Which Sam? 1. Sam (Flat 4B) 2. Sam (Goa trip)", options sorted by label then id so the numbers are stable), and `pick_person(draft, name, option)` adds the one picked and saves the name as the speaker's nickname. Escalating to Sonnet was dropped: when a name is truly ambiguous no model can know, and the step Haiku got wrong was bookkeeping, which code now does.
+- **Balances:** in a group chat, "this group and overall" in one call shows the group's balances in the group and sends the overall privately (seen live: only the group's went, privately).
+- **Listening hint:** a group message that reached the model only because the bot waits on its sender carries a note that it wasn't addressed and needs an answer only if it's about a bill, payment or question (seen live: "I'll stay quiet" replies).
+- **Prompt:** payments only once they happened, never for a promise; a rule that stopped being true is `delete_rule` however casually it's said; a settled name isn't asked about again.
+- **Wider live run (2026-11-24, Haiku chat):** 21 scenarios, about 80 messages and 5 receipt reads per run, ~$0.06 per run, ~$0.0005 per chat message. Last two full runs: 19/21 and 21/22 collected (1 failed); after the last fixes the flaky ones passed 3/3 ("he paid", "which Sam?") and 3/4 (a casual "never put me on cappuccino" once made no rule). Seen and accepted on Haiku: an occasional hedging question after a name is settled, an echoed amount, and casual phrasings now and then not acted on. Total live spend for M12 about $0.85.
 
-- **L5 ("which Sam?") on Haiku.** Haiku asks which Sam correctly but handles the answer unreliably: 1 of 6 live runs passed (it skips `unknown_names`, once added both Sams, once couldn't use `known_from`), so it asks again next time. Sonnet as the chat model passed 2 of 2. Everything else passes on Haiku. Options:
-  (a) **Escalate to Sonnet for this case:** when `find_person` returns several matches in a turn, the rest of that turn and the next turn in that chat run on Sonnet. A few cents now and then; small code change in the loop (chosen per turn, so no thinking blocks cross models).
-  (b) **Accept on Haiku:** safe (nothing is saved with the wrong person without the summary showing it), but the bot may ask "which Sam?" every time.
-  (c) Sonnet for all chat (~15× the chat cost: about $0.007 per message instead of $0.0005).
-  **Recommendation:** (a).
+
+(nothing open)

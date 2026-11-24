@@ -56,8 +56,9 @@ someone else's personal chat.
 Chat (the agent loop and item-name matching) runs on `claude-haiku-5-5`
 (`SMARTSPLIT_LLM_MODEL`); receipt photos are read by `claude-sonnet-5-5`
 (`SMARTSPLIT_RECEIPT_MODEL`), since a misread goes straight into the numbers. Measured on the
-live scenarios (34 messages, 2026-11-24): about $0.0005 per chat message on Haiku (about
-$0.007 with Sonnet as the chat model) and about $0.005 per receipt photo, with the cached
+live scenarios (21 conversations, about 80 messages, 2026-11-24): about $0.0005 per chat
+message on Haiku (about $0.007 with Sonnet as the chat model) and about $0.005 per receipt
+photo; a full live run costs about $0.06, with the cached
 system prompt and tools making up most of each call's input. Daily caps:
 `SMARTSPLIT_LLM_CALLS_PER_PERSON_PER_DAY` and `SMARTSPLIT_LLM_CALLS_PER_DAY`.
 
