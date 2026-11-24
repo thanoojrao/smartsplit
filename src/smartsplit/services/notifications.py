@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from smartsplit.domain.enums import NotificationKind
 from smartsplit.domain.model import Bill
 from smartsplit.domain.prompts import Notification, NotificationArgs
+from smartsplit.domain.values import PersonalContext
 from smartsplit.ports.repository import UnitOfWork
 from smartsplit.services.ledgers import between_net, share_of
 from smartsplit.services.text import day_label, money, name_for
@@ -61,7 +62,8 @@ def tell_participants(
 
 
 def invites_for(turn: Turn, bill: Bill) -> list[str]:
-    """People in this bill who have never used the bot, on the adder's first bill with them."""
+    """People in this personal split who have never used the bot, on the adder's first
+    personal split with them; group bills don't count, as they were posted in the group (D7)."""
     invited = []
     for person_id in bill.participants:
         person = turn.uow.people.get(person_id)
@@ -70,7 +72,9 @@ def invites_for(turn: Turn, bill: Bill) -> list[str]:
         earlier = [
             b
             for b in turn.uow.bills.for_participant(person_id)
-            if b.id != bill.id and turn.speaker.id in b.participants
+            if b.id != bill.id
+            and isinstance(b.context, PersonalContext)
+            and turn.speaker.id in b.participants
         ]
         if not earlier:
             invited.append(person_id)

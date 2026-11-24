@@ -404,3 +404,22 @@ def test_a_name_that_means_nobody_asks_for_a_number() -> None:
     lunch = call("add_manual_bill", description="lunch", amount="600", unknown_names=["Meera"])
     asked = world.say(YOU, None, "lunch 600 with Meera", lunch)
     assert asked == "I don't know Meera yet: send their contact card or number."
+
+
+def test_the_invite_comes_with_the_first_personal_split_even_after_group_bills() -> None:
+    # D7: a group bill with Priya was posted in the group; she was never invited
+    world = World()
+    flat(world, YOU, SAM)
+    world.say(YOU, FLAT, "add Priya", call("add_person", name="Priya", phone=PRIYA.phone))
+    world.say(YOU, FLAT, "bill", call("add_manual_bill", description="groceries", amount="900"))
+    world.say(YOU, FLAT, "yes", SAVE)
+    priya = world.person(PRIYA).id
+    with world.repository.unit_of_work() as uow:
+        assert len(uow.bills.for_participant(priya)) == 1
+    world.say(
+        YOU,
+        None,
+        "taxi",
+        calling("add_manual_bill", description="taxi", amount="300", people=["@Priya"]),
+    )
+    assert "Priya hasn't used SmartSplit yet." in world.say(YOU, None, "yes", SAVE)
