@@ -41,13 +41,19 @@ def test_operator_commands_need_no_key_but_talking_does(environment: None) -> No
     assert "This needs ANTHROPIC_API_KEY" in said.output
 
 
-def test_the_api_factory(environment: None, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_api_factory(
+    environment: None, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     with pytest.raises(SystemExit, match="SMARTSPLIT_API_TOKEN"):
         from_environment()
     monkeypatch.setenv("SMARTSPLIT_API_TOKEN", "t0ken")
     with pytest.raises(SystemExit, match="ANTHROPIC_API_KEY"):
         from_environment()
     monkeypatch.setenv("ANTHROPIC_API_KEY", "not-a-real-key")
+    monkeypatch.delenv("SMARTSPLIT_BOT_LINK", raising=False)
+    with pytest.raises(SystemExit, match="SMARTSPLIT_BOT_LINK"):
+        from_environment()
+    monkeypatch.setenv("SMARTSPLIT_BOT_LINK", "https://wa.me/15550001")
     api = TestClient(from_environment())
     assert api.get("/healthz").json() == {"status": "ok"}
     assert api.get("/readyz").json() == {"status": "ready"}
@@ -55,3 +61,16 @@ def test_the_api_factory(environment: None, monkeypatch: pytest.MonkeyPatch) -> 
     batch = api.post("/v1/tick", headers=auth).json()
     assert batch["messages"] == []
     assert api.post(f"/v1/tick/{batch['batch_id']}/ack", headers=auth).status_code == 204
+    chatter = {
+        "message_id": "m1",
+        "conversation": {"channel": "whatsapp", "ref": "g1"},
+        "conversation_kind": "group",
+        "sender_ref": "+919876500001",
+        "sender_name": "Alex",
+        "addressed_to_bot": False,
+        "reply_to_bot": False,
+        "text": "lunch?",
+    }
+    assert api.post("/v1/messages", headers=auth, json=chatter).json() == []
+    # SPEC 12.4: the factory makes the INFO line visible without any test setup
+    assert any("outcome=silent" in r.getMessage() for r in caplog.records)

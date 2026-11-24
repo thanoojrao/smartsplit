@@ -117,7 +117,7 @@ def _take_lock(
             raise ChatBusyError("chat busy") from error
         raise
     if wait_seconds is not None:
-        connection.execute(text("SET LOCAL lock_timeout = 0"))
+        connection.execute(text("RESET lock_timeout"))
 
 
 LOCK_NOT_AVAILABLE = "55P03"

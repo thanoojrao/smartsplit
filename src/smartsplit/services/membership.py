@@ -7,6 +7,7 @@ from dataclasses import replace
 
 from smartsplit.domain import normalize_item_name
 from smartsplit.domain.enums import DraftState, PromptStatus
+from smartsplit.domain.messages import ChatEvent
 from smartsplit.domain.model import BillDraft, Membership, Nickname, Person
 from smartsplit.domain.phone import mask_phone, normalize_phone
 from smartsplit.domain.prompts import ChatRef, EngineQuestionPayload
@@ -33,6 +34,21 @@ def join(turn: Turn) -> None:
         return
     add_member(turn, group_id, turn.speaker.id)
     turn.show(f"{turn.speaker.display_name} joined {turn.conversation.name}.")
+
+
+def chat_event(turn: Turn, event: ChatEvent) -> None:
+    """Events need no model: whoever added the bot is in at once, and someone who left the
+    group chat leaves the group (SPEC 10.3)."""
+    group_id = turn.conversation.group_id
+    if group_id is None:
+        return
+    if event.kind == "bot_added":
+        if turn.speaker.id not in current_member_ids(turn.uow, group_id):
+            add_member(turn, group_id, turn.speaker.id)
+        return
+    identity = turn.uow.identities.get(turn.conversation.key.channel, event.subject_ref or "")
+    if identity is not None:
+        member_left(turn, identity.person_id)
 
 
 def add_member(turn: Turn, group_id: str, person_id: str) -> None:

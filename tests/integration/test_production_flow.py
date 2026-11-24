@@ -7,8 +7,9 @@ from datetime import timedelta
 
 from smartsplit.adapters.fakes.agent import call, say
 from smartsplit.adapters.fakes.repository import InMemoryRepository
-from smartsplit.domain.messages import ChatEvent, Mention
-from smartsplit.services.text import NEEDS_NUMBER, OVER_LIMIT
+from smartsplit.domain.messages import ChatEvent, ContactAttachment, Mention
+from smartsplit.ports.llm import LlmUnavailableError, ParsedReceipt
+from smartsplit.services.text import NEEDS_NUMBER, OVER_LIMIT, TRY_AGAIN
 from smartsplit.services.turn import OrchestratorSettings
 from tests.integration.world import FLAT, PRIYA, RAJ, SAM, YOU, World, calling, flat, receipt
 
@@ -304,3 +305,116 @@ def test_each_turn_reports_what_it_did_without_content() -> None:
 def outcome_of(world: World) -> str:
     assert world.outcome is not None
     return world.outcome.report.outcome
+
+
+class DownParser:
+    """The receipt reader is down."""
+
+    def parse(
+        self, image: bytes, mime_type: str, currency: str, timeout_seconds: float
+    ) -> ParsedReceipt:
+        raise LlmUnavailableError("down")
+
+
+def test_the_last_person_replied_to_is_waited_on() -> None:
+    # SPEC 10.2: no draft or question involved
+    world = World()
+    flat(world, YOU, SAM, RAJ)
+    world.clock.advance(timedelta(minutes=11))
+    world.say(RAJ, FLAT, "hey bot", say("Hi Raj."))
+    assert world.say(RAJ, FLAT, "thanks", say("Any time."), addressed=False) == "Any time."
+    assert world.say(SAM, FLAT, "lol", addressed=False) == ""
+
+
+def test_people_an_open_question_is_about_are_waited_on() -> None:
+    world = World()
+    flat(world, YOU, SAM, RAJ)
+    world.say(
+        SAM,
+        FLAT,
+        "I skip beer",
+        call("add_rule", subject="me", item="beer pitcher", kind="soft_exclude"),
+    )
+    start_bill(world)
+    world.say(RAJ, FLAT, "nice", say("Thanks Raj."))  # the bot last replied to Raj
+    reply = world.say(SAM, FLAT, "I had none", say("Noted."), addressed=False)
+    assert reply == "Noted."
+
+
+def test_the_person_a_pending_action_waits_for_is_waited_on() -> None:
+    world = World()
+    flat(world, YOU, SAM, RAJ)
+    world.say(SAM, FLAT, "no chips", call("add_rule", subject="me", item="chips", kind="exclude"))
+    world.say(RAJ, FLAT, "Sam eats chips now", calling("delete_rule", subject="@Sam", item="chips"))
+    world.say(YOU, FLAT, "hello", say("Hi Alex."))  # the bot last replied to Alex
+    done = world.say(RAJ, FLAT, "yes", calling("confirm_pending", action="@A"), addressed=False)
+    assert done == "Raj removed a rule: Sam never shares chips."
+
+
+def test_a_waited_on_message_the_model_acts_on_is_stored() -> None:
+    world = World()
+    flat(world, YOU, SAM)
+    start_bill(world)
+    before = len(world.transcript(FLAT))
+    world.say(YOU, FLAT, "yes", SAVE, addressed=False)
+    assert len(world.transcript(FLAT)) == before + 2
+
+
+def test_events_are_handled_even_over_the_limits() -> None:
+    world = World(settings=OrchestratorSettings(llm_calls_per_day=30))
+    flat(world, YOU, SAM)
+    for _ in range(30 - world.model_calls("install")):
+        world.repository.count_usage("install", world.clock.now().date())
+    sam = world.person(SAM).id
+    gone = world.message(YOU, FLAT, event=ChatEvent("participant_left", SAM.ref), addressed=False)
+    assert "Sam" in world.send(gone)
+    assert sam not in member_ids(world)
+
+
+def test_added_again_to_a_known_group_the_adder_is_in() -> None:
+    world = World()
+    flat(world, YOU, SAM)
+    world.say(RAJ, None, "hi")
+    added = world.message(RAJ, FLAT, event=ChatEvent("bot_added", None), addressed=False)
+    assert "Raj is in" in world.send(added)
+    assert world.person(RAJ).id in member_ids(world)
+
+
+def test_an_unknown_group_starts_only_when_someone_talks_to_the_bot() -> None:
+    # SPEC 10.3
+    world = World()
+    world.say(YOU, None, "hi")
+    card = ContactAttachment("Priya", PRIYA.phone)
+    assert world.say(YOU, FLAT, None, contact=card, addressed=False) == ""
+    assert world.say(YOU, FLAT, None, image=receipt("restaurant_tip"), addressed=False) == ""
+    assert world.parser.calls == 0
+    with world.repository.unit_of_work() as uow:
+        assert uow.conversations.get(world.key(FLAT)) is None
+
+
+def test_an_unaddressed_group_photo_says_nothing_when_the_reader_is_down() -> None:
+    world = World(receipts=DownParser())
+    flat(world, YOU, SAM)
+    assert world.say(YOU, FLAT, None, image=receipt("restaurant_tip"), addressed=False) == ""
+    assert world.say(YOU, FLAT, "split this", image=receipt("restaurant_tip")) == TRY_AGAIN
+
+
+def test_the_limit_notice_survives_a_busy_retry() -> None:
+    repository = InMemoryRepository()
+    world = World(
+        repository=repository, settings=OrchestratorSettings(llm_calls_per_person_per_day=1)
+    )
+    world.say(YOU, None, "hi", say("Hi!"))
+    world.say(YOU, None, "one", say("One."))
+    repository.busy.add(world.key(None, YOU))
+    message = world.message(YOU, None, "more")
+    assert world.send(message) == ""
+    repository.busy.clear()
+    assert world.send(message) == OVER_LIMIT
+
+
+def test_a_failed_turn_reports_its_time() -> None:
+    world = World(receipts=DownParser())
+    world.say(YOU, None, "hi")
+    world.say(YOU, None, "split", image=receipt("restaurant_tip"))
+    assert outcome_of(world) == "failed"

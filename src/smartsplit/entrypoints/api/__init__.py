@@ -31,7 +31,7 @@ from smartsplit.domain.messages import (
 from smartsplit.domain.values import ConversationKey
 from smartsplit.ports.repository import Repository
 from smartsplit.services import Orchestrator
-from smartsplit.services.orchestrator import TurnReport
+from smartsplit.services.outcomes import TurnReport
 from smartsplit.services.reports import group_report, person_report, rules_report
 
 NO_CONTROL = r"^[^\x00-\x1f\x7f]*$"

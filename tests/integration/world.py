@@ -30,7 +30,8 @@ from smartsplit.domain.values import ConversationKey
 from smartsplit.ports.agent import AgentModel, AgentRequest, ModelStep
 from smartsplit.ports.llm import ReceiptParser
 from smartsplit.ports.repository import Repository
-from smartsplit.services.orchestrator import HandleOutcome, Orchestrator
+from smartsplit.services.orchestrator import Orchestrator
+from smartsplit.services.outcomes import HandleOutcome
 from smartsplit.services.turn import OrchestratorSettings, local_date
 
 T0 = datetime(2026, 11, 21, 12, 0, tzinfo=UTC)

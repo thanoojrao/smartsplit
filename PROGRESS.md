@@ -81,3 +81,6 @@ Revision 2 (SPEC §8: the conversation agent; approved by the user).
 - (M10 review) `LoopResult.steps/tools/usage` are only read by M11's per-turn log line; M11 must use them or drop them.
 - (M10 review) "Limit reached" is said on every over-limit message; M11 makes it once a day (SPEC 12.5).
 - (M10 review) `domain/tools.py` is ~320 lines of plain argument dataclasses; split the `edit_draft` change variants into their own module if it grows.
+- (M11 review) A failed or timed-out turn's log line has only its outcome and time: the loop's steps, tools and usage so far are lost with the rollback; carry them out on the exception if debugging needs them.
+- (M11 review) `mentioned` creates a person for any mention with a phone, even one sent by a non-member; the gateway must not send the bot's own mention (`addressed_to_bot` covers it). Consider creating people only through `add_person`.
+- (M11 review) The 12-hex chat hash in the log line is unsalted; a salt from config would stop someone with the logs and a list of chat ids from matching them.

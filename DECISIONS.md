@@ -275,6 +275,8 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - **`/readyz`** asks Alembic whether the database's revision is the newest packaged one (`SqlRepository.ready`); the app gets it as a plain callable.
 - **Deploying:** one image (uv, non-root, healthcheck on `/readyz`), a compose `app` service behind a profile so `docker compose up -d db` stays the dev command. No compose tick loop: the gateway owns `tick` (it must deliver and ack the batch); without one, the README gives a cron line and a systemd timer for `smartsplit tick`, which prints and acknowledges. Docker has no daemon in the build sessions, so CI builds the image and checks `/readyz` against Postgres.
 
+- **M11 review fixes:** events bypass the daily limits (they never call the model); a `bot_added` in a known group makes the adder a member; an unknown group starts only on `bot_added` or a message addressed to the bot (other photos and cards there are ignored, unread); the "limit reached" notice is counted inside the locked turn, so a busy 503 doesn't swallow it; an unaddressed group photo says nothing when the reader is down; the API refuses to start with the placeholder `SMARTSPLIT_BOT_LINK`, and sets the `smartsplit` logger to INFO with a stream handler (uvicorn's config would drop the turn lines). Empty tick batches stay stored (about 1,440 small rows a day, deleted after a day) so any batch id can be acknowledged. Review nit "keep addressed group messages the model ignored" is not taken: SPEC 8.6 stores only group messages the bot answered or acted on.
+
 ## Open (waiting for the user)
 
 (nothing open)

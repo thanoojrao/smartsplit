@@ -6,6 +6,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+PLACEHOLDER_BOT_LINK = "https://wa.me/<bot-number>?text=hi"
+"""Fine for the CLI and the demo; the API refuses to start with it (people would get a
+broken link)."""
+
 
 class Settings(BaseSettings):
     """Every setting has a safe default except the database URL; secrets are SecretStr.
@@ -29,8 +33,9 @@ class Settings(BaseSettings):
     llm_model: str = "claude-sonnet-5-5"
     llm_timeout_seconds: float = Field(default=30, gt=0)
     message_seconds: float = Field(default=60, gt=0)
-    lock_wait_seconds: float = Field(default=15, gt=0)
     """The whole message: photo read, lock wait and agent loop (SPEC 12.2)."""
+    lock_wait_seconds: float = Field(default=15, gt=0)
+    """Waiting for a busy chat before answering 503."""
     agent_max_steps: int = Field(default=6, ge=1, le=20)
     llm_max_tokens: int = Field(default=16000, gt=0)
     """Room for a long receipt (about 40 tokens per line) plus thinking."""
@@ -48,7 +53,7 @@ class Settings(BaseSettings):
     """The API refuses images over 5 MB, so larger uploads are refused up front."""
     max_queued_drafts: int = Field(default=3, ge=0)
     max_notifications_per_day: int = Field(default=20, gt=0)
-    bot_link: str = "https://wa.me/<bot-number>?text=hi"
+    bot_link: str = PLACEHOLDER_BOT_LINK
     """A one-tap link to the bot's chat, used in invites and "message me 1:1 first"."""
     image_dir: Path = Path("./data/images")
 

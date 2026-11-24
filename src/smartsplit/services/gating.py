@@ -40,14 +40,20 @@ def always_reacts(message: InboundMessage) -> bool:
 
 
 def waiting_on(
-    uow: UnitOfWork, key: ConversationKey, group_id: str, person_id: str, now: datetime
+    uow: UnitOfWork,
+    key: ConversationKey,
+    group_id: str,
+    person_id: str,
+    *,
+    now: datetime,
+    keep: int,
 ) -> bool:
     """The bot posted here in the last 10 minutes and waits on this member: the adder of an
     active draft here, someone an open question is about (the adder for "who is it for?"),
     whoever a pending action waits for, or the person it last replied to (SPEC 10.2)."""
     if person_id not in current_member_ids(uow, group_id):
         return False
-    recent = uow.chat.recent(key, 50)
+    recent = uow.chat.recent(key, keep)
     bot_lines = [m for m in recent if m.sender_id is None]
     if not bot_lines or now - bot_lines[-1].created_at > WAITING_WINDOW:
         return False
