@@ -84,9 +84,14 @@ def test_two_sams_the_bot_asks_which(request: pytest.FixtureRequest) -> None:
     assert s.world.person(other_sam).id in drafts[0].participants
     assert s.world.person(SAM).id not in drafts[0].participants
     s.say(YOU, None, "yes")
+    me, goa_sam = s.world.person(YOU).id, s.world.person(other_sam).id
+    with s.world.repository.unit_of_work() as uow:
+        nicknames = uow.nicknames.for_owner(me)
+    assert [n.subject_id for n in nicknames if n.name == "sam"] == [goa_sam]
     again = s.say(YOU, None, "coffee 300 with Sam")
     assert s.participants(None, YOU) == {s.world.person(YOU).id, s.world.person(other_sam).id}
     assert "Which Sam?" not in again
+    assert "?" not in "\n".join(s.switch.words), f"asked again: {again!r}"
 
 
 def test_an_injected_instruction_moves_no_money(request: pytest.FixtureRequest) -> None:

@@ -1,6 +1,8 @@
 """Opt-in: more conversations with the real models, phrased the way people type (use cases C,
 D, F, H, I, J, L). Same harness and checks as test_live_conversation.py; checks are on state."""
 
+from datetime import timedelta
+
 import pytest
 
 from smartsplit.adapters.fakes.agent import call
@@ -80,6 +82,7 @@ def test_a_payment_that_never_arrived(request: pytest.FixtureRequest) -> None:
     s.say(SAM, None, "paid alex 300")
     s.say(SAM, None, "yes")
     assert s.owes(SAM, YOU) == 0
+    s.world.tick()  # Alex gets "Sam paid you ₹300" in his own chat
     s.say(YOU, None, "sam's 300 never came through")
     s.say(YOU, None, "yes")
     assert s.owes(SAM, YOU) == 30000
@@ -153,9 +156,14 @@ def test_stop_and_start_notifications(request: pytest.FixtureRequest) -> None:
 
 
 def test_chatter_in_the_group_is_left_alone(request: pytest.FixtureRequest) -> None:
-    # L8, B1: unaddressed messages cost nothing and get nothing
+    # L8, B1, SPEC 10.2: Sam was just answered, so the bot listens for 10 minutes but says
+    # nothing and stores nothing; after that his chatter doesn't reach the model at all
     s = live(request, YOU, SAM)
+    before = len(s.world.transcript(FLAT))
+    for text in ("lol", "who ate my maggi"):
+        assert s.say(SAM, FLAT, text, addressed=False) == ""
+    assert len(s.world.transcript(FLAT)) == before
+    s.world.clock.advance(timedelta(minutes=11))
     calls = s.world.model_calls("install")
-    for text in ("lol", "who ate my maggi", "bro the wifi is down again"):
-        assert s.world.say(SAM, FLAT, text, addressed=False) == ""
+    assert s.world.say(SAM, FLAT, "bro the wifi is down again", addressed=False) == ""
     assert s.world.model_calls("install") == calls

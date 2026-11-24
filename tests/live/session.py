@@ -60,10 +60,11 @@ class Live:
         text: str | None,
         *,
         image: ImageAttachment | None = None,
+        addressed: bool = True,
     ) -> str:
         """One message to the real model; the reply is checked for SPEC 8.5's style."""
         self.switch.words = []
-        reply = self.world.say(who, chat, text, image=image)
+        reply = self.world.say(who, chat, text, image=image, addressed=addressed)
         self.log.messages += 1
         own_words = "\n".join(self.switch.words)
         self.log.asked += "?" in own_words

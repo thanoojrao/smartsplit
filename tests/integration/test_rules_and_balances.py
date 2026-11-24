@@ -171,6 +171,22 @@ def test_group_balances_stay_in_the_group_and_overall_goes_privately() -> None:
     assert "Goa" not in world.turn_input
 
 
+def test_this_group_and_overall_in_one_call_shows_both() -> None:
+    # L14, seen live: the group's balances in the group, the overall answer privately
+    world = World()
+    flat(world, YOU, SAM)
+    bill(world, FLAT)
+    world.say(
+        YOU,
+        FLAT,
+        "flat balances, and what am I owed overall?",
+        calling("get_balances", group="@G", overall=True),
+    )
+    assert "Sam owes Alex" in world.in_chat(FLAT)
+    assert "I sent you that in a DM." in world.in_chat(FLAT)
+    assert "Sam owes you" in world.in_chat(None, YOU)
+
+
 def test_history_this_month_goes_privately_from_a_group() -> None:
     # J2, J3
     world = World()

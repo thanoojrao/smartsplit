@@ -22,18 +22,22 @@ def get_balances(turn: Turn, other: str | None, group_id: str | None, overall: b
     uow, me, currency = turn.uow, turn.speaker.id, turn.settings.currency
     here = turn.conversation.group_id
     if here is not None:
-        if overall or (group_id is not None and group_id != here):
+        if group_id is not None and group_id != here:
             wider = (
                 between_text(uow, me, other, currency)
                 if other
                 else group_balances_text(uow, group_id, currency)
-                if group_id
-                else overall_text(uow, me, currency)
             )
             return send_privately(turn, wider)
-        turn.show(
-            _pair_here(turn, here, other) if other else group_balances_text(uow, here, currency)
-        )
+        if not overall or group_id == here:
+            turn.show(
+                _pair_here(turn, here, other) if other else group_balances_text(uow, here, currency)
+            )
+        if overall:
+            wider = (
+                between_text(uow, me, other, currency) if other else overall_text(uow, me, currency)
+            )
+            return send_privately(turn, wider)
         return False
     if group_id is not None:
         turn.show(group_balances_text(uow, group_id, currency))

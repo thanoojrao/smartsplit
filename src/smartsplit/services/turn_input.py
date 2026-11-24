@@ -16,6 +16,7 @@ from smartsplit.domain.model import BillDraft, PhotoRead
 from smartsplit.domain.prompts import ChatMessage, ChatRef, PendingActionPayload
 from smartsplit.ports.repository import OPEN_DRAFT_STATES
 from smartsplit.services.drafting import open_questions, split_of
+from smartsplit.services.gating import addressed
 from smartsplit.services.names import known_people
 from smartsplit.services.pending import open_actions
 from smartsplit.services.replies import with_names
@@ -256,6 +257,11 @@ def _message(
     replying_to: str,
 ) -> str:
     parts = [replying_to] if replying_to else []
+    if not addressed(message) and message.image is None and message.contact is None:
+        parts.append(
+            "[not addressed to you; you're listening because you're waiting on them: answer "
+            "only if it's about a bill, payment or question here, else reply with nothing]"
+        )
     parts.append(f"{_person(turn, turn.speaker.id)}: {_text(with_names(message))}")
     parts += [_mention(turn, mention, person_id) for mention, person_id in mentions]
     if message.image is not None:
