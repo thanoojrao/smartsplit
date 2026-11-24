@@ -4,6 +4,7 @@ Pure: given the draft and the candidate rules, the same split comes out every ti
 what lets a review resume exactly after a restart.
 """
 
+import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -29,6 +30,12 @@ class DraftSplit:
     """Lines + tax + other adjustments: what the shares add up to."""
     difference_cents: int
     """Receipt total minus `lines_total_cents`; the adder fixes a line or accepts it (C5)."""
+
+    @property
+    def fingerprint(self) -> str:
+        """Short and stable for the same shares: what a summary's reference remembers."""
+        shares = ";".join(f"{p}={c}" for p, c in sorted(self.result.shares.items()))
+        return hashlib.sha256(shares.encode()).hexdigest()[:16]
 
 
 def compute_split(draft: BillDraft, rules: Sequence[Rule]) -> DraftSplit:

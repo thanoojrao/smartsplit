@@ -34,9 +34,10 @@ def _get_bill(turn: Turn, args: GetBill) -> Data:
     kind = turn.handles.kind_of(args.bill)
     if kind == "draft":
         found = refs.draft(turn, args.bill)
+        split = split_of(turn, found)
         turn.show(
-            renderer_for(turn).details(found, split_of(turn, found)),
-            (ChatRef("draft", found.id, found.version),),
+            renderer_for(turn).details(found, split),
+            (ChatRef("draft", found.id, found.version, split.fingerprint),),
         )
         return {"lines": len(found.lines)}
     bill = refs.bill(turn, args.bill)

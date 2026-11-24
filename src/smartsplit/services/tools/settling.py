@@ -32,7 +32,7 @@ from smartsplit.services.speaker import current_member_ids
 from smartsplit.services.text import name_for
 from smartsplit.services.tools import refs
 from smartsplit.services.tools.registry import Data, Tool
-from smartsplit.services.transcript import last_shown_version
+from smartsplit.services.transcript import last_shown_shares, last_shown_version
 from smartsplit.services.turn import Turn
 
 
@@ -121,12 +121,7 @@ def _confirm_draft(turn: Turn, args: ConfirmDraft) -> Data:
             "saved": False,
             "why": "it was just shown or changed: the adder has to see it first",
         }
-    seen = last_shown_version(
-        turn.uow, turn.conversation.key, found.id, turn.settings.chat_history_keep
-    )
-    answered = [r.version for r in turn.quoted if r.kind == "draft" and r.id == found.id]
-    if seen != found.version or any(version != found.version for version in answered):
-        # a "yes" quoting an older summary answers that one, not what the bill is now (G4)
+    if not _seen_as_it_is(turn, found):
         present(turn, found)
         return {
             "saved": False,
@@ -142,6 +137,20 @@ def _confirm_draft(turn: Turn, args: ConfirmDraft) -> Data:
         }
     bill = save_bill(turn, found, accept_difference=bool(difference))
     return {"saved": True, "bill": refs.bill_handle(turn, bill)}
+
+
+def _seen_as_it_is(turn: Turn, found: BillDraft) -> bool:
+    """The chat's latest summary shows this version and these shares: a rule made since
+    changes the shares without a new version. A "yes" quoting an older summary answers that
+    one, not what the bill is now (G4)."""
+    key, keep = turn.conversation.key, turn.settings.chat_history_keep
+    shares = split_of(turn, found).fingerprint
+    if last_shown_version(turn.uow, key, found.id, keep) != found.version:
+        return False
+    if last_shown_shares(turn.uow, key, found.id, keep) != shares:
+        return False
+    quoted = [r for r in turn.quoted if r.kind == "draft" and r.id == found.id]
+    return all(r.version == found.version and r.shares in (None, shares) for r in quoted)
 
 
 def _cancel_draft(turn: Turn, args: CancelDraft) -> Data:

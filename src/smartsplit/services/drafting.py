@@ -152,7 +152,7 @@ def present(turn: Turn, draft: BillDraft) -> None:
         new_matches=shown_before is None,
     )
     refs = (
-        ChatRef("draft", draft.id, draft.version),
+        ChatRef("draft", draft.id, draft.version, split.fingerprint),
         *(ChatRef("question", q.id) for q in asked),
     )
     chat = turn.uow.conversations.get(draft.conversation) or turn.conversation

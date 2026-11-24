@@ -300,5 +300,10 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - **Prompt:** payments only once they happened, never for a promise; a rule that stopped being true is `delete_rule` however casually it's said; a settled name isn't asked about again.
 - **Wider live run (2026-11-24, Haiku chat):** 21 scenarios, about 80 messages and 5 receipt reads per run, ~$0.06 per run, ~$0.0005 per chat message. Last two full runs: 19/21 and 21/22 collected (1 failed); after the last fixes the flaky ones passed 3/3 ("he paid", "which Sam?") and 3/4 (a casual "never put me on cappuccino" once made no rule). Seen and accepted on Haiku: an occasional hedging question after a name is settled, an echoed amount, and casual phrasings now and then not acted on. Total live spend for M12 about $0.85.
 
+## Checkpoint C fixes
+
+- **Saved split = shown split:** a draft summary's (and details') reference carries a fingerprint of the shares shown; `confirm_draft` re-shows and refuses when the current split's fingerprint differs, even at the same version. Why: covers every rule write (said here, applied by a pending yes, learned from another bill) in one place, instead of bumping every affected draft from each writer.
+- **Personal bill version:** a pending change to a personal bill is pinned to the bills among exactly that bill's people, not every personal bill in the install. Why: other people's bills made a "yes" stale.
+
 
 (nothing open)

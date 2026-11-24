@@ -103,6 +103,9 @@ class ChatRef:
     id: str
     version: int | None = None
     """For drafts: the version shown."""
+    shares: str | None = None
+    """For drafts shown with their split: a fingerprint of the shares, so a split that changed
+    without a new version (a rule made meanwhile) isn't saved unseen (SPEC 8.4)."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -524,3 +524,22 @@ def test_a_queued_draft_is_checked_for_duplicates_when_it_starts() -> None:
     assert "Looks like Sam already added this." in started
     world.say(YOU, FLAT, "yes", SAVE)
     assert "duplicate" in str(world.agent.requests[-1].history[-1][1][0].data["why"])
+
+
+def test_a_rule_made_after_the_summary_shows_the_new_split_before_saving() -> None:
+    # SPEC 8.4: the bill saved is the split the adder said yes to
+    world = World()
+    flat(world, YOU, SAM)
+    assert "Sam: ₹1,023.50" in photo(world)
+    world.say(
+        SAM,
+        FLAT,
+        "I never have beer",
+        call("add_rule", subject="me", item="beer pitcher", kind="exclude"),
+    )
+    world.say(YOU, FLAT, "yes", SAVE)
+    result = world.agent.requests[-1].history[-1][1][0]
+    assert result.data["saved"] is False
+    reshown = world.in_chat(FLAT)
+    assert "Sam: ₹1,023.50" not in reshown and "Toit, ₹2,047.00" in reshown
+    assert "Saved" in world.say(YOU, FLAT, "yes", SAVE)

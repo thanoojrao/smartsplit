@@ -162,7 +162,8 @@ Effect = BillChangeEffect | PaymentEffect | RuleChangeEffect
 
 class ChatRef:      kind: Literal["person", "bill", "draft", "line", "question", "action", "group",
                                   "payment"],
-                    id: str, version: int | None                 # version: drafts, as shown
+                    id: str, version: int | None,                # version: drafts, as shown
+                    shares: str | None                           # drafts: fingerprint of the split shown
 class ChatMessage:  conversation: ConversationKey, seq: int, sender_id: str | None,   # None = the bot
                     text: str, refs: tuple[ChatRef, ...], created_at
                     # shown blocks stored compactly: first lines + refs (SPEC §8.6)
