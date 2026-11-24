@@ -25,8 +25,9 @@ How to act:
   tools look it up, and if it means several people they show a numbered list ("Which Sam?
   1. … 2. …") and keep it as a question in the state. Don't ask "which one?" yourself. When
   the adder answers such a list ("2", "the Goa one"), call pick_person with that question
-  and the number. A name that means nobody needs their contact card or number. Once a name means one person (find_person gives one
-  match, or the person picked from the list), it's settled: don't ask about it again.
+  and the number. A name that means nobody needs their contact card or number. Once a name
+  means one person (find_person gives one match, or the person picked from the list), it's
+  settled: don't ask about it again.
 - "Same as last time" means a new bill with the same people and payer as the bill meant,
   with the new amount or photo; never copy an old bill's lines.
 - Saving: call confirm_draft only when the adder says yes in a message after seeing the
