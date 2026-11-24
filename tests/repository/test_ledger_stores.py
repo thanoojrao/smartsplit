@@ -189,3 +189,16 @@ def test_whether_a_notification_was_caused_since(repo: Repository) -> None:
         assert not uow.notifications.exists_since("sam", "raj", reminder, at(11))
         assert not uow.notifications.exists_since("raj", "raj", reminder, at(0))
         assert not uow.notifications.exists_since("sam", "raj", NotificationKind.BILL_ADDED, at(0))
+
+
+def test_what_is_held_for_someone_who_hasnt_used_the_bot(repo: Repository) -> None:
+    # SPEC 10.3: their first message can mention it
+    _setup_people(repo)
+    with repo.unit_of_work() as uow:
+        uow.notifications.add(notification("n2", "new", minutes=2))
+        uow.notifications.add(notification("n1", "new", minutes=1))
+        uow.notifications.add(notification("other", "raj", minutes=1))
+    _claim(repo, 5)
+    with repo.unit_of_work() as uow:
+        assert [n.id for n in uow.notifications.unsent_for("new")] == ["n1", "n2"]
+        assert uow.notifications.unsent_for("raj") == ()

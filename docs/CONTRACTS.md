@@ -380,7 +380,7 @@ services need; method lists in `ports/repository.py`): `people`, `identities`, `
 - `chat.append(message)`, `chat.recent(key, limit)`, `chat.prune(key, keep)`,
   `chat.delete_older_than(before) -> int`; `seq` from one sequence, so appending to another chat
   needs no lock on it.
-- `notifications.claim_due(now, limit, per_person_daily_cap, day_start)` (claims serialized by an
+- `notifications.unsent_for(recipient_id)` (what is held for them, for their first message); `notifications.claim_due(now, limit, per_person_daily_cap, day_start)` (claims serialized by an
   advisory lock, rows taken with SKIP LOCKED); `tick_batches.unacked_before(when)`, `ack(batch_id)`, `get(batch_id)`, `append(batch_id, messages)` (each tick step adds what it sent, in its own transaction).
 - `Repository.count_usage(counter, day)` counts one model call in its own committed transaction,
   never inside a turn's; `llm_usage.get` reads the counts.

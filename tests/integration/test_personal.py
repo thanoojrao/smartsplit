@@ -237,7 +237,13 @@ def test_saved_split_notifies_people_who_use_the_bot_and_invites_the_rest() -> N
     assert "Priya" not in [m.recipient_id for m in world.last]
     welcome = world.say(PRIYA, None, "hi", say("Alex added a split with you."))
     assert welcome.startswith("Hi Priya!")
+    # A1, D8, SPEC 10.3: what was held for her is in the state, so the model can say so
+    waiting = world.turn_input.split("waiting for them", 1)[1]
+    assert "Alex added dinner (21 Nov): your share is ₹300.00." in waiting
+    assert "You owe Alex ₹300.00" in waiting
     assert "Alex added dinner" in world.tick()
+    world.say(PRIYA, None, "thanks", say("Any time."))
+    assert "waiting for them" not in world.turn_input
 
 
 def test_several_bills_become_one_message_and_details_on_the_second_one_resolves() -> None:

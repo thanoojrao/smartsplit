@@ -163,6 +163,12 @@ class NotificationStore:
             for n in self.records.values()
         )
 
+    def unsent_for(self, recipient_id: str) -> tuple[Notification, ...]:
+        waiting = (
+            n for n in self.records.values() if n.recipient_id == recipient_id and n.sent_at is None
+        )
+        return tuple(sorted(waiting, key=lambda n: n.created_at))
+
     def add(self, notification: Notification) -> None:
         require_reference(self._people.records, notification.recipient_id)
         insert(self.records, notification.id, notification)

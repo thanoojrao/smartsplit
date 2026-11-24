@@ -194,6 +194,15 @@ class NotificationStore(Store):
         ).first()
         return found is not None
 
+    def unsent_for(self, recipient_id: str) -> tuple[Notification, ...]:
+        n = t.notifications.c
+        rows = self._execute(
+            select(t.notifications)
+            .where(n.recipient_id == recipient_id, n.sent_at.is_(None))
+            .order_by(n.created_at, n.seq)
+        )
+        return tuple(_notification(row) for row in rows)
+
     def add(self, notification: Notification) -> None:
         self._execute(
             insert(t.notifications).values(

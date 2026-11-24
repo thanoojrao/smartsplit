@@ -265,6 +265,10 @@ class NotificationStore(Protocol):
         (e.g. "remind Raj" at most once a day)."""
         ...
 
+    def unsent_for(self, recipient_id: str) -> tuple[Notification, ...]:
+        """What is waiting to be sent to them, oldest first (SPEC 10.3)."""
+        ...
+
     def claim_due(
         self, now: datetime, limit: int, per_person_daily_cap: int, day_start: datetime
     ) -> tuple[Notification, ...]:

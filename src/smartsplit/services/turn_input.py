@@ -19,7 +19,9 @@ from smartsplit.ports.repository import OPEN_DRAFT_STATES
 from smartsplit.services.choosing import option_labels, which_questions
 from smartsplit.services.drafting import open_questions, split_of
 from smartsplit.services.gating import addressed
+from smartsplit.services.ledgers import overall_text
 from smartsplit.services.names import known_people
+from smartsplit.services.notifications import render
 from smartsplit.services.pending import open_actions
 from smartsplit.services.replies import with_names
 from smartsplit.services.speaker import current_member_ids
@@ -80,11 +82,29 @@ def _state(turn: Turn, welcomed: bool) -> str:
     lines.append(f'speaker: {_person(turn, turn.speaker.id)} ("me")')
     if welcomed:
         lines.append("the welcome message was just shown to them")
+        lines += _waiting(turn)
     lines += _people(turn)
     lines += _groups(turn)
     lines += _drafts(turn)
     lines += _actions(turn)
     return "\n".join(lines)
+
+
+def _waiting(turn: Turn) -> list[str]:
+    """On a first message: what was held for them until they used the bot, and where they
+    stand, so the reply can mention it (SPEC 10.3). The held messages still go at the next
+    tick."""
+    uow, me, currency = turn.uow, turn.speaker.id, turn.settings.currency
+    held = uow.notifications.unsent_for(me)
+    balances = overall_text(uow, me, currency)
+    if not held and not uow.bills.for_participant(me):
+        return []
+    rows = ["waiting for them (held until now; sent to them at the next tick):"]
+    if held:
+        text, _ = render(uow, me, held, currency)
+        rows += [f"  {_text(line)}" for line in text.splitlines()]
+    rows += [f"  overall: {_text(line)}" for line in balances.splitlines()]
+    return rows
 
 
 def _people(turn: Turn) -> list[str]:
