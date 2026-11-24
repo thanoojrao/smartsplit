@@ -185,3 +185,11 @@ def test_canonicalize_uses_the_timeout_it_is_given() -> None:
     counted = Counter()
     assert canonicalizer_for(api).canonicalize("2% MLK GAL", ["milk"], 3.5, counted) == "milk"
     assert (api.timeouts, counted.calls) == ([3.5], 1)
+
+
+def test_the_usage_line_keeps_its_fields_on_the_record(caplog: pytest.LogCaptureFixture) -> None:
+    # the live cost report reads them from the records
+    with caplog.at_level(logging.INFO, logger="smartsplit.llm"):
+        agent_for(ScriptedApi(message("ok"))).step(REQUEST, Counter())
+    (record,) = [r for r in caplog.records if r.getMessage().startswith("model call")]
+    assert (record.__dict__["purpose"], record.__dict__["input_tokens"]) == ("agent", 10)

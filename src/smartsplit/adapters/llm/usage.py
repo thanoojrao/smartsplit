@@ -17,13 +17,14 @@ def log_usage(purpose: str, response: Message) -> None:
     usage = getattr(response, "usage", None)
     if usage is None:
         return
-    log.info(
-        "model call purpose=%s model=%s input_tokens=%d cache_read_tokens=%d "
-        "cache_write_tokens=%d output_tokens=%d",
-        purpose,
-        response.model,
-        usage.input_tokens,
-        usage.cache_read_input_tokens or 0,
-        usage.cache_creation_input_tokens or 0,
-        usage.output_tokens,
-    )
+    fields = {
+        "purpose": purpose,
+        "model": response.model,
+        "input_tokens": usage.input_tokens,
+        "cache_read_tokens": usage.cache_read_input_tokens or 0,
+        "cache_write_tokens": usage.cache_creation_input_tokens or 0,
+        "output_tokens": usage.output_tokens,
+    }
+    # in the text for the server's log format, and as fields for anything reading records
+    text = " ".join(f"{name}={value}" for name, value in fields.items())
+    log.info("model call %s", text, extra=fields)
