@@ -332,16 +332,21 @@ class ImageStore(Protocol):
 
 CountCall = Callable[[], None]  # called before every request to the model, retries included
 
+
 # Each call's timeout covers its retry too: a retry gets what is left (none under a second).
 class ReceiptParser(Protocol):
     def parse(
-        self, image: bytes, mime_type: str, currency: str, timeout_seconds: float,
+        self,
+        image: bytes,
+        mime_type: str,
+        currency: str,
+        timeout_seconds: float,
         count_call: CountCall,
     ) -> ParsedReceipt | NotAReceipt: ...
 
 
 class Canonicalizer(Protocol):  # all that item matching needs; inside a turn it is given the
-    def canonicalize(            # time left, and past the deadline a name keeps its normalized form
+    def canonicalize(  # time left, and past the deadline a name keeps its normalized form
         self, name: str, known_keys: Sequence[str], timeout_seconds: float, count_call: CountCall
     ) -> str: ...
 
