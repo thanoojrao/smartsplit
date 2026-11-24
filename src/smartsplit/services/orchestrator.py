@@ -45,6 +45,7 @@ from smartsplit.services.reply_text import clean_reply
 from smartsplit.services.speaker import arrive, current_member_ids, find_speaker, mentioned
 from smartsplit.services.text import NEEDS_NUMBER, OVER_LIMIT
 from smartsplit.services.ticking import Ticker
+from smartsplit.services.transcript import append
 from smartsplit.services.turn import OrchestratorSettings, Turn, local_date
 from smartsplit.services.turn_input import build_turn_input
 from smartsplit.services.usage import Meter, MeteredCanonicalizer
@@ -292,10 +293,7 @@ class Orchestrator:
             arrival = arrive(uow, self._ids, message, settings.default_region, now)
             result = LoopResult()
             if arrival is None:
-                text = NEEDS_NUMBER.format(link=settings.bot_link)
-                replies: tuple[OutboundMessage, ...] = (
-                    OutboundMessage(message.conversation, None, text),
-                )
+                replies = self._needs_number(uow, message, now)
             else:
                 turn = Turn(
                     uow,
@@ -323,6 +321,19 @@ class Orchestrator:
                 ProcessedMessage(message.conversation, message.message_id, replies, now)
             )
             return replies, result
+
+    def _needs_number(
+        self, uow: UnitOfWork, message: InboundMessage, now: datetime
+    ) -> tuple[OutboundMessage, ...]:
+        """Someone known only by a hidden id: "message me 1:1 first", kept in the transcript
+        like every bot message; never posted in a group for a message not meant for the bot."""
+        if not addressed(message):
+            return ()
+        text = NEEDS_NUMBER.format(link=self._settings.bot_link)
+        key = message.conversation
+        append(uow, key, sender_id=None, text=text, refs=(), now=now)
+        uow.chat.prune(key, self._settings.chat_history_keep)
+        return (OutboundMessage(key, None, text),)
 
     def _respond(self, turn: Turn, incoming: _Incoming, *, welcomed: bool) -> LoopResult:
         """The model's words and what it did; events and the daily limit need no model."""

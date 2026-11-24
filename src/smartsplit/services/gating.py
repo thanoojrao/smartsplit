@@ -2,8 +2,9 @@
 
 Personal chats: every message. Group chats: messages addressed to the bot (a mention, or a
 reply to one of its messages), photos (read, then kept only if they are receipts or were
-addressed), contact cards, chat events, and, for 10 minutes after the bot posted there,
-messages from members it is waiting on. Everything else never reaches the model.
+addressed), chat events, and, for 10 minutes after the bot posted there, messages from
+members it is waiting on. Everything else, an unaddressed contact card included, never
+reaches the model.
 """
 
 from datetime import datetime, timedelta
@@ -30,13 +31,8 @@ def addressed(message: InboundMessage) -> bool:
 
 
 def always_reacts(message: InboundMessage) -> bool:
-    """Reacted to whoever sent them: addressed messages, photos, contact cards, events."""
-    return (
-        addressed(message)
-        or message.image is not None
-        or message.contact is not None
-        or message.event is not None
-    )
+    """Reacted to whoever sent them: addressed messages, photos, events."""
+    return addressed(message) or message.image is not None or message.event is not None
 
 
 def waiting_on(

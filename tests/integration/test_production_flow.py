@@ -483,3 +483,29 @@ def test_a_database_error_mid_turn_asks_to_try_again_and_records_nothing(
         assert outcome_of(world) == "failed"
     retried = world.send(message, [say("Hi Alex!")])
     assert retried.startswith("Hi Alex! I split bills")  # still the first message: a welcome
+
+
+def test_an_unaddressed_contact_card_in_a_group_is_ignored() -> None:
+    # SPEC 10.2: only addressed messages, receipt photos, events and waited-on people
+    world = World()
+    flat(world, YOU, SAM)
+    world.clock.advance(timedelta(minutes=11))
+    calls = len(world.agent.requests)
+    card = ContactAttachment("Priya", PRIYA.phone)
+    assert world.say(SAM, FLAT, None, contact=card, addressed=False) == ""
+    assert outcome_of(world) == "silent"
+    assert len(world.agent.requests) == calls
+
+
+def test_the_one_tap_link_is_kept_in_the_transcript_and_never_posted_unasked() -> None:
+    # SPEC 8.6: every bot message is stored; an unaddressed group message gets no reply
+    world = World()
+    flat(world, YOU, SAM)
+    hidden = replace(world.message(RAJ, FLAT, "hi"), sender_ref="lid:raj", sender_phone=None)
+    reply = world.send(hidden)
+    assert reply == NEEDS_NUMBER.format(link=world.settings.bot_link)
+    assert world.transcript(FLAT)[-1].text == reply
+    left = ChatEvent("bot_added", None)
+    quiet = replace(world.message(RAJ, FLAT, event=left, addressed=False), sender_ref="lid:raj")
+    assert world.send(replace(quiet, sender_phone=None)) == ""
+    assert world.transcript(FLAT)[-1].text == reply
