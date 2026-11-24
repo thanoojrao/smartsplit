@@ -8,10 +8,10 @@ from zoneinfo import ZoneInfo
 from smartsplit.domain.messages import ContactAttachment
 from smartsplit.domain.model import Conversation, Person
 from smartsplit.domain.prompts import ChatRef
-from smartsplit.ports.llm import Canonicalizer
 from smartsplit.ports.repository import UnitOfWork
 from smartsplit.ports.system import IdGenerator
 from smartsplit.services.handles import Handles
+from smartsplit.services.matching import ItemKeys
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +80,7 @@ class Turn:
     message_id: str = ""
     contact: ContactAttachment | None = None
     """A contact card that came with this message."""
-    canonicalizer: Canonicalizer | None = None
+    canonicalizer: ItemKeys | None = None
     """Item names for receipt lines; counted and never failing the turn (SPEC 8.7)."""
     quoted: tuple[ChatRef, ...] = ()
     """What the bot message this one replies to showed (SPEC 8.6)."""

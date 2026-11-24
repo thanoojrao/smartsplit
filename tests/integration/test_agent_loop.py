@@ -1,6 +1,7 @@
 """The agent loop and reliability (SPEC 8.1, 8.6, 12.2, 12.5; use cases L4, L6, L9, L10, L13,
 K5, K7)."""
 
+from collections.abc import Sequence
 from datetime import timedelta
 
 from smartsplit.adapters.fakes.agent import ScriptedAgent, call, say
@@ -8,7 +9,7 @@ from smartsplit.adapters.fakes.system import FixedClock
 from smartsplit.domain.enums import DraftState, PromptStatus
 from smartsplit.domain.model import INSTALL_COUNTER
 from smartsplit.ports.agent import AgentRequest, ModelStep, ToolResult
-from smartsplit.ports.llm import LlmUnavailableError
+from smartsplit.ports.llm import CountCall, LlmUnavailableError
 from smartsplit.services.text import OVER_LIMIT, TRY_AGAIN
 from smartsplit.services.turn import OrchestratorSettings
 from tests.integration.world import FLAT, SAM, T0, YOU, World, calling, flat, receipt
@@ -110,7 +111,8 @@ class FailingSecondCall:
     def __init__(self) -> None:
         self.calls = 0
 
-    def step(self, request: AgentRequest) -> ModelStep:
+    def step(self, request: AgentRequest, count_call: CountCall) -> ModelStep:
+        count_call()
         if "[photo" not in request.turn_input:
             return say("")
         self.calls += 1
@@ -146,7 +148,8 @@ class SlowModel:
     def __init__(self, clock: FixedClock) -> None:
         self.clock = clock
 
-    def step(self, request: AgentRequest) -> ModelStep:
+    def step(self, request: AgentRequest, count_call: CountCall) -> ModelStep:
+        count_call()
         self.clock.advance(timedelta(seconds=40))
         return call("add_manual_bill", description="taxi", amount="100")
 
@@ -249,8 +252,10 @@ def test_expired_pending_actions_are_dropped_quietly() -> None:
 def test_scripted_agent_records_and_runs_out_quietly() -> None:
     agent = ScriptedAgent([say("one")])
     request = AgentRequest("s", (), "t", (), 1.0)
-    assert agent.step(request).text == "one"
-    assert agent.step(request).text == ""
+    counted: list[str] = []
+    assert agent.step(request, lambda: counted.append("call")).text == "one"
+    assert agent.step(request, lambda: counted.append("call")).text == ""
+    assert counted == ["call", "call"]
     assert len(agent.requests) == 2
 
 
@@ -290,7 +295,8 @@ class TimedModel:
         self.clock = clock
         self.timeouts: list[float] = []
 
-    def step(self, request: AgentRequest) -> ModelStep:
+    def step(self, request: AgentRequest, count_call: CountCall) -> ModelStep:
+        count_call()
         self.timeouts.append(request.timeout_seconds)
         if len(self.timeouts) == 1:
             self.clock.advance(timedelta(seconds=40))
@@ -316,3 +322,32 @@ def test_an_unaddressed_group_photo_is_not_charged_to_the_sender() -> None:
     world.say(YOU, FLAT, None, image=receipt("not_a_receipt"), addressed=False)
     assert world.model_calls(me) == before
     assert world.model_calls("install") > 0
+
+
+class SlowNames:
+    """Each item name takes 20 seconds; records the timeout it was given."""
+
+    def __init__(self, clock: FixedClock) -> None:
+        self.clock = clock
+        self.timeouts: list[float] = []
+
+    def canonicalize(
+        self, name: str, known_keys: Sequence[str], timeout_seconds: float, count_call: CountCall
+    ) -> str:
+        count_call()
+        self.timeouts.append(timeout_seconds)
+        self.clock.advance(timedelta(seconds=20))
+        return name
+
+
+def test_item_names_get_the_time_left_and_stop_at_the_deadline() -> None:
+    # SPEC 8.7, 12.2: past the deadline a name keeps its normalized form, without a call
+    clock = FixedClock(T0)
+    names = SlowNames(clock)
+    settings = OrchestratorSettings(llm_timeout_seconds=30, message_seconds=50)
+    world = World(clock=clock, canonical=names, settings=settings)
+    world.say(YOU, None, "hi")
+    clock.advance(timedelta(minutes=1))
+    message = world.message(YOU, None, "split", image=receipt("grocery_taxed_mix"))
+    world.send(message, [call("start_receipt")])
+    assert names.timeouts == [30, 30, 10]

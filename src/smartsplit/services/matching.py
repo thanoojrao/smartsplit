@@ -7,14 +7,21 @@ matched), then remember new matches when the draft is written.
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from typing import Protocol
 
 from smartsplit.domain import normalize_item_name
 from smartsplit.domain.enums import MatchHow
 from smartsplit.domain.model import ItemAlias, LineItem
 from smartsplit.domain.values import LocalScope
 from smartsplit.engine import discount_links, match_item
-from smartsplit.ports.llm import Canonicalizer
 from smartsplit.ports.repository import UnitOfWork
+
+
+class ItemKeys(Protocol):
+    """The model's item key for a name nothing else matched; within a turn this is counted
+    and bounded by the message's deadline (`MeteredCanonicalizer`)."""
+
+    def canonicalize(self, name: str, known_keys: Sequence[str]) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +54,7 @@ def load_match_inputs(uow: UnitOfWork, scope: LocalScope) -> MatchInputs:
 def match_lines(
     lines: Sequence[LineItem],
     inputs: MatchInputs,
-    canonicalizer: Canonicalizer,
+    canonicalizer: ItemKeys,
     threshold: int,
 ) -> MatchedLines:
     """Set `canonical`, `match_how` and `match_is_new` on every line.
@@ -93,7 +100,7 @@ def _match_name(
     raw_name: str,
     inputs: MatchInputs,
     known: set[str],
-    canonicalizer: Canonicalizer,
+    canonicalizer: ItemKeys,
     threshold: int,
 ) -> tuple[str, MatchHow, bool]:
     """The key, how it was found, and whether it is new here (remembered and shown once).

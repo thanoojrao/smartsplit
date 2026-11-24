@@ -22,6 +22,7 @@ from smartsplit.ports.agent import (
     ToolResult,
     ToolSpec,
 )
+from smartsplit.ports.llm import CountCall
 
 log = logging.getLogger("smartsplit.llm")
 
@@ -34,12 +35,12 @@ class AnthropicAgent:
         self.model = model
         self._max_tokens = max_tokens
 
-    def step(self, request: AgentRequest) -> ModelStep:
+    def step(self, request: AgentRequest, count_call: CountCall) -> ModelStep:
         """Raises LlmUnavailableError if the call fails twice (or once, for a setup error)."""
         messages = _messages(request)
         response = call_once_more(
             "agent",
-            lambda: self._client.messages.create(
+            lambda timeout: self._client.messages.create(
                 model=self.model,
                 max_tokens=self._max_tokens,
                 system=_system(request.system),
@@ -47,8 +48,10 @@ class AnthropicAgent:
                 tool_choice={"type": "none"} if request.final else {"type": "auto"},
                 output_config={"effort": "low"},
                 messages=messages,
-                timeout=request.timeout_seconds,
+                timeout=timeout,
             ),
+            timeout_seconds=request.timeout_seconds,
+            count_call=count_call,
         )
         return _step(response)
 

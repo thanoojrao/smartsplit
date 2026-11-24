@@ -9,6 +9,7 @@ from anthropic.types import OutputConfigParam, TextBlockParam
 
 from smartsplit.adapters.llm.calls import call_once_more
 from smartsplit.domain import normalize_item_name
+from smartsplit.ports.llm import CountCall
 
 CANONICALIZE_PROMPT = """You map a messy receipt line name to a short generic item key.
 
@@ -28,15 +29,14 @@ _KEY_SCHEMA: dict[str, Any] = {
 
 
 class AnthropicCanonicalizer:
-    def __init__(
-        self, client: anthropic.Anthropic, *, model: str, max_tokens: int, timeout_seconds: float
-    ) -> None:
+    def __init__(self, client: anthropic.Anthropic, *, model: str, max_tokens: int) -> None:
         self._client = client
         self.model = model
         self._max_tokens = max_tokens
-        self._timeout = timeout_seconds
 
-    def canonicalize(self, name: str, known_keys: Sequence[str]) -> str:
+    def canonicalize(
+        self, name: str, known_keys: Sequence[str], timeout_seconds: float, count_call: CountCall
+    ) -> str:
         """A known key when it is the same item, else a new short key; never fails on output."""
         output: OutputConfigParam = {
             "effort": "low",
@@ -51,14 +51,16 @@ class AnthropicCanonicalizer:
         ]
         response = call_once_more(
             "canonicalize",
-            lambda: self._client.messages.create(
+            lambda timeout: self._client.messages.create(
                 model=self.model,
                 max_tokens=self._max_tokens,
                 system=system,
                 output_config=output,
                 messages=[{"role": "user", "content": prompt}],
-                timeout=self._timeout,
+                timeout=timeout,
             ),
+            timeout_seconds=timeout_seconds,
+            count_call=count_call,
         )
         text = next((b.text for b in response.content if b.type == "text"), "")
         try:

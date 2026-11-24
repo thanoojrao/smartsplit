@@ -6,12 +6,13 @@ they addressed the bot. Counts are written at once, so a turn that rolls back st
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 from smartsplit.domain import normalize_item_name
 from smartsplit.domain.model import INSTALL_COUNTER
 from smartsplit.ports.llm import Canonicalizer, LlmUnavailableError
 from smartsplit.ports.repository import Repository
+from smartsplit.ports.system import Clock
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,15 +30,22 @@ class Meter:
 
 @dataclass(frozen=True, slots=True)
 class MeteredCanonicalizer:
-    """Canonicalize inside a turn: counted, and never failing it; if the model can't answer,
-    the line keeps its normalized name (SPEC 8.7)."""
+    """Canonicalize inside a turn: counted, within the message's deadline, and never failing
+    the turn; if the model can't answer in time, the line keeps its normalized name (SPEC 8.7)."""
 
     inner: Canonicalizer
     meter: Meter
+    clock: Clock
+    deadline: datetime
+    timeout_seconds: float
+    """The most one name may take."""
 
     def canonicalize(self, name: str, known_keys: Sequence[str]) -> str:
-        self.meter.count()
+        left = (self.deadline - self.clock.now()).total_seconds()
+        if left <= 0:
+            return normalize_item_name(name)
+        timeout = min(self.timeout_seconds, left)
         try:
-            return self.inner.canonicalize(name, known_keys)
+            return self.inner.canonicalize(name, known_keys, timeout, self.meter.count)
         except LlmUnavailableError:
             return normalize_item_name(name)

@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterable
 from itertools import count
 
 from smartsplit.ports.agent import AgentRequest, ModelStep, ToolCall
+from smartsplit.ports.llm import CountCall
 
 type Step = ModelStep | Callable[[AgentRequest], ModelStep]
 
@@ -73,7 +74,8 @@ class ScriptedAgent:
     def pending(self) -> int:
         return len(self._steps)
 
-    def step(self, request: AgentRequest) -> ModelStep:
+    def step(self, request: AgentRequest, count_call: CountCall) -> ModelStep:
+        count_call()
         self.requests.append(request)
         if not self._steps:
             return say()

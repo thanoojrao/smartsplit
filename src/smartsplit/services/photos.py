@@ -50,11 +50,11 @@ class PhotoReader:
             return done
         image_ref = self.images.save(image.data, image.mime_type)
         try:
-            parsed = self.parser.parse(image.data, image.mime_type, self.currency, timeout_seconds)
+            parsed = self.parser.parse(
+                image.data, image.mime_type, self.currency, timeout_seconds, meter.count
+            )
         except ReceiptUnreadableError:
             parsed = None
-        finally:
-            meter.count()
         return self._store(
             key,
             message_id,

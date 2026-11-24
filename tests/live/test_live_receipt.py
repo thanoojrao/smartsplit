@@ -27,7 +27,7 @@ def test_reads_the_cafe_receipt() -> None:
         max_lines=150,
     )
 
-    receipt = parser.parse(RECEIPT.read_bytes(), "image/png", "INR", 120)
+    receipt = parser.parse(RECEIPT.read_bytes(), "image/png", "INR", 120, lambda: None)
 
     assert isinstance(receipt, ParsedReceipt)
     assert [(line.quantity, line.amount_cents) for line in receipt.lines] == [

@@ -12,7 +12,7 @@ from smartsplit.adapters.fakes.repository import InMemoryRepository
 from smartsplit.adapters.fakes.system import FixedClock
 from smartsplit.domain.messages import ChatEvent, ContactAttachment, Mention
 from smartsplit.ports.errors import DuplicateKeyError, StorageUnavailableError
-from smartsplit.ports.llm import LlmUnavailableError, ParsedReceipt
+from smartsplit.ports.llm import CountCall, LlmUnavailableError, ParsedReceipt
 from smartsplit.services import orchestrator
 from smartsplit.services.text import NEEDS_NUMBER, OVER_LIMIT, TRY_AGAIN
 from smartsplit.services.ticking import Ticker
@@ -347,8 +347,14 @@ class DownParser:
     clock: FixedClock | None = None
 
     def parse(
-        self, image: bytes, mime_type: str, currency: str, timeout_seconds: float
+        self,
+        image: bytes,
+        mime_type: str,
+        currency: str,
+        timeout_seconds: float,
+        count_call: CountCall,
     ) -> ParsedReceipt:
+        count_call()
         if self.clock is not None:
             self.clock.advance(timedelta(seconds=7))
         raise LlmUnavailableError("down")

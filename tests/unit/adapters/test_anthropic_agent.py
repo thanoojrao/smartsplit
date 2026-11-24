@@ -5,13 +5,14 @@ import anthropic
 import httpx2
 import pytest
 
+from smartsplit.adapters.llm import calls
 from smartsplit.adapters.llm.agent import AnthropicAgent
 from smartsplit.adapters.llm.canonicalizer import AnthropicCanonicalizer
 from smartsplit.adapters.llm.receipts import anthropic_client
 from smartsplit.ports.agent import AgentRequest, ModelStep, ModelUsage, ToolCall, ToolResult
 from smartsplit.ports.llm import LlmUnavailableError
 from smartsplit.services.tools.catalog import TOOL_SPECS
-from tests.unit.adapters.scripted import ScriptedApi, error, message
+from tests.unit.adapters.scripted import Counter, ScriptedApi, SlowClock, error, message
 
 
 def client_for(api: ScriptedApi) -> anthropic.Anthropic:
@@ -59,7 +60,7 @@ REQUEST = AgentRequest("system prompt", TOOL_SPECS, "<state>…</state>", (), 12
 
 def test_a_step_with_tool_calls_keeps_its_blocks_for_replay() -> None:
     api = ScriptedApi(tool_use_answer())
-    step = agent_for(api).step(REQUEST)
+    step = agent_for(api).step(REQUEST, Counter())
     assert step.tool_calls == (ToolCall("toolu_1", "start_receipt", {"people": ["P2"]}),)
     assert step.text == "Starting it."
     assert step.usage == ModelUsage(50, 4000, 0, 20)
@@ -68,7 +69,7 @@ def test_a_step_with_tool_calls_keeps_its_blocks_for_replay() -> None:
 
 def test_the_request_has_the_cached_prefix_and_no_forced_tool_choice() -> None:
     api = ScriptedApi(message("Hi."))
-    agent_for(api).step(REQUEST)
+    agent_for(api).step(REQUEST, Counter())
     sent = api.requests[0]
     assert sent["model"] == "claude-haiku-5-5"
     assert sent["system"][0]["cache_control"] == {"type": "ephemeral"}
@@ -80,7 +81,7 @@ def test_the_request_has_the_cached_prefix_and_no_forced_tool_choice() -> None:
 
 def test_the_final_step_keeps_the_tools_but_allows_no_call() -> None:
     api = ScriptedApi(message("Done."))
-    step = agent_for(api).step(AgentRequest("s", TOOL_SPECS, "t", (), 5.0, final=True))
+    step = agent_for(api).step(AgentRequest("s", TOOL_SPECS, "t", (), 5.0, final=True), Counter())
     assert api.requests[0]["tool_choice"] == {"type": "none"}
     assert len(api.requests[0]["tools"]) == len(TOOL_SPECS)
     assert step == ModelStep((), "Done.", ModelUsage(10, 0, 0, 10), step.replay)
@@ -89,12 +90,12 @@ def test_the_final_step_keeps_the_tools_but_allows_no_call() -> None:
 def test_history_is_replayed_unchanged_with_the_tool_results() -> None:
     api = ScriptedApi(tool_use_answer(), message("All set."))
     agent = agent_for(api)
-    first = agent.step(REQUEST)
+    first = agent.step(REQUEST, Counter())
     results = (
         ToolResult("toolu_1", True, {"draft": "D1"}, None, ("Toit, ₹2,047.00",)),
         ToolResult("toolu_2", False, {}, "There's no line 9.", ()),
     )
-    agent.step(AgentRequest("s", TOOL_SPECS, "t", ((first, results),), 5.0))
+    agent.step(AgentRequest("s", TOOL_SPECS, "t", ((first, results),), 5.0), Counter())
     assistant, user = api.requests[1]["messages"][1:]
     assert assistant["role"] == "assistant"
     assert assistant["content"][0] == {"type": "thinking", "thinking": "", "signature": "sig"}
@@ -108,7 +109,7 @@ def test_history_is_replayed_unchanged_with_the_tool_results() -> None:
 def test_steps_without_replay_are_rebuilt_from_calls_and_text() -> None:
     api = ScriptedApi(message("ok"))
     scripted = ModelStep((ToolCall("c1", "get_balances", {}),), "Looking.")
-    agent_for(api).step(AgentRequest("s", TOOL_SPECS, "t", ((scripted, ()),), 5.0))
+    agent_for(api).step(AgentRequest("s", TOOL_SPECS, "t", ((scripted, ()),), 5.0), Counter())
     assert api.requests[0]["messages"][1]["content"] == [
         {"type": "text", "text": "Looking."},
         {"type": "tool_use", "id": "c1", "name": "get_balances", "input": {}},
@@ -117,30 +118,57 @@ def test_steps_without_replay_are_rebuilt_from_calls_and_text() -> None:
 
 def test_a_refusal_or_a_cut_off_answer_says_nothing() -> None:
     api = ScriptedApi(message("partial", stop_reason="max_tokens"))
-    assert agent_for(api).step(REQUEST).text == ""
+    assert agent_for(api).step(REQUEST, Counter()).text == ""
 
 
 def test_errors_that_can_pass_are_retried_once_and_setup_errors_are_not() -> None:
     api = ScriptedApi(error(529), message("ok"))
-    assert agent_for(api).step(REQUEST).text == "ok"
+    assert agent_for(api).step(REQUEST, Counter()).text == "ok"
     with pytest.raises(LlmUnavailableError):
-        agent_for(ScriptedApi(error(500), error(503))).step(REQUEST)
+        agent_for(ScriptedApi(error(500), error(503))).step(REQUEST, Counter())
     failing = ScriptedApi(error(400))
     with pytest.raises(LlmUnavailableError):
-        agent_for(failing).step(REQUEST)
+        agent_for(failing).step(REQUEST, Counter())
     assert len(failing.requests) == 1
 
 
 def canonicalizer_for(api: ScriptedApi) -> AnthropicCanonicalizer:
-    return AnthropicCanonicalizer(
-        client_for(api), model="claude-haiku-5-5", max_tokens=1000, timeout_seconds=9
-    )
+    return AnthropicCanonicalizer(client_for(api), model="claude-haiku-5-5", max_tokens=1000)
 
 
 def test_canonicalize_answers_a_key_and_falls_back_to_the_name() -> None:
     api = ScriptedApi(message('{"item_key": "Milk"}'), message("not json"))
     canonicalizer = canonicalizer_for(api)
-    assert canonicalizer.canonicalize("2% MLK GAL", ["milk", "bread"]) == "milk"
-    assert canonicalizer.canonicalize("Oat  MLK", ["milk"]) == "oat mlk"
+    assert canonicalizer.canonicalize("2% MLK GAL", ["milk", "bread"], 9, Counter()) == "milk"
+    assert canonicalizer.canonicalize("Oat  MLK", ["milk"], 9, Counter()) == "oat mlk"
     assert '"milk", "bread"' in api.requests[0]["messages"][0]["content"]
     assert api.requests[0]["output_config"]["effort"] == "low"
+
+
+def test_a_retry_gets_only_the_time_left_and_every_attempt_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # SPEC 12.2, 12.5: a timed-out call isn't retried with a fresh full timeout
+    monkeypatch.setattr(calls, "monotonic", SlowClock(4.0))
+    api = ScriptedApi(httpx2.ReadTimeout("slow"), message("ok"))
+    counted = Counter()
+    assert agent_for(api).step(REQUEST, counted).text == "ok"
+    assert api.timeouts == [12.0, 8.0]
+    assert counted.calls == 2
+
+
+def test_no_retry_once_less_than_a_second_is_left(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(calls, "monotonic", SlowClock(11.5))
+    api = ScriptedApi(httpx2.ReadTimeout("slow"), message("ok"))
+    counted = Counter()
+    with pytest.raises(LlmUnavailableError):
+        agent_for(api).step(REQUEST, counted)
+    assert len(api.requests) == 1
+    assert counted.calls == 1
+
+
+def test_canonicalize_uses_the_timeout_it_is_given() -> None:
+    api = ScriptedApi(message('{"item_key": "milk"}'))
+    counted = Counter()
+    assert canonicalizer_for(api).canonicalize("2% MLK GAL", ["milk"], 3.5, counted) == "milk"
+    assert (api.timeouts, counted.calls) == ([3.5], 1)

@@ -1,6 +1,6 @@
 """Model-backed ports: receipt parsing and item names (SPEC sections 6.4 and 7)."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Protocol
@@ -44,17 +44,31 @@ class NotAReceipt:
     """The photo isn't a receipt (a meme, a selfie)."""
 
 
+type CountCall = Callable[[], None]
+"""Called just before each request to the model, a retry included, so every call counts
+against the daily limits (SPEC 12.5)."""
+
+
 class ReceiptParser(Protocol):
     def parse(
-        self, image: bytes, mime_type: str, currency: str, timeout_seconds: float
+        self,
+        image: bytes,
+        mime_type: str,
+        currency: str,
+        timeout_seconds: float,
+        count_call: CountCall,
     ) -> ParsedReceipt | NotAReceipt:
-        """Read a receipt; raises ReceiptUnreadableError or LlmUnavailableError."""
+        """Read a receipt within `timeout_seconds` in all (a retry gets what is left);
+        raises ReceiptUnreadableError or LlmUnavailableError."""
         ...
 
 
 class Canonicalizer(Protocol):
-    def canonicalize(self, name: str, known_keys: Sequence[str]) -> str:
-        """Map a messy receipt name to an item key: a known one, or a new key for a new item.
+    def canonicalize(
+        self, name: str, known_keys: Sequence[str], timeout_seconds: float, count_call: CountCall
+    ) -> str:
+        """Map a messy receipt name to an item key: a known one, or a new key for a new item,
+        within `timeout_seconds` in all.
 
         Raises LlmUnavailableError.
         """

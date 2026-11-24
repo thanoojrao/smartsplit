@@ -80,11 +80,11 @@ def test_without_a_key_the_first_model_call_stops_with_a_clear_message(
 ) -> None:
     models = real_models(settings)
     with pytest.raises(SystemExit, match=re.escape(NEEDS_KEY)):
-        models.agent.step(AgentRequest("", (), "", (), 1.0))
+        models.agent.step(AgentRequest("", (), "", (), 1.0), lambda: None)
     with pytest.raises(SystemExit, match=re.escape(NEEDS_KEY)):
-        models.canonicalizer.canonicalize("milk", ())
+        models.canonicalizer.canonicalize("milk", (), 1.0, lambda: None)
     with pytest.raises(SystemExit, match=re.escape(NEEDS_KEY)):
-        models.parser.parse(b"", "image/png", "USD", 1.0)
+        models.parser.parse(b"", "image/png", "USD", 1.0, lambda: None)
 
 
 def test_with_a_key_every_model_port_is_anthropic(monkeypatch: pytest.MonkeyPatch) -> None:

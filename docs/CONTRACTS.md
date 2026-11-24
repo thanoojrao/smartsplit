@@ -327,18 +327,24 @@ class ImageStore(Protocol):
     def prune(self, older_than: datetime) -> int: ...
 
 
+CountCall = Callable[[], None]  # called before every request to the model, retries included
+
+# Each call's timeout covers its retry too: a retry gets what is left (none under a second).
 class ReceiptParser(Protocol):
     def parse(
-        self, image: bytes, mime_type: str, currency: str, timeout_seconds: float
+        self, image: bytes, mime_type: str, currency: str, timeout_seconds: float,
+        count_call: CountCall,
     ) -> ParsedReceipt | NotAReceipt: ...
 
 
-class Canonicalizer(Protocol):  # all that item matching needs
-    def canonicalize(self, name: str, known_keys: Sequence[str]) -> str: ...
+class Canonicalizer(Protocol):  # all that item matching needs; inside a turn it is given the
+    def canonicalize(            # time left, and past the deadline a name keeps its normalized form
+        self, name: str, known_keys: Sequence[str], timeout_seconds: float, count_call: CountCall
+    ) -> str: ...
 
 
 class AgentModel(Protocol):  # §4.2
-    def step(self, request: AgentRequest) -> ModelStep: ...
+    def step(self, request: AgentRequest, count_call: CountCall) -> ModelStep: ...
 
 
 class Repository(Protocol):
@@ -412,7 +418,7 @@ class AgentRequest:
     final: bool                                   # the last allowed step: no tool may be called
 
 class AgentModel(Protocol):
-    def step(self, request: AgentRequest) -> ModelStep: ...   # raises LlmUnavailableError
+    def step(self, request: AgentRequest, count_call: CountCall) -> ModelStep: ...  # raises LlmUnavailableError
 ```
 
 Handles are per-turn strings; the service keeps the handle → id map for the turn (including handles

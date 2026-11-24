@@ -8,8 +8,10 @@ from typing import Literal
 import anthropic
 from anthropic.types import ImageBlockParam, Message, OutputConfigParam, TextBlockParam
 
+from smartsplit.adapters.llm.calls import MIN_RETRY_SECONDS, countdown
 from smartsplit.adapters.llm.usage import log_usage
 from smartsplit.ports.llm import (
+    CountCall,
     LlmUnavailableError,
     NotAReceipt,
     ParsedReceipt,
@@ -124,22 +126,34 @@ class AnthropicReceiptParser:
         self._max_lines = max_lines
 
     def parse(
-        self, image: bytes, mime_type: str, currency: str, timeout_seconds: float
+        self,
+        image: bytes,
+        mime_type: str,
+        currency: str,
+        timeout_seconds: float,
+        count_call: CountCall,
     ) -> ParsedReceipt | NotAReceipt:
-        """One attempt, and one more on invalid output or an API error; the last error wins.
-        Each attempt may take up to `timeout_seconds`."""
+        """One attempt, and one more on invalid output or an API error, if a second or more of
+        `timeout_seconds` is left; the last error wins. Every attempt is counted."""
+        time_left = countdown(timeout_seconds)
         try:
-            return self._attempt(image, mime_type, currency, timeout_seconds)
+            return self._attempt(image, mime_type, currency, timeout_seconds, count_call)
         except (ReceiptUnreadableError, LlmUnavailableError) as first:
-            if isinstance(first, _ImageRefusedError):
+            left = time_left()
+            if isinstance(first, _ImageRefusedError) or left < MIN_RETRY_SECONDS:
                 raise
-        return self._attempt(image, mime_type, currency, timeout_seconds)
+        return self._attempt(image, mime_type, currency, left, count_call)
 
     def _attempt(
-        self, image: bytes, mime_type: str, currency: str, timeout_seconds: float
+        self,
+        image: bytes,
+        mime_type: str,
+        currency: str,
+        timeout_seconds: float,
+        count_call: CountCall,
     ) -> ParsedReceipt | NotAReceipt:
         try:
-            response = self._request(image, mime_type, currency, timeout_seconds)
+            response = self._request(image, mime_type, currency, timeout_seconds, count_call)
         except anthropic.BadRequestError as bad:
             if "image" in str(bad.message).lower():
                 raise _ImageRefusedError("the image was refused") from bad
@@ -150,7 +164,12 @@ class AnthropicReceiptParser:
         return read_model_output(_json(response), currency, self._max_lines)
 
     def _request(
-        self, image: bytes, mime_type: str, currency: str, timeout_seconds: float
+        self,
+        image: bytes,
+        mime_type: str,
+        currency: str,
+        timeout_seconds: float,
+        count_call: CountCall,
     ) -> Message:
         media_type = _MEDIA_TYPES.get(mime_type.strip().lower())
         if media_type is None:
@@ -170,6 +189,7 @@ class AnthropicReceiptParser:
         output: OutputConfigParam = {
             "format": {"type": "json_schema", "schema": dict(RECEIPT_SCHEMA)}
         }
+        count_call()
         return self._client.messages.create(
             model=self.model,
             max_tokens=self._max_tokens,

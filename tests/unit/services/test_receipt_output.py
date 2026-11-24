@@ -19,7 +19,7 @@ def recorded(name: str) -> object:
 
 def parse(name: str, currency: str = "INR") -> object:
     return FakeReceiptParser(max_lines=150).parse(
-        (FIXTURES / f"{name}.json").read_bytes(), "image/jpeg", currency, 30
+        (FIXTURES / f"{name}.json").read_bytes(), "image/jpeg", currency, 30, lambda: None
     )
 
 
@@ -189,6 +189,8 @@ def test_the_fake_parser_reads_recorded_output_and_refuses_photos() -> None:
         recorded("restaurant_tip"), "INR", 150
     )
     with pytest.raises(ReceiptUnreadableError):
-        parser.parse(b"\xff\xd8\xff not json", "image/jpeg", "INR", 30)
+        parser.parse(b"\xff\xd8\xff not json", "image/jpeg", "INR", 30, lambda: None)
     assert parser.calls == 1
-    assert isinstance(parser.parse(b'{"is_receipt": false}', "image/jpeg", "INR", 30), NotAReceipt)
+    assert isinstance(
+        parser.parse(b'{"is_receipt": false}', "image/jpeg", "INR", 30, lambda: None), NotAReceipt
+    )

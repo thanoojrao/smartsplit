@@ -4,7 +4,7 @@ import json
 from collections.abc import Mapping, Sequence
 
 from smartsplit.domain import normalize_item_name
-from smartsplit.ports.llm import NotAReceipt, ParsedReceipt, ReceiptUnreadableError
+from smartsplit.ports.llm import CountCall, NotAReceipt, ParsedReceipt, ReceiptUnreadableError
 from smartsplit.services.receipt_output import read_model_output
 
 DEMO_ITEMS = {
@@ -26,7 +26,10 @@ class FakeCanonicalizer:
         self._answers = {normalize_item_name(k): v for k, v in (answers or {}).items()}
         self.calls: list[str] = []
 
-    def canonicalize(self, name: str, known_keys: Sequence[str]) -> str:
+    def canonicalize(
+        self, name: str, known_keys: Sequence[str], timeout_seconds: float, count_call: CountCall
+    ) -> str:
+        count_call()
         self.calls.append(name)
         normalized = normalize_item_name(name)
         return self._answers.get(normalized, normalized)
@@ -45,8 +48,14 @@ class FakeReceiptParser:
         self.calls = 0
 
     def parse(
-        self, image: bytes, mime_type: str, currency: str, timeout_seconds: float
+        self,
+        image: bytes,
+        mime_type: str,
+        currency: str,
+        timeout_seconds: float,
+        count_call: CountCall,
     ) -> ParsedReceipt | NotAReceipt:
+        count_call()
         self.calls += 1
         try:
             recorded = json.loads(image.decode("utf-8"))

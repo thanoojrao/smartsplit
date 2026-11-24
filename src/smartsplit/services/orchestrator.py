@@ -306,7 +306,13 @@ class Orchestrator:
                     arrival.conversation,
                     message_id=message.message_id,
                     contact=message.contact,
-                    canonicalizer=MeteredCanonicalizer(self._canonicalizer, incoming.meter),
+                    canonicalizer=MeteredCanonicalizer(
+                        self._canonicalizer,
+                        incoming.meter,
+                        self._clock,
+                        incoming.deadline,
+                        settings.llm_timeout_seconds,
+                    ),
                 )
                 welcomed = arrival.first_personal_message
                 result = self._respond(turn, incoming, welcomed=welcomed)

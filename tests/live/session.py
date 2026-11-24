@@ -16,6 +16,7 @@ from smartsplit.domain.enums import DraftState, PromptKind, PromptStatus
 from smartsplit.domain.messages import ImageAttachment
 from smartsplit.domain.model import Bill
 from smartsplit.ports.agent import AgentModel, AgentRequest, ModelStep
+from smartsplit.ports.llm import CountCall
 from smartsplit.ports.repository import Repository
 from smartsplit.services.handles import HANDLE
 from smartsplit.services.reports import group_report, person_report
@@ -37,9 +38,9 @@ class Switch:
         self.current: AgentModel | None = None
         self.words: list[str] = []
 
-    def step(self, request: AgentRequest) -> ModelStep:
+    def step(self, request: AgentRequest, count_call: CountCall) -> ModelStep:
         assert self.current is not None
-        step = self.current.step(request)
+        step = self.current.step(request, count_call)
         if not step.tool_calls and step.text:
             self.words.append(step.text)
         return step
@@ -130,9 +131,7 @@ def live(
         receipts=AnthropicReceiptParser(
             client, model=RECEIPT_MODEL, max_tokens=16000, max_lines=150
         ),
-        canonical=AnthropicCanonicalizer(
-            client, model=CHAT_MODEL, max_tokens=16000, timeout_seconds=60
-        ),
+        canonical=AnthropicCanonicalizer(client, model=CHAT_MODEL, max_tokens=16000),
     )
     switch.current = world.agent
     flat(world, *people)

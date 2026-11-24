@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from smartsplit.ports.llm import CountCall
+
 
 @dataclass(frozen=True, slots=True)
 class ToolSpec:
@@ -64,6 +66,7 @@ class AgentRequest:
 
 
 class AgentModel(Protocol):
-    def step(self, request: AgentRequest) -> ModelStep:
-        """One model call; raises LlmUnavailableError."""
+    def step(self, request: AgentRequest, count_call: CountCall) -> ModelStep:
+        """One model step within `request.timeout_seconds` in all (a retry gets what is left);
+        raises LlmUnavailableError."""
         ...

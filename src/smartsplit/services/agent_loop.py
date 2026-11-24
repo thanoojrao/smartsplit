@@ -6,12 +6,11 @@ the per-call limit and the time left for the message; a call that fails, or a de
 passes, raises LlmUnavailableError and the caller rolls the turn back.
 """
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from smartsplit.ports.agent import AgentModel, AgentRequest, ModelStep, ModelUsage, ToolResult
-from smartsplit.ports.llm import LlmUnavailableError
+from smartsplit.ports.llm import CountCall, LlmUnavailableError
 from smartsplit.ports.system import Clock
 from smartsplit.services.agent_prompt import SYSTEM_PROMPT
 from smartsplit.services.tools.catalog import ALL_TOOLS, TOOL_SPECS
@@ -36,7 +35,7 @@ def run_loop(
     *,
     clock: Clock,
     deadline: datetime,
-    count_call: Callable[[], None],
+    count_call: CountCall,
 ) -> LoopResult:
     """Run the turn's model calls and tools; returns the model's (uncleaned) reply text."""
     settings = turn.settings
@@ -55,8 +54,7 @@ def run_loop(
             min(settings.llm_timeout_seconds, left),
             final=last,
         )
-        count_call()
-        answer = model.step(request)
+        answer = model.step(request, count_call)
         result.steps += 1
         result.usage = _add(result.usage, answer.usage)
         if not answer.tool_calls or last:

@@ -306,6 +306,7 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - **Personal bill version:** a pending change to a personal bill is pinned to the bills among exactly that bill's people, not every personal bill in the install. Why: other people's bills made a "yes" stale.
 - **Usage pool:** `connect` gives usage counts their own engine with a pool of 2 (plus overflow); a turn holds its transaction's connection and counts each model call on a second one, so one shared pool deadlocked once every connection was held by a turn. Why: no sizing rule to keep in step with worker concurrency.
 - **Hidden parameters:** every engine is created with `hide_parameters=True`. Why: SQL errors and logs otherwise carry message text and phone numbers (SPEC 12.4).
+- **Model calls and the deadline:** each model port takes a `count_call` callback the adapter calls before every request, so a retry counts against the limits too; a call's timeout covers its retry, which gets only what is left (none under a second); inside a turn, canonicalize gets the message's time left and, past the deadline, a name keeps its normalized form without a call. Why: a timed-out call was retried with a fresh full timeout and canonicalize ignored the deadline, so a message could run well past its 60 seconds.
 
 
 (nothing open)

@@ -13,7 +13,7 @@ from smartsplit.adapters.system import SystemClock, UuidIds
 from smartsplit.config import Settings
 from smartsplit.ports.agent import AgentModel, AgentRequest, ModelStep
 from smartsplit.ports.images import ImageStore
-from smartsplit.ports.llm import Canonicalizer, ParsedReceipt, ReceiptParser
+from smartsplit.ports.llm import Canonicalizer, CountCall, ParsedReceipt, ReceiptParser
 from smartsplit.ports.repository import Repository
 from smartsplit.ports.system import Clock
 from smartsplit.services import Orchestrator, OrchestratorSettings
@@ -73,14 +73,21 @@ class _NoKey:
     tick) still work, and the first model call stops with a clear message."""
 
     def parse(
-        self, image: bytes, mime_type: str, currency: str, timeout_seconds: float
+        self,
+        image: bytes,
+        mime_type: str,
+        currency: str,
+        timeout_seconds: float,
+        count_call: CountCall,
     ) -> ParsedReceipt:
         raise SystemExit(NEEDS_KEY)
 
-    def canonicalize(self, name: str, known_keys: Sequence[str]) -> str:
+    def canonicalize(
+        self, name: str, known_keys: Sequence[str], timeout_seconds: float, count_call: CountCall
+    ) -> str:
         raise SystemExit(NEEDS_KEY)
 
-    def step(self, request: AgentRequest) -> ModelStep:
+    def step(self, request: AgentRequest, count_call: CountCall) -> ModelStep:
         raise SystemExit(NEEDS_KEY)
 
 
@@ -101,9 +108,7 @@ def real_models(settings: Settings) -> Models:
             max_tokens=max_tokens,
             max_lines=settings.max_receipt_lines,
         ),
-        AnthropicCanonicalizer(
-            client, model=model, max_tokens=max_tokens, timeout_seconds=settings.llm_timeout_seconds
-        ),
+        AnthropicCanonicalizer(client, model=model, max_tokens=max_tokens),
         AnthropicAgent(client, model=model, max_tokens=max_tokens),
     )
 
