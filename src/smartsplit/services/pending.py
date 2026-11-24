@@ -28,7 +28,8 @@ from smartsplit.domain.tools import (
     SquareUp,
     UndoPayment,
 )
-from smartsplit.services.bill_changes import apply_bill_change, bill_version, propose_change
+from smartsplit.services.bill_changes import apply_bill_change, propose_change
+from smartsplit.services.bill_status import bill_version
 from smartsplit.services.errors import NotAllowedError
 from smartsplit.services.payments import (
     apply_payment,

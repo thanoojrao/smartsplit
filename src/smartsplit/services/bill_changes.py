@@ -21,7 +21,7 @@ from smartsplit.domain.tools import (
     SetLineAmount,
 )
 from smartsplit.domain.values import EqualSplit, GroupContext, Override, Share, Weighted
-from smartsplit.ports.repository import UnitOfWork
+from smartsplit.services.bill_status import bill_version, is_live
 from smartsplit.services.drafting import split_of
 from smartsplit.services.errors import NotAllowedError
 from smartsplit.services.ledgers import group_balances_text, overall_text
@@ -32,19 +32,6 @@ from smartsplit.services.saving import bill_from_draft
 from smartsplit.services.speaker import group_chat
 from smartsplit.services.text import day_label, money, name_for
 from smartsplit.services.turn import Turn
-
-
-def is_live(uow: UnitOfWork, bill: Bill) -> bool:
-    """Neither a reversal nor reversed."""
-    if bill.reverses_id is not None:
-        return False
-    return not any(b.reverses_id == bill.id for b in uow.bills.for_context(bill.context))
-
-
-def bill_version(uow: UnitOfWork, bill_id: str) -> int:
-    """Grows with every bill written in that bill's context (a reversal included)."""
-    bill = uow.bills.get(bill_id)
-    return len(uow.bills.for_context(bill.context)) if bill else -1
 
 
 def propose_change(turn: Turn, args: ChangeBill) -> Proposal:

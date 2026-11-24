@@ -10,7 +10,7 @@ from smartsplit.domain.model import Bill
 from smartsplit.domain.prompts import ChatRef
 from smartsplit.domain.tools import ListBills
 from smartsplit.domain.values import GroupContext
-from smartsplit.services.bill_changes import is_live
+from smartsplit.services.bill_status import is_live
 from smartsplit.services.errors import NotAllowedError
 from smartsplit.services.ledgers import between_net, share_of
 from smartsplit.services.notifications import notify

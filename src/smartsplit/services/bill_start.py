@@ -12,7 +12,7 @@ from smartsplit.domain.enums import DraftState
 from smartsplit.domain.model import BillDraft, DuplicateRef, LineItem, Receipt
 from smartsplit.domain.values import Context, GroupContext, Override, PersonalContext
 from smartsplit.engine import DuplicateCandidate, find_likely_duplicate
-from smartsplit.services.bill_changes import is_live
+from smartsplit.services.bill_status import is_live
 from smartsplit.services.choosing import ask_which, sure_people
 from smartsplit.services.drafting import (
     Totals,

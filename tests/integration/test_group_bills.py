@@ -509,3 +509,18 @@ def test_a_yes_quoting_an_older_summary_is_not_a_yes_to_the_new_one() -> None:
     assert [d.state for d in world.drafts(FLAT)] == [DraftState.REVIEWING]
     assert "Toit, ₹2,047.00, paid by Alex." in reshown
     assert "Raj" not in reshown.split("paid by Alex.", 1)[1]
+
+
+def test_a_queued_draft_is_checked_for_duplicates_when_it_starts() -> None:
+    # C11: Sam saves the Toit bill while Alex's copy waits in Alex's queue
+    world = World()
+    flat(world, YOU, SAM)
+    photo(world, "grocery_taxed_mix")
+    photo(world)
+    world.say(SAM, FLAT, "split", call("start_receipt"), image=receipt("restaurant_tip"))
+    world.say(SAM, FLAT, "keep it", calling("confirm_draft", draft="@D", keep_duplicate=True))
+    started = world.say(YOU, FLAT, "yes", calling("confirm_draft", draft="D1"))
+    assert "Next up, the Toit bill:" in started
+    assert "Looks like Sam already added this." in started
+    world.say(YOU, FLAT, "yes", SAVE)
+    assert "duplicate" in str(world.agent.requests[-1].history[-1][1][0].data["why"])

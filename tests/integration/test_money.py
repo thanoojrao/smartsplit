@@ -293,6 +293,32 @@ def test_personal_bill_change_notifies_everyone_with_the_reason() -> None:
     assert "Alex changed taxi (forgot the tip): your share is now ₹200.00." in world.tick()
 
 
+def personal_bill(world: World, by: Someone, other: Someone, description: str) -> None:
+    world.say(by, None, f"add {other.name}", call("add_person", name=other.name, phone=other.phone))
+    world.say(
+        by,
+        None,
+        description,
+        calling(
+            "add_manual_bill", description=description, amount="300", people=[f"@{other.name}"]
+        ),
+    )
+    world.say(by, None, "yes", calling("confirm_draft", draft="@D"))
+
+
+def test_other_peoples_personal_bills_dont_make_a_pending_change_stale() -> None:
+    # SPEC 8.4: only bills among the same people change what the proposal was based on
+    world = World()
+    for someone in (YOU, SAM, RAJ):
+        world.say(someone, None, "hi")
+    personal_bill(world, YOU, SAM, "taxi")
+    world.say(
+        YOU, None, "delete taxi", calling("change_bill", bill="@B", change={"type": "DeleteBill"})
+    )
+    personal_bill(world, RAJ, SAM, "lunch")
+    assert world.say(YOU, None, "yes", YES).startswith("Deleted taxi.")
+
+
 def test_he_paid_resolves_from_the_recent_chat() -> None:
     # L2: the transcript is what makes "he" resolvable; the proposal waits for a yes
     world = World()
