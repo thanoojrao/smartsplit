@@ -91,7 +91,6 @@ Revision 2 (SPEC §8: the conversation agent; approved by the user).
 - (Checkpoint C) Files over ~300 lines: `adapters/db/draft_stores.py` (~460) first.
 - (Checkpoint C) A per-run test schema would let concurrent gate runs share one Postgres.
 - (Checkpoint C) An unreadable photo in a group gets no reply even when it may have been a receipt.
-- (Checkpoint C) The `set_nickname` tool description still says it answers "which Sam?" (now `pick_person`); change it with a live run.
 - (Checkpoint C) `MatchedLines.model_calls` is only read by tests now that the meter counts calls; drop it.
 - (Checkpoint C fix review) `tick_batches.append` doesn't check `acked_at`: a tick running past 2 minutes could have its partial batch returned and acked by another tick, and later appends would be lost; refuse appends to an acked batch or keep batches being written out of `unacked_before`.
 - (Checkpoint C fix review) A turn that fails on a database error logs only `outcome=failed`; add the exception class (and SQLSTATE, no parameters) to the turn line.

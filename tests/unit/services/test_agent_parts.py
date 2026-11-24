@@ -125,3 +125,10 @@ def test_the_tool_list_is_fixed_and_every_tool_has_a_schema() -> None:
 def test_long_blocks_are_stored_as_their_first_lines() -> None:
     assert compact("a\nb\nc") == "a\nb\nc"
     assert compact("a\nb\nc\nd\ne") == "a\nb\nc\n… (2 more lines)"
+
+
+def test_only_pick_person_claims_to_answer_which_sam() -> None:
+    # L5: a set_nickname call would leave the stored "Which Sam?" question open
+    by_name = {spec.name: spec.description.lower() for spec in TOOL_SPECS}
+    assert "which sam" not in by_name["set_nickname"]
+    assert "which sam" in by_name["pick_person"]

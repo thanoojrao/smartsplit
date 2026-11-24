@@ -83,7 +83,7 @@ PEOPLE_TOOLS: tuple[Tool[Any], ...] = (
     ),
     Tool(
         "set_nickname",
-        'Remember what the speaker calls someone (also the answer to "which Sam?").',
+        "Remember what the speaker calls someone.",
         SetNickname,
         _set_nickname,
         "anyone",
