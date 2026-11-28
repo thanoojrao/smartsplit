@@ -311,5 +311,14 @@ One line per decision: what was decided, and why. Newest at the bottom of each s
 - **Remind in a group, no personal chat:** refused with "Message me 1:1 first, and I'll tell you there." before any check, so the answer never depends on balances. Why: the private answer had nowhere to go.
 - **Hidden ids in groups:** "message me 1:1 first" answers an addressed message or their adding the bot; other events stay silent. Why: SPEC 10.3 asks the adder to message 1:1; a stray event shouldn't post in the group.
 
+## WhatsApp gateway (2026-11-28)
+
+- (User) WhatsApp through Baileys (unofficial) on a dedicated number, not the official Cloud API (Groups API capped at 8 incl. the bot and gated behind an Official Business Account; bot-started messages are paid templates) and not Telegram (friends are on WhatsApp).
+- (User) Gateway code in `gateway/` in this repo (TypeScript, own quality gate + CI job, compose service).
+- (User) Linking by pairing code, QR as fallback. Logged out → log line + failing health check, no extra alerting.
+- (User) Voice notes, videos, stickers, GIFs ignored; in personal chats one hint line.
+- Spec draft: docs/GATEWAY.md (under review).
+
+## Open (waiting for the user)
 
 (nothing open)

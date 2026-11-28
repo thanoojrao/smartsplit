@@ -4,11 +4,9 @@ Update this after every milestone. "Next up" must let a brand-new session contin
 
 ## Next up
 
-M10–M12 are done, and so are the Checkpoint C review fixes (log line below; DECISIONS "Checkpoint C fixes").
-PR #2 (`claude/great-feynman-y9tao9` → `main`) is open with the gate green. **Next: the user merges PR #2
-(squash) or says to.** Nothing else is started. Ideas after that: the follow-ups below; the WhatsApp gateway
-(SPEC 13). The user's own name stays in `docs/USE_CASES.md`, `docs/USE_CASE_TRACE.md` and `LICENSE` by
-their choice.
+Planning the **WhatsApp gateway** with the user (no code yet). Draft spec: `docs/GATEWAY.md`, with
+*(proposed)* items waiting for the user's OK. After the user agrees: independent reviews of the draft,
+fixes, then build G1–G3 in a fresh session, stopping at CHECKPOINT D (the user's real-phone test).
 
 ## Milestones
 
